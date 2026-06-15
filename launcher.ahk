@@ -24,7 +24,7 @@
 ;    https://raw.githubusercontent.com/USER/REPO/main/macro.ahk
 ;  - Later (with backend): your server endpoint that checks the
 ;    subscription and returns today's macro code.
-MacroUrl := "https://raw.githubusercontent.com/USER/REPO/main/macro.ahk"
+MacroUrl := "https://raw.githubusercontent.com/LanDocsApp/Gagmacro2/main/macro.ahk"
 
 ; Per-user license token. Sent as "Authorization: Bearer <token>".
 ; Leave blank for now (public URL). The backend will fill this in later.
