@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign in — GAG Seed Buyer</title>
+  <meta name="description" content="Sign in to get your GAG Seed Buyer access code." />
+  <style>
+    :root { --green:#16a34a; --green-dark:#15803d; --ink:#0f172a; --muted:#64748b; --line:#e2e8f0; --soft:#f8fafc; }
+    * { box-sizing:border-box; margin:0; padding:0; }
+    body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; color:var(--ink); background:var(--soft); line-height:1.6; min-height:100vh; display:grid; place-items:center; padding:24px; }
+    .card { background:#fff; border:1px solid var(--line); border-radius:20px; padding:40px; max-width:440px; width:100%; box-shadow:0 16px 40px rgba(15,23,42,.06); text-align:center; }
+    .mark { width:48px; height:48px; border-radius:12px; background:var(--green); display:grid; place-items:center; color:#fff; font-size:24px; margin:0 auto 20px; }
+    h1 { font-size:24px; letter-spacing:-.5px; margin-bottom:8px; }
+    p.sub { color:var(--muted); margin-bottom:28px; font-size:15px; }
+    .btn { display:flex; align-items:center; justify-content:center; gap:10px; width:100%; font-weight:600; font-size:15px; padding:13px 20px; border-radius:10px; border:1px solid var(--line); background:#fff; color:var(--ink); cursor:pointer; transition:background .15s ease, transform .15s ease; text-decoration:none; }
+    .btn:hover { background:var(--soft); transform:translateY(-1px); }
+    .btn.primary { background:var(--green); color:#fff; border-color:var(--green); }
+    .btn.primary:hover { background:var(--green-dark); }
+    .btn + .btn { margin-top:12px; }
+    .who { font-size:14px; color:var(--muted); margin-bottom:20px; }
+    .who b { color:var(--ink); }
+    .msg { font-size:13.5px; padding:10px 12px; border-radius:10px; margin-bottom:20px; }
+    .msg.err { background:#fee2e2; color:#991b1b; }
+    .msg.info { background:#fef9c3; color:#854d0e; }
+    .price { font-size:13px; color:var(--muted); margin-top:18px; }
+    .gicon { width:18px; height:18px; }
+    .home { display:inline-block; margin-top:18px; font-size:13px; color:var(--muted); text-decoration:none; }
+    .home:hover { color:var(--ink); }
+    [hidden] { display:none !important; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="mark">🌱</div>
+
+    <div id="msg" class="msg" hidden></div>
+
+    <!-- Signed-out state -->
+    <div id="signedOut">
+      <h1>Sign in to get your code</h1>
+      <p class="sub">Use your Google account. After you subscribe you'll get a paste-code for the launcher.</p>
+      <a class="btn primary" href="/api/auth/google/login">
+        <svg class="gicon" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path fill="#fff" d="M44.5 20H24v8.5h11.8C34.3 33.6 29.7 37 24 37c-7.2 0-13-5.8-13-13s5.8-13 13-13c3.3 0 6.3 1.2 8.6 3.3l6-6C42.9 5 33.9 1 24 1 11.8 1 2 10.8 2 23s9.8 22 22 22c11 0 21-8 21-22 0-1.3-.2-2.7-.5-3z"/></svg>
+        Continue with Google
+      </a>
+      <p class="price">$4.50/month · cancel anytime</p>
+    </div>
+
+    <!-- Signed-in state -->
+    <div id="signedIn" hidden>
+      <h1>Welcome back</h1>
+      <p class="who">Signed in as <b id="email"></b></p>
+      <a class="btn primary" href="/api/checkout">Get your access code →</a>
+      <a class="btn" href="/api/auth/google/login">Switch account</a>
+    </div>
+
+    <a class="home" href="/index.html">← Back to home</a>
+  </div>
+
+  <script>
+    // Display-only cookie set by the OAuth callback — purely for greeting the
+    // user. Real auth is the HttpOnly signed session cookie checked server-side.
+    function getCookie(name) {
+      return document.cookie.split(";").map(c => c.trim()).reduce((acc, c) => {
+        const i = c.indexOf("=");
+        if (i > -1 && c.slice(0, i) === name) acc = decodeURIComponent(c.slice(i + 1));
+        return acc;
+      }, "");
+    }
+
+    const email = getCookie("gag_user");
+    if (email) {
+      document.getElementById("email").textContent = email;
+      document.getElementById("signedOut").hidden = true;
+      document.getElementById("signedIn").hidden = false;
+    }
+
+    const params = new URLSearchParams(location.search);
+    const msg = document.getElementById("msg");
+    const errors = {
+      state: "Your sign-in link expired. Please try again.",
+      auth: "Sign-in was interrupted. Please try again.",
+      denied: "Sign-in was cancelled.",
+      exchange: "Couldn't complete sign-in with Google. Please try again.",
+      profile: "Couldn't read your Google profile. Please try again.",
+      checkout: "Couldn't start checkout. Please try again in a moment."
+    };
+    if (params.has("error")) {
+      msg.textContent = errors[params.get("error")] || "Something went wrong. Please try again.";
+      msg.classList.add("err");
+      msg.hidden = false;
+    } else if (params.get("checkout") === "cancelled") {
+      msg.textContent = "Checkout cancelled — you can subscribe whenever you're ready.";
+      msg.classList.add("info");
+      msg.hidden = false;
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+name = "gagmacro"
+pages_build_output_dir = "."
+compatibility_date = "2025-06-01"
+
+# Subscription state store.
+#   user:{googleSub} -> customerId
+#   sub:{customerId} -> { status, googleId, checkedAt }
+[[kv_namespaces]]
+binding = "SUBS"
+id = "9d7061b6da29408d9f99dad54d624f82"
+
+# Secrets/vars are configured in the Cloudflare dashboard (Pages > Settings >
+# Environment variables), not here:
+#   STRIPE_SECRET_KEY, STRIPE_PRICE_ID, STRIPE_WEBHOOK_SECRET,
+#   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, COOKIE_SECRET
+# Optional: PUBLIC_BASE_URL (only if served from a domain other than the
+# request origin; otherwise the origin is used automatically).

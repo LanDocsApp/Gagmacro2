@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GAG Seed Buyer — Auto Macro for Grow a Garden</title>
+  <meta name="description" content="An always-up-to-date auto seed-buyer macro for Roblox Grow a Garden. Install once, updates itself daily." />
+  <style>
+    :root {
+      --green: #16a34a;
+      --green-dark: #15803d;
+      --ink: #0f172a;
+      --muted: #64748b;
+      --line: #e2e8f0;
+      --bg: #ffffff;
+      --soft: #f8fafc;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a { color: inherit; text-decoration: none; }
+
+    .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+
+    /* Header */
+    header {
+      position: sticky;
+      top: 0;
+      background: rgba(255, 255, 255, 0.85);
+      backdrop-filter: saturate(180%) blur(12px);
+      border-bottom: 1px solid var(--line);
+      z-index: 10;
+    }
+    .nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 64px;
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 18px;
+    }
+    .logo .mark {
+      width: 30px; height: 30px;
+      border-radius: 8px;
+      background: var(--green);
+      display: grid; place-items: center;
+      color: #fff; font-size: 16px;
+    }
+    .nav-links { display: flex; gap: 28px; align-items: center; }
+    .nav-links a { color: var(--muted); font-size: 15px; font-weight: 500; }
+    .nav-links a:hover { color: var(--ink); }
+
+    .btn {
+      display: inline-block;
+      background: var(--green);
+      color: #fff;
+      font-weight: 600;
+      font-size: 15px;
+      padding: 10px 20px;
+      border-radius: 10px;
+      transition: background .15s ease, transform .15s ease;
+      border: none;
+      cursor: pointer;
+    }
+    .btn:hover { background: var(--green-dark); transform: translateY(-1px); }
+    .btn.lg { padding: 14px 28px; font-size: 16px; }
+    .btn.ghost {
+      background: #fff;
+      color: var(--ink);
+      border: 1px solid var(--line);
+    }
+    .btn.ghost:hover { background: var(--soft); }
+
+    /* Hero */
+    .hero { text-align: center; padding: 96px 0 72px; }
+    .pill {
+      display: inline-block;
+      background: var(--soft);
+      border: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 600;
+      padding: 6px 14px;
+      border-radius: 999px;
+      margin-bottom: 24px;
+    }
+    .hero h1 {
+      font-size: 52px;
+      line-height: 1.1;
+      letter-spacing: -1.5px;
+      margin-bottom: 20px;
+    }
+    .hero h1 .accent { color: var(--green); }
+    .hero p {
+      font-size: 19px;
+      color: var(--muted);
+      max-width: 600px;
+      margin: 0 auto 32px;
+    }
+    .cta-row { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+    .sub-note { margin-top: 16px; font-size: 14px; color: var(--muted); }
+
+    /* Features */
+    section { padding: 72px 0; }
+    .section-title { text-align: center; margin-bottom: 48px; }
+    .section-title h2 { font-size: 34px; letter-spacing: -0.5px; margin-bottom: 12px; }
+    .section-title p { color: var(--muted); font-size: 17px; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+    }
+    .card {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 28px;
+      transition: box-shadow .2s ease, transform .2s ease;
+    }
+    .card:hover { box-shadow: 0 12px 32px rgba(15, 23, 42, 0.08); transform: translateY(-2px); }
+    .card .icon {
+      width: 44px; height: 44px;
+      border-radius: 12px;
+      background: #ecfdf5;
+      color: var(--green);
+      display: grid; place-items: center;
+      font-size: 22px;
+      margin-bottom: 16px;
+    }
+    .card h3 { font-size: 18px; margin-bottom: 8px; }
+    .card p { color: var(--muted); font-size: 15px; }
+
+    /* Pricing */
+    .pricing { background: var(--soft); }
+    .price-card {
+      max-width: 420px;
+      margin: 0 auto;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      padding: 40px;
+      text-align: center;
+      box-shadow: 0 16px 40px rgba(15, 23, 42, 0.06);
+    }
+    .price-card .amount {
+      font-size: 56px;
+      font-weight: 800;
+      letter-spacing: -2px;
+    }
+    .price-card .amount span { font-size: 18px; color: var(--muted); font-weight: 500; }
+    .price-card ul { list-style: none; text-align: left; margin: 28px 0; }
+    .price-card li {
+      padding: 10px 0;
+      border-bottom: 1px solid var(--line);
+      display: flex; align-items: center; gap: 10px;
+      font-size: 15px;
+    }
+    .price-card li:last-child { border-bottom: none; }
+    .price-card li .check { color: var(--green); font-weight: 700; }
+    .price-card .btn { width: 100%; }
+
+    /* Steps */
+    .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px; }
+    .step { text-align: center; }
+    .step .num {
+      width: 48px; height: 48px;
+      margin: 0 auto 16px;
+      border-radius: 50%;
+      background: var(--green);
+      color: #fff;
+      font-weight: 700;
+      font-size: 20px;
+      display: grid; place-items: center;
+    }
+    .step h3 { font-size: 18px; margin-bottom: 8px; }
+    .step p { color: var(--muted); font-size: 15px; }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid var(--line);
+      padding: 40px 0;
+      text-align: center;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    footer .logo { justify-content: center; margin-bottom: 12px; color: var(--ink); }
+    .disclaimer { max-width: 560px; margin: 16px auto 0; font-size: 12.5px; line-height: 1.5; }
+
+    @media (max-width: 760px) {
+      .hero h1 { font-size: 38px; }
+      .grid, .steps { grid-template-columns: 1fr; }
+      .nav-links { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap nav">
+      <div class="logo">
+        <span class="mark">🌱</span>
+        <span>GAG Seed Buyer</span>
+      </div>
+      <nav class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#how">How it works</a>
+        <a href="#pricing">Pricing</a>
+        <a class="btn" href="/signin.html">Get Started</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="wrap">
+        <span class="pill">For Roblox · Grow a Garden</span>
+        <h1>Never miss a seed restock <br /><span class="accent">again.</span></h1>
+        <p>
+          An auto seed-buyer macro that watches the shop and grabs the seeds you want —
+          instantly, every restock. Install once; it updates itself every day.
+        </p>
+        <div class="cta-row">
+          <a class="btn lg" href="/signin.html">Start for $4.50/mo</a>
+          <a class="btn lg ghost" href="#how">See how it works</a>
+        </div>
+        <p class="sub-note">Cancel anytime · Always the latest version</p>
+      </div>
+    </section>
+
+    <section id="features">
+      <div class="wrap">
+        <div class="section-title">
+          <h2>Built to never fall behind</h2>
+          <p>The game changes constantly. So does your macro — automatically.</p>
+        </div>
+        <div class="grid">
+          <div class="card">
+            <div class="icon">⚡</div>
+            <h3>Instant buying</h3>
+            <p>Detects restocks and buys your chosen seeds in milliseconds, faster than any human click.</p>
+          </div>
+          <div class="card">
+            <div class="icon">🔄</div>
+            <h3>Auto-updates daily</h3>
+            <p>New seeds, fixes, and game patches reach you on the next launch. No reinstalling, ever.</p>
+          </div>
+          <div class="card">
+            <div class="icon">🎯</div>
+            <h3>Pick your seeds</h3>
+            <p>Choose exactly which seeds to chase. Skip the junk, prioritize the rares.</p>
+          </div>
+          <div class="card">
+            <div class="icon">🪶</div>
+            <h3>Tiny download</h3>
+            <p>A featherweight launcher is all you install. It pulls the latest macro each time you run it.</p>
+          </div>
+          <div class="card">
+            <div class="icon">🛡️</div>
+            <h3>Account-locked</h3>
+            <p>Your subscription powers the macro. One login, one secure pipe to the newest build.</p>
+          </div>
+          <div class="card">
+            <div class="icon">💸</div>
+            <h3>Fair pricing</h3>
+            <p>One low monthly price. No upsells, no hidden tiers, cancel whenever you like.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="how" style="background: var(--soft);">
+      <div class="wrap">
+        <div class="section-title">
+          <h2>Up and running in minutes</h2>
+          <p>Three steps from download to your first auto-bought seed.</p>
+        </div>
+        <div class="steps">
+          <div class="step">
+            <div class="num">1</div>
+            <h3>Subscribe & sign in</h3>
+            <p>Start your plan and log in with Google. That's your key.</p>
+          </div>
+          <div class="step">
+            <div class="num">2</div>
+            <h3>Run the launcher</h3>
+            <p>Download the small launcher and open it. It fetches today's macro for you.</p>
+          </div>
+          <div class="step">
+            <div class="num">3</div>
+            <h3>Garden on autopilot</h3>
+            <p>Pick your seeds and let it buy every restock while you do anything else.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="pricing" class="pricing">
+      <div class="wrap">
+        <div class="section-title">
+          <h2>Simple pricing</h2>
+          <p>Everything included. Always the newest version.</p>
+        </div>
+        <div class="price-card">
+          <div class="amount">$4.50<span>/month</span></div>
+          <ul>
+            <li><span class="check">✓</span> Auto seed-buyer for Grow a Garden</li>
+            <li><span class="check">✓</span> Daily auto-updates, no reinstalls</li>
+            <li><span class="check">✓</span> Choose which seeds to target</li>
+            <li><span class="check">✓</span> Google login, cancel anytime</li>
+          </ul>
+          <a class="btn lg" href="/signin.html">Get Started</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <div class="logo">
+        <span class="mark">🌱</span>
+        <span>GAG Seed Buyer</span>
+      </div>
+      <p>© 2026 GAG Seed Buyer. All rights reserved.</p>
+      <p class="disclaimer">
+        Not affiliated with, endorsed by, or sponsored by Roblox Corporation or the creators of Grow a Garden.
+        Use of automation tools may be against the game's terms of service; use at your own risk.
+      </p>
+    </div>
+  </footer>
+</body>
+</html>
