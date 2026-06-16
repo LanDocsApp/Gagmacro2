@@ -638,12 +638,12 @@ HtmlTemplate() {
   .name.my{color:#a855f7;text-shadow:0 0 6px rgba(168,85,247,.7),0 0 13px rgba(150,70,255,.45);
         animation:glowpulse 2.2s ease-in-out infinite}
   .name.sp{background:linear-gradient(90deg,#ff2d55,#ff8a00,#ffe600,#34c759,#00c7ff,#8b5cff,#ff2d55);
-        background-size:220% auto;-webkit-background-clip:text;background-clip:text;
+        background-size:200% auto;-webkit-background-clip:text;background-clip:text;
         -webkit-text-fill-color:transparent;color:transparent;
         filter:drop-shadow(0 0 6px rgba(255,255,255,.55));
         animation:rainbow 3s linear infinite}
   @keyframes glowpulse{0%,100%{filter:brightness(1)}50%{filter:brightness(1.35)}}
-  @keyframes rainbow{to{background-position:220% center}}
+  @keyframes rainbow{to{background-position:200% center}}
   .spark{position:absolute;width:3px;height:3px;border-radius:50%;pointer-events:none;
         top:50%;left:0;opacity:0;animation:twinkle 1.6s ease-in-out infinite}
   .spark.lg{background:#ffd76b;box-shadow:0 0 5px #ffcb45}
