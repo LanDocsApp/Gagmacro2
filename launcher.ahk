@@ -110,6 +110,15 @@ EnsureLib(destDir) {
     txtFiles := ["WebView2.ahk", "ComVar.ahk", "Promise.ahk"]
     dllName  := "WebView2Loader.dll"
 
+    ; Heal caches written by the old double-BOM save bug. Such a file is valid on
+    ; disk (so it's never re-fetched) but AutoHotkey rejects its first line. Drop
+    ; any corrupt copy here so the normal "download what's missing" path replaces
+    ; it with a clean one.
+    for f in txtFiles {
+        if (FileExist(libDir "\" f) && HasDoubleBom(libDir "\" f))
+            try FileDelete(libDir "\" f)
+    }
+
     if LibComplete(libDir, txtFiles, dllName)
         return true
 
@@ -139,6 +148,30 @@ EnsureLib(destDir) {
         DownloadBinary(libBase dllName, libDir "\" dllName)
 
     return LibComplete(libDir, txtFiles, dllName)
+}
+
+; True if the file begins with two UTF-8 BOMs (EF BB BF EF BB BF), the signature
+; of the old save bug. AutoHotkey strips only one BOM when loading a script, so
+; the leftover U+FEFF breaks line 1. Such files must be re-downloaded.
+HasDoubleBom(path) {
+    try {
+        f := FileOpen(path, "r")
+        if !f
+            return false
+        f.Pos := 0                       ; read from the true start, BOM included
+        n := f.RawRead(buf := Buffer(6), 6)
+        f.Close()
+        if (n < 6)
+            return false
+        Loop 6 {
+            expect := [0xEF, 0xBB, 0xBF, 0xEF, 0xBB, 0xBF][A_Index]
+            if (NumGet(buf, A_Index - 1, "UChar") != expect)
+                return false
+        }
+        return true
+    } catch {
+        return false
+    }
 }
 
 ; True only if every lib file is present on disk.
