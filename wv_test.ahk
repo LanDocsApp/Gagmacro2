@@ -11,7 +11,7 @@ try FileDelete(LogFile)
 Log(msg) => FileAppend(A_Now " " msg "`n", LogFile, "UTF-8")
 
 dllPath := A_ScriptDir "\lib\WebView2Loader.dll"
-dataDir := A_AppData "\GagSeedBuyer\WebView2"
+dataDir := A_AppData "\GardenMacro\WebView2"
 DirCreate dataDir
 
 global controller := 0, wv := 0

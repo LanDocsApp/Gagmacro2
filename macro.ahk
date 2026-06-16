@@ -3,7 +3,7 @@
 #Include lib\WebView2.ahk
 
 ; ============================================================
-;  GAG Seed Buyer  -  Roblox seed-shop macro
+;  Garden Macro  -  Roblox seed-shop macro
 ;
 ;  Pick which seeds to buy in the window, set the quantity,
 ;  then press Start (or F1). The macro:
@@ -59,7 +59,7 @@ global PremiumCount := 5
 global Unlocked     := false                          ; premium unlocked this session?
 global BackendBase  := "https://gagmacro.pages.dev"   ; subscription backend
 global VerifyUrl    := BackendBase "/api/desktop/verify"
-global TokenFile    := A_AppData "\GagSeedBuyer\token.txt"   ; saved paste-code
+global TokenFile    := A_AppData "\GardenMacro\token.txt"   ; saved paste-code
 
 ; --- Seed list in the SAME top-to-bottom order as the in-game shop ---
 global Seeds := [
@@ -103,10 +103,10 @@ BuildUi() {
     global MainGui, controller, wv, PremiumCount
 
     dllPath := A_ScriptDir "\lib\WebView2Loader.dll"
-    dataDir := A_AppData "\GagSeedBuyer\WebView2"   ; writable user-data folder
+    dataDir := A_AppData "\GardenMacro\WebView2"   ; writable user-data folder
     DirCreate dataDir
 
-    MainGui := Gui("+Resize +AlwaysOnTop", "GAG Seed Buyer")
+    MainGui := Gui("+Resize +AlwaysOnTop", "Garden Macro")
     MainGui.MarginX := 0
     MainGui.MarginY := 0
     MainGui.BackColor := 0xFFFFFF
@@ -706,7 +706,7 @@ HtmlTemplate() {
 </style>
 </head>
 <body>
-  <h1>GAG Seed Buyer</h1>
+  <h1>Garden Macro</h1>
   <div class='sub'>
     <span id='count'>0 selected</span>
     <span><a onclick='setAll(true)'>Select all</a> &middot; <a onclick='setAll(false)'>Clear</a></span>
@@ -735,7 +735,7 @@ HtmlTemplate() {
         <h2>Unlock the last 5 seeds</h2>
         <button class='mx' onclick='closeAccess()'>&times;</button>
       </div>
-      <p class='mdesc'>These premium seeds need GAG Seed Buyer access. Subscribe once, then paste your code to unlock them here &mdash; the rest of the macro stays free.</p>
+      <p class='mdesc'>These premium seeds need Garden Macro access. Subscribe once, then paste your code to unlock them here &mdash; the rest of the macro stays free.</p>
       <ol class='msteps'>
         <li>Open the sign-in page and subscribe with Google.</li>
         <li>Copy the access code it shows you.</li>

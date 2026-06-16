@@ -2,7 +2,7 @@
 #SingleInstance Force
 
 ; ============================================================
-;  GAG Seed Buyer - LAUNCHER  ("dumb client" / auto-updater)
+;  Garden Macro - LAUNCHER  ("dumb client" / auto-updater)
 ;
 ;  This is the ONLY file your users ever download. It:
 ;    1. Downloads the latest macro code from your server / GitHub
@@ -17,7 +17,7 @@
 ;  To push an update to everyone: just change the macro file at MacroUrl.
 ;  Users get it automatically the next time they launch.
 ;
-;  Compile this with Ahk2Exe -> SeedBuyer.exe for distribution.
+;  Compile this with Ahk2Exe -> GardenMacro.exe for distribution.
 ; ============================================================
 
 ; ---------------- CONFIG (edit these) ----------------
@@ -35,8 +35,8 @@ LicenseToken := ""
 
 ; -----------------------------------------------------
 
-AppName    := "GAG Seed Buyer"
-CacheDir   := A_AppData "\GagSeedBuyer"
+AppName    := "Garden Macro"
+CacheDir   := A_AppData "\GardenMacro"
 CacheFile  := CacheDir "\macro.ahk"
 LocalFile  := A_ScriptDir "\macro.ahk"     ; used in testing mode / as last resort
 

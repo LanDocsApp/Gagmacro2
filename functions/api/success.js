@@ -79,7 +79,7 @@ function renderPage({ base, email, active, pasteCode }) {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Your access — GAG Seed Buyer</title>
+  <title>Your access — Garden Macro</title>
   <style>
     :root { --green:#16a34a; --green-dark:#15803d; --ink:#0f172a; --muted:#64748b; --line:#e2e8f0; --soft:#f8fafc; }
     * { box-sizing:border-box; margin:0; padding:0; }
@@ -106,7 +106,7 @@ function renderPage({ base, email, active, pasteCode }) {
   <div class="card">
     <div class="mark">🌱</div>
     <h1>You're in${email ? ", " + escapeHtml(email.split("@")[0]) : ""} 🎉</h1>
-    <p class="sub">Copy your access code below and paste it into the GAG Seed Buyer launcher.</p>
+    <p class="sub">Copy your access code below and paste it into the Garden Macro launcher.</p>
     ${banner}
     <label for="code">Your paste-code</label>
     <div class="code-row">
@@ -114,7 +114,7 @@ function renderPage({ base, email, active, pasteCode }) {
       <button class="btn" id="copy">Copy</button>
     </div>
     <ol>
-      <li>Open the GAG Seed Buyer launcher.</li>
+      <li>Open the Garden Macro launcher.</li>
       <li>When it asks for your access code, paste this in.</li>
       <li>That's it — it stays signed in and updates itself.</li>
     </ol>

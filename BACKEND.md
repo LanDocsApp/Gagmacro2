@@ -1,4 +1,4 @@
-# GAG Seed Buyer — subscription backend
+# Garden Macro — subscription backend
 
 Cloudflare Pages + Pages Functions. No build step, no SDKs — raw `fetch` and Web
 Crypto. Static pages live at the repo root; the API lives under `functions/`.
@@ -80,7 +80,7 @@ Content-Type: application/json
 ```
 
 Response: `{ "active": true }` or `{ "active": false }`. On `active` the macro
-saves the code to `%AppData%\GagSeedBuyer\token.txt` and unlocks the last 5
+saves the code to `%AppData%\GardenMacro\token.txt` and unlocks the last 5
 seeds live; on the next launch it re-verifies in the background (and trusts the
 saved code when offline). `/api/desktop/verify` self-heals from Stripe if KV is
 cold or stale, so it stays correct even if a webhook is missed.
