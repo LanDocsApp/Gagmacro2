@@ -226,6 +226,13 @@ EnsureDir(dir) {
 }
 
 SaveText(path, text) {
+    ; WinHttp's ResponseText keeps the source file's UTF-8 BOM as a leading
+    ; U+FEFF character. FileOpen(..."UTF-8") then writes ANOTHER BOM, giving the
+    ; file two BOMs. AutoHotkey strips only one when it reads a script, so the
+    ; leftover U+FEFF breaks line 1 ("does not contain a recognized action").
+    ; Drop any BOM already in the text so exactly one ends up on disk.
+    if (SubStr(text, 1, 1) = Chr(0xFEFF))
+        text := SubStr(text, 2)
     f := FileOpen(path, "w", "UTF-8")
     f.Write(text)
     f.Close()
