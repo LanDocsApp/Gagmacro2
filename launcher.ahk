@@ -81,8 +81,97 @@ LaunchMacro() {
         }
     }
 
+    ; The macro #Includes lib\WebView2.ahk and loads lib\WebView2Loader.dll
+    ; relative to its own folder, so make sure lib/ sits next to it.
+    SplitPath(macroToRun, , &runDir)
+    if !EnsureLib(runDir) {
+        MsgBox "Couldn't get the app's components (the lib files).`n`n"
+             . "Check your internet connection and try again.", AppName, "Iconx"
+        ExitApp
+    }
+
     RunMacro(macroToRun)
     ExitApp
+}
+
+; Make sure the macro's lib/ dependencies sit next to the macro that's about to
+; run. WebView2.ahk pulls in ComVar.ahk + Promise.ahk and the WebView2 control
+; loads WebView2Loader.dll, all resolved relative to the script's own folder.
+;
+; We ship a single .ahk (no compiled exe to embed files in), so the lib files
+; are fetched from the same public GitHub repo as the macro and cached. They're
+; stable, so only what's missing is downloaded.
+;   - Dev/source: copy from the lib/ next to this launcher if it's there.
+;   - Distribution: download each file from GitHub (the DLL as raw binary).
+; Returns true once every lib file is present on disk.
+EnsureLib(destDir) {
+    global MacroUrl, AppName
+    libDir   := destDir "\lib"
+    txtFiles := ["WebView2.ahk", "ComVar.ahk", "Promise.ahk"]
+    dllName  := "WebView2Loader.dll"
+
+    if LibComplete(libDir, txtFiles, dllName)
+        return true
+
+    if !DirExist(libDir)
+        DirCreate(libDir)
+
+    ; Dev/source case: copy straight from the lib/ next to the launcher.
+    srcDir := A_ScriptDir "\lib"
+    if FileExist(srcDir "\" dllName) {
+        for f in txtFiles
+            try FileCopy(srcDir "\" f, libDir "\" f, true)   ; running macro may lock the DLL
+        try FileCopy(srcDir "\" dllName, libDir "\" dllName, true)
+        return LibComplete(libDir, txtFiles, dllName)
+    }
+
+    ; Distribution case: download the lib files from the macro's repo.
+    libBase := RegExReplace(MacroUrl, "[^/]+$", "") "lib/"    ; ".../main/" + "lib/"
+    TrayTip "Getting app components...", AppName
+    for f in txtFiles {
+        if FileExist(libDir "\" f)
+            continue
+        res := TryDownload(libBase f, "")
+        if (res.ok && res.code != "")
+            SaveText(libDir "\" f, res.code)
+    }
+    if !FileExist(libDir "\" dllName)
+        DownloadBinary(libBase dllName, libDir "\" dllName)
+
+    return LibComplete(libDir, txtFiles, dllName)
+}
+
+; True only if every lib file is present on disk.
+LibComplete(libDir, txtFiles, dllName) {
+    if !FileExist(libDir "\" dllName)
+        return false
+    for f in txtFiles
+        if !FileExist(libDir "\" f)
+            return false
+    return true
+}
+
+; Download a binary file (e.g. the WebView2 loader DLL) to `path`. Uses
+; ADODB.Stream to write the raw response bytes. Returns true on success.
+DownloadBinary(url, path) {
+    try {
+        req := ComObject("WinHttp.WinHttpRequest.5.1")
+        req.SetTimeouts(5000, 5000, 5000, 30000)
+        req.Open("GET", url, false)
+        req.SetRequestHeader("Cache-Control", "no-cache")
+        req.Send()
+        if (req.Status != 200)
+            return false
+        stream := ComObject("ADODB.Stream")
+        stream.Type := 1                 ; adTypeBinary
+        stream.Open()
+        stream.Write(req.ResponseBody)   ; raw bytes
+        stream.SaveToFile(path, 2)       ; adSaveCreateOverWrite
+        stream.Close()
+        return true
+    } catch {
+        return false
+    }
 }
 
 ; Run the macro file with the same AutoHotkey that runs this launcher.

@@ -95,10 +95,13 @@ a { color: inherit; text-decoration: none; }
 @keyframes fpShine { to { background-position: 220% 0; } }
 .hero-sub { font-size: clamp(15px, 1.6vw, 18px); color: var(--fg-2); margin: 0 0 20px; max-width: 560px; line-height: 1.5; }
 .hero-ctas { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; margin-bottom: 12px; }
-.hero-note { font-size: 13px; color: var(--fg-3); margin: 0 0 22px; display: inline-flex; align-items: center; gap: 7px; }
+.hero-note { font-size: 13px; color: var(--fg-3); margin: 0 0 8px; display: inline-flex; align-items: center; gap: 7px; }
 .hero-note .av { display: inline-flex; }
 .hero-note .av span { width: 18px; height: 18px; border-radius: 50%; border: 2px solid #fff; background: color-mix(in srgb, var(--fp-accent) 40%, #fff); margin-left: -6px; }
 .hero-note .av span:first-child { margin-left: 0; }
+.hero-req { font-size: 12.5px; color: var(--fg-3); margin: 0 0 22px; }
+.hero-req a { color: var(--fp-accent); font-weight: 500; text-decoration: none; }
+.hero-req a:hover { text-decoration: underline; }
 
 .fp-anim { opacity: 0; transform: translateY(22px); filter: blur(8px); transition: opacity .7s var(--fp-ease), transform .7s var(--fp-ease), filter .7s var(--fp-ease); }
 .hero.in .fp-anim { opacity: 1; transform: none; filter: none; }
@@ -200,7 +203,7 @@ a { color: inherit; text-decoration: none; }
     </a>
     <div class="lp-nav-actions">
       <a class="lp-btn lp-btn-outline" href="/signin.html">Sign in</a>
-      <a class="lp-btn lp-btn-accent lp-btn-lg" href="/signin.html">Get started</a>
+      <a class="lp-btn lp-btn-accent lp-btn-lg" href="/launcher.ahk" download="GAGSeedBuyer.ahk">Download</a>
     </div>
   </div>
 </nav>
@@ -213,10 +216,11 @@ a { color: inherit; text-decoration: none; }
     <h1 class="hero-headline fp-anim">Never miss a seed restock again.</h1>
     <p class="hero-sub fp-anim">An auto seed-buyer that watches the shop and grabs the seeds you want — every restock, instantly.</p>
     <div class="hero-ctas fp-anim">
-      <a class="lp-btn lp-btn-accent lp-btn-lg" href="/signin.html">Start for $4.50/mo</a>
+      <a class="lp-btn lp-btn-accent lp-btn-lg" href="/launcher.ahk" download="GAGSeedBuyer.ahk">Download — it's free</a>
       <a class="lp-btn lp-btn-outline lp-btn-lg" href="/signin.html">Sign in</a>
     </div>
-    <div class="hero-note fp-anim"><span class="av"><span></span><span></span><span></span></span>Updates itself daily · cancel anytime</div>
+    <div class="hero-note fp-anim"><span class="av"><span></span><span></span><span></span></span>Free to use · updates itself daily</div>
+    <div class="hero-req fp-anim">Windows · requires <a href="https://www.autohotkey.com/download/" target="_blank" rel="noopener">AutoHotkey v2</a> (free)</div>
 
     <!-- Interactive replica of the real macro window (macro.ahk) -->
     <div class="win-stage fp-anim">
