@@ -39,8 +39,8 @@ dashboard (Pages → Settings → Environment variables), already configured:
 
 External setup that must match:
 
-- **Google** authorized redirect URI: `https://gagmacro.pages.dev/api/auth/google/callback`
-- **Stripe webhook** endpoint: `https://gagmacro.pages.dev/api/webhook`, sending
+- **Google** authorized redirect URI: `https://gardenmacro.com/api/auth/google/callback`
+- **Stripe webhook** endpoint: `https://gardenmacro.com/api/webhook`, sending
   `checkout.session.completed` and `customer.subscription.created/updated/deleted`.
 
 ## Flow
@@ -73,7 +73,7 @@ The paste-code is a signed token over the user's Google sub. In the macro's
 "Get access" modal the user pastes it; the macro calls:
 
 ```
-POST https://gagmacro.pages.dev/api/desktop/verify
+POST https://gardenmacro.com/api/desktop/verify
 Content-Type: application/json
 
 { "token": "<paste-code>" }

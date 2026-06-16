@@ -57,7 +57,7 @@ global wv         := 0
 ;     to the bottom of the list, so "the last N" always tracks the newest ones.
 global PremiumCount := 5
 global Unlocked     := false                          ; premium unlocked this session?
-global BackendBase  := "https://gagmacro.pages.dev"   ; subscription backend
+global BackendBase  := "https://gardenmacro.com"   ; subscription backend
 global VerifyUrl    := BackendBase "/api/desktop/verify"
 global TokenFile    := A_AppData "\GardenMacro\token.txt"   ; saved paste-code
 
