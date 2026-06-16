@@ -39,11 +39,10 @@ global LoopActive := false          ; the repeat loop is armed
 global IntervalMs := 5 * 60 * 1000  ; how often to repeat: 5 minutes
 global FirstSel   := 0              ; index of first ticked seed (locked at Start)
 global LastSel    := 0              ; index of last ticked seed (locked at Start)
-global PassQty    := 20             ; quantity per seed (locked at Start)
+global PassQty    := 20             ; fixed quantity bought per seed each pass
 
 ; Live UI state, kept in sync by messages from the page.
 global SelIndices := []             ; sorted 1-based indices currently ticked
-global CurQty     := 20             ; quantity currently typed in the box
 global SelSet     := Map()          ; locked-at-Start lookup: index -> true
 
 ; WebView2 / window handles (kept global so they are not garbage-collected).
@@ -63,31 +62,31 @@ global TokenFile    := A_AppData "\GardenMacro\token.txt"   ; saved paste-code
 
 ; --- Seed list in the SAME top-to-bottom order as the in-game shop ---
 global Seeds := [
-    {name: "Carrot",          rarity: "Common",    price: "1"},
-    {name: "Strawberry",      rarity: "Common",    price: "10"},
-    {name: "Blueberry",       rarity: "Common",    price: "25"},
-    {name: "Tulip",           rarity: "Uncommon",  price: "40"},
-    {name: "Tomato",          rarity: "Uncommon",  price: "200"},
-    {name: "Apple",           rarity: "Uncommon",  price: "400"},
-    {name: "Bamboo",          rarity: "Rare",      price: "700"},
-    {name: "Corn",            rarity: "Rare",      price: "2,500"},
-    {name: "Cactus",          rarity: "Rare",      price: "5,000"},
-    {name: "Pineapple",       rarity: "Rare",      price: "10,000"},
-    {name: "Mushroom",        rarity: "Epic",      price: "15,000"},
-    {name: "Green Bean",      rarity: "Epic",      price: "20,000"},
-    {name: "Banana",          rarity: "Epic",      price: "30,000"},
-    {name: "Grape",           rarity: "Epic",      price: "50,000"},
-    {name: "Coconut",         rarity: "Epic",      price: "140,000"},
-    {name: "Mango",           rarity: "Epic",      price: "300,000"},
-    {name: "Dragon Fruit",    rarity: "Legendary", price: "120,000"},
-    {name: "Acorn",           rarity: "Legendary", price: "700,000"},
-    {name: "Cherry",          rarity: "Legendary", price: "1,200,000"},
-    {name: "Sunflower",       rarity: "Legendary", price: "5,000,000"},
-    {name: "Venus Fly Trap",  rarity: "Mythic",    price: "7,000,000"},
-    {name: "Pomegranate",     rarity: "Mythic",    price: "12,000,000"},
-    {name: "Poison Apple",    rarity: "Mythic",    price: "25,000,000"},
-    {name: "Moon Bloom",      rarity: "Super",     price: "65,000,000"},
-    {name: "Dragon's Breath", rarity: "Super",     price: "90,000,000"}
+    {name: "Carrot",          rarity: "Common"},
+    {name: "Strawberry",      rarity: "Common"},
+    {name: "Blueberry",       rarity: "Common"},
+    {name: "Tulip",           rarity: "Uncommon"},
+    {name: "Tomato",          rarity: "Uncommon"},
+    {name: "Apple",           rarity: "Uncommon"},
+    {name: "Bamboo",          rarity: "Rare"},
+    {name: "Corn",            rarity: "Rare"},
+    {name: "Cactus",          rarity: "Rare"},
+    {name: "Pineapple",       rarity: "Rare"},
+    {name: "Mushroom",        rarity: "Epic"},
+    {name: "Green Bean",      rarity: "Epic"},
+    {name: "Banana",          rarity: "Epic"},
+    {name: "Grape",           rarity: "Epic"},
+    {name: "Coconut",         rarity: "Epic"},
+    {name: "Mango",           rarity: "Epic"},
+    {name: "Dragon Fruit",    rarity: "Legendary"},
+    {name: "Acorn",           rarity: "Legendary"},
+    {name: "Cherry",          rarity: "Legendary"},
+    {name: "Sunflower",       rarity: "Legendary"},
+    {name: "Venus Fly Trap",  rarity: "Mythic"},
+    {name: "Pomegranate",     rarity: "Mythic"},
+    {name: "Poison Apple",    rarity: "Mythic"},
+    {name: "Moon Bloom",      rarity: "Super"},
+    {name: "Dragon's Breath", rarity: "Super"}
 ]
 
 BuildUi()
@@ -148,7 +147,7 @@ BuildSeedsJs() {
     global Seeds
     out := "["
     for i, sd in Seeds {
-        out .= "{n:" JsStr(sd.name) ",r:" JsStr(sd.rarity) ",p:" JsStr(sd.price) "}"
+        out .= "{n:" JsStr(sd.name) ",r:" JsStr(sd.rarity) "}"
         if i < Seeds.Length
             out .= ","
     }
@@ -166,12 +165,11 @@ JsStr(str) {
 ;  Messages from the page  ->  AHK
 ;  Formats (pipe-delimited strings):
 ;    "sel|1,3,5"   selection changed (csv of 1-based indices; may be empty)
-;    "qty|20"      quantity changed
 ;    "start"       run / arm the loop
 ;    "stop"        stop
 ; ============================================================
 OnWebMessage(sender, args) {
-    global SelIndices, CurQty
+    global SelIndices
     msg := args.TryGetWebMessageAsString()
     parts := StrSplit(msg, "|")
     cmd := parts.Length >= 1 ? parts[1] : ""
@@ -186,9 +184,6 @@ OnWebMessage(sender, args) {
                         SelIndices.Push(Integer(token))
                 }
             }
-        case "qty":
-            v := parts.Length >= 2 ? parts[2] : ""
-            CurQty := (IsInteger(v) && Integer(v) >= 1) ? Integer(v) : 1
         case "start":
             StartMacro()
         case "stop":
@@ -219,7 +214,7 @@ Esc:: ExitApp
 
 StartMacro() {
     global LoopActive, Running, IntervalMs, FirstSel, LastSel, PassQty
-    global SelIndices, CurQty, SelSet, Unlocked
+    global SelIndices, SelSet, Unlocked
 
     if LoopActive               ; loop already armed -> ignore
         return
@@ -245,7 +240,7 @@ StartMacro() {
     SelSet   := Map()
     for idx in picks
         SelSet[idx] := true
-    PassQty := (CurQty >= 1) ? CurQty : 1
+    PassQty := 20               ; fixed buy amount per seed
 
     LoopActive := true
     Running := true
@@ -558,9 +553,9 @@ BuyHere(times) {
     if !Wait(300)
         return false
 
-    Loop times {            ; confirm the purchase `times` times
+    Loop times {            ; confirm the purchase `times` times (hot loop -> fast)
         Send "{Enter}"
-        if !Wait(300)
+        if !Wait(40)
             return false
     }
 
@@ -630,7 +625,6 @@ HtmlTemplate() {
         display:flex;align-items:center;justify-content:center}
   .name{flex:1;font-size:13.5px;position:relative}
   .row.sel .name{font-weight:600}
-  .price{font-size:12px;color:#999;font-variant-numeric:tabular-nums}
   /* High-rarity flair: glowing names + twinkling particles */
   .name.lg,.name.my,.name.sp{font-weight:700;overflow:visible}
   .name.lg{color:#e8a31a;text-shadow:0 0 6px rgba(240,180,40,.65),0 0 13px rgba(240,170,20,.4);
@@ -656,9 +650,6 @@ HtmlTemplate() {
   /* Footer */
   .footer{display:flex;align-items:center;gap:10px}
   .footer label{font-size:12px;color:#888}
-  #qty{width:74px;background:#fff;border:1px solid #d8d8d8;color:#1a1a1a;border-radius:7px;
-       padding:8px 10px;font-size:14px;outline:none;font-variant-numeric:tabular-nums}
-  #qty:focus{border-color:#888}
   .btn{border:1px solid #d8d8d8;border-radius:7px;padding:9px 16px;font-size:13px;font-weight:500;
        cursor:pointer;font-family:inherit;background:#fff;color:#1a1a1a}
   .btn:hover{background:#f3f3f3}
@@ -674,7 +665,6 @@ HtmlTemplate() {
         display:flex;align-items:center;justify-content:center}
   .row.locked .name{color:#b0892a !important;-webkit-text-fill-color:#b0892a;
         text-shadow:none !important;animation:none;font-weight:600}
-  .row.locked .price{color:#cdb878}
   .row.locked .spark{display:none}
   .pbar{display:flex;align-items:center;gap:8px;padding:9px 12px;border:1px solid #ecdfb6;
         background:#fdf8ea;border-radius:8px;font-size:12.5px;color:#8a6d1f;cursor:pointer}
@@ -721,8 +711,6 @@ HtmlTemplate() {
   </div>
 
   <div class='footer'>
-    <label for='qty'>Qty</label>
-    <input id='qty' type='number' min='1' max='99999' value='20' oninput='pushQty()'>
     <button id='startBtn' class='btn primary' onclick='send("start")'>Start</button>
     <button id='stopBtn'  class='btn'         onclick='send("stop")'>Stop</button>
     <span id='status'>Idle.</span>
@@ -770,11 +758,6 @@ HtmlTemplate() {
     send('sel|' + arr.join(','));
     document.getElementById('count').textContent = arr.length + ' selected';
   }
-  function pushQty(){
-    var q = parseInt(document.getElementById('qty').value,10);
-    if (!q || q < 1) q = 1;
-    send('qty|' + q);
-  }
   var RARECLASS = {Legendary:'lg', Mythic:'my', Super:'sp'};
   function addSparks(nameEl, cls){
     for (var k = 0; k < 5; k++){
@@ -800,12 +783,10 @@ HtmlTemplate() {
       row.className = 'row' + (locked ? ' locked' : '') + (selected[n] ? ' sel' : '');
       var box = document.createElement('span'); box.className = 'box';
       var name = document.createElement('span'); name.className = 'name';
-      var price = document.createElement('span'); price.className = 'price';
       var cls = RARECLASS[s.r];
       name.textContent = s.n;        /* set text first, then layer sparks on top */
       if (cls && !locked){ name.classList.add(cls); addSparks(name, cls); }
-      price.textContent = s.p;
-      row.appendChild(box); row.appendChild(name); row.appendChild(price);
+      row.appendChild(box); row.appendChild(name);
       row.onclick = function(){
         if (isLocked(n)) { openAccess(); return; }
         if (selected[n]) { delete selected[n]; row.classList.remove('sel'); }
@@ -864,7 +845,6 @@ HtmlTemplate() {
 
   /* init */
   render();
-  pushQty();
   pushSel();
   setRunning(false);
 </script>

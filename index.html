@@ -146,7 +146,6 @@ a { color: inherit; text-decoration: none; }
 .win-row.sel .win-box::after { content: "✓"; position: absolute; inset: 0; color: #fff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
 .win-name { flex: 1; font-size: 13.5px; position: relative; }
 .win-row.sel .win-name { font-weight: 600; }
-.win-price { font-size: 12px; color: #999; font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
 /* High-rarity flair */
 .win-name.lg, .win-name.my, .win-name.sp { font-weight: 700; overflow: visible; }
 .win-name.lg { color: #e8a31a; text-shadow: 0 0 6px rgba(240,180,40,.65), 0 0 13px rgba(240,170,20,.4); animation: glowpulse 2s ease-in-out infinite; }
@@ -162,8 +161,6 @@ a { color: inherit; text-decoration: none; }
 @keyframes hue { to { filter: hue-rotate(360deg); } }
 .win-foot { display: flex; align-items: center; gap: 10px; }
 .win-foot label { font-size: 12px; color: #888; }
-.win-qty { width: 70px; background: #fff; border: 1px solid #d8d8d8; color: #1a1a1a; border-radius: 7px; padding: 8px 10px; font-size: 14px; outline: none; font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
-.win-qty:focus { border-color: #888; }
 .win-btn { border: 1px solid #d8d8d8; border-radius: 7px; padding: 9px 16px; font-size: 13px; font-weight: 500; cursor: pointer; font-family: inherit; background: #fff; color: #1a1a1a; }
 .win-btn:hover { background: #f3f3f3; }
 .win-btn.primary { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
@@ -246,8 +243,6 @@ a { color: inherit; text-decoration: none; }
           </div>
           <div id="list" class="win-list"></div>
           <div class="win-foot">
-            <label for="qty">Qty</label>
-            <input id="qty" class="win-qty" type="number" min="1" max="99999" value="20">
             <button id="startBtn" class="win-btn primary">Start</button>
             <button id="stopBtn" class="win-btn">Stop</button>
             <span id="status" class="win-status">Idle.</span>
@@ -270,14 +265,14 @@ a { color: inherit; text-decoration: none; }
 
   /* ── Seed list — same order/data as macro.ahk ── */
   var SEEDS = [
-    {n:'Carrot',r:'Common',p:'1'},{n:'Strawberry',r:'Common',p:'10'},{n:'Blueberry',r:'Common',p:'25'},
-    {n:'Tulip',r:'Uncommon',p:'40'},{n:'Tomato',r:'Uncommon',p:'200'},{n:'Apple',r:'Uncommon',p:'400'},
-    {n:'Bamboo',r:'Rare',p:'700'},{n:'Corn',r:'Rare',p:'2,500'},{n:'Cactus',r:'Rare',p:'5,000'},{n:'Pineapple',r:'Rare',p:'10,000'},
-    {n:'Mushroom',r:'Epic',p:'15,000'},{n:'Green Bean',r:'Epic',p:'20,000'},{n:'Banana',r:'Epic',p:'30,000'},{n:'Grape',r:'Epic',p:'50,000'},
-    {n:'Coconut',r:'Epic',p:'140,000'},{n:'Mango',r:'Epic',p:'300,000'},
-    {n:'Dragon Fruit',r:'Legendary',p:'120,000'},{n:'Acorn',r:'Legendary',p:'700,000'},{n:'Cherry',r:'Legendary',p:'1,200,000'},{n:'Sunflower',r:'Legendary',p:'5,000,000'},
-    {n:'Venus Fly Trap',r:'Mythic',p:'7,000,000'},{n:'Pomegranate',r:'Mythic',p:'12,000,000'},{n:'Poison Apple',r:'Mythic',p:'25,000,000'},
-    {n:"Moon Bloom",r:'Super',p:'65,000,000'},{n:"Dragon's Breath",r:'Super',p:'90,000,000'}
+    {n:'Carrot',r:'Common'},{n:'Strawberry',r:'Common'},{n:'Blueberry',r:'Common'},
+    {n:'Tulip',r:'Uncommon'},{n:'Tomato',r:'Uncommon'},{n:'Apple',r:'Uncommon'},
+    {n:'Bamboo',r:'Rare'},{n:'Corn',r:'Rare'},{n:'Cactus',r:'Rare'},{n:'Pineapple',r:'Rare'},
+    {n:'Mushroom',r:'Epic'},{n:'Green Bean',r:'Epic'},{n:'Banana',r:'Epic'},{n:'Grape',r:'Epic'},
+    {n:'Coconut',r:'Epic'},{n:'Mango',r:'Epic'},
+    {n:'Dragon Fruit',r:'Legendary'},{n:'Acorn',r:'Legendary'},{n:'Cherry',r:'Legendary'},{n:'Sunflower',r:'Legendary'},
+    {n:'Venus Fly Trap',r:'Mythic'},{n:'Pomegranate',r:'Mythic'},{n:'Poison Apple',r:'Mythic'},
+    {n:"Moon Bloom",r:'Super'},{n:"Dragon's Breath",r:'Super'}
   ];
   var RARECLASS = { Legendary:'lg', Mythic:'my', Super:'sp' };
   var selected = {};   // 1-based index -> true
@@ -286,7 +281,6 @@ a { color: inherit; text-decoration: none; }
   var listEl = document.getElementById('list');
   var countEl = document.getElementById('count');
   var statusEl = document.getElementById('status');
-  var qtyEl = document.getElementById('qty');
   var startBtn = document.getElementById('startBtn');
   var stopBtn = document.getElementById('stopBtn');
 
@@ -297,7 +291,6 @@ a { color: inherit; text-decoration: none; }
     return arr;
   }
   function updateCount() { countEl.textContent = selectedList().length + ' selected'; }
-  function qtyVal() { var q = parseInt(qtyEl.value, 10); return (!q || q < 1) ? 1 : q; }
 
   function addSparks(nameEl, cls) {
     for (var k = 0; k < 5; k++) {
@@ -319,12 +312,10 @@ a { color: inherit; text-decoration: none; }
       var row = document.createElement('div'); row.className = 'win-row';
       var box = document.createElement('span'); box.className = 'win-box';
       var name = document.createElement('span'); name.className = 'win-name';
-      var price = document.createElement('span'); price.className = 'win-price';
       var cls = RARECLASS[s.r];
       name.textContent = s.n;
       if (cls) { name.classList.add(cls); addSparks(name, cls); }
-      price.textContent = s.p;
-      row.appendChild(box); row.appendChild(name); row.appendChild(price);
+      row.appendChild(box); row.appendChild(name);
       row.onclick = function () {
         if (selected[n]) { delete selected[n]; row.classList.remove('sel'); }
         else { selected[n] = true; row.classList.add('sel'); }
@@ -352,7 +343,7 @@ a { color: inherit; text-decoration: none; }
       if (!running) return;
       if (i < arr.length) {
         var s = SEEDS[arr[i] - 1];
-        statusEl.textContent = 'Buying ' + s.n + ' ×' + qtyVal() + '…';
+        statusEl.textContent = 'Buying ' + s.n + '…';
         i++; runTimers.push(setTimeout(step, 850));
       } else {
         statusEl.textContent = 'Done. Waiting for next restock…';
@@ -365,7 +356,6 @@ a { color: inherit; text-decoration: none; }
 
   document.getElementById('selAll').onclick = function () { setAll(true); };
   document.getElementById('selNone').onclick = function () { setAll(false); };
-  qtyEl.oninput = function () { /* free-typed; clamped on use */ };
   startBtn.onclick = startSim;
   stopBtn.onclick = stopSim;
 
