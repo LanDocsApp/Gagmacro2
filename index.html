@@ -1,344 +1,467 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>GAG Seed Buyer — Auto Macro for Grow a Garden</title>
-  <meta name="description" content="An always-up-to-date auto seed-buyer macro for Roblox Grow a Garden. Install once, updates itself daily." />
-  <style>
-    :root {
-      --green: #16a34a;
-      --green-dark: #15803d;
-      --ink: #0f172a;
-      --muted: #64748b;
-      --line: #e2e8f0;
-      --bg: #ffffff;
-      --soft: #f8fafc;
-    }
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>GAG Seed Buyer · Never miss a restock again.</title>
+<meta name="description" content="An always-up-to-date auto seed-buyer for Roblox Grow a Garden. It watches the shop and buys the seeds you want, every restock. Install a tiny launcher once; it updates itself daily." />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ═══════════════════════════ TOKENS ═══════════════════════════ */
+:root {
+  --fp-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --fp-accent: #16a34a;
+  --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'Courier New', monospace;
+  --ink: #0a0a0a; --fg: #0b1020; --fg-2: #43506b; --fg-3: #6b7280;
+  --border: #e0e0e0; --border-strong: #cccccc;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  font-family: var(--font-sans);
+  color: var(--fg);
+  background: #ffffff;
+  -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+  min-height: 100vh;
+}
+a { color: inherit; text-decoration: none; }
 
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+/* ═══════════════════════ ARTISTIC BG ══════════════════════════ */
+.fp-bg {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden;
+  background:
+    radial-gradient(58% 48% at 80% 14%, color-mix(in srgb, var(--fp-accent) 20%, transparent), transparent 72%),
+    radial-gradient(54% 54% at 10% 86%, color-mix(in srgb, var(--fp-accent) 14%, transparent), transparent 72%),
+    radial-gradient(46% 40% at 52% 50%, color-mix(in srgb, var(--fp-accent) 7%, transparent), transparent 70%),
+    #ffffff;
+}
+.fp-bg::before {
+  content: ""; position: absolute; inset: 0;
+  background-image: radial-gradient(rgba(12,22,44,0.05) 1px, transparent 1.4px);
+  background-size: 26px 26px;
+  -webkit-mask-image: radial-gradient(circle at 50% 42%, #000 28%, transparent 82%);
+          mask-image: radial-gradient(circle at 50% 42%, #000 28%, transparent 82%);
+}
+.fp-bg::after {
+  content: ""; position: absolute; width: 70vmax; height: 70vmax; top: -18vmax; right: -16vmax;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--fp-accent) 26%, transparent), transparent 70%);
+  filter: blur(28px); opacity: 0.6;
+  animation: fpDrift 24s ease-in-out infinite alternate;
+}
+@keyframes fpDrift { 0%{transform:translate(0,0) scale(1)} 50%{transform:translate(-12vw,10vh) scale(1.18)} 100%{transform:translate(6vw,-6vh) scale(.96)} }
 
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      color: var(--ink);
-      background: var(--bg);
-      line-height: 1.6;
-      -webkit-font-smoothing: antialiased;
-    }
+/* ═══════════════════════════ NAV ══════════════════════════════ */
+.lp-nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  background: rgba(255,255,255,0.78); backdrop-filter: blur(16px) saturate(160%); -webkit-backdrop-filter: blur(16px) saturate(160%);
+  border-bottom: 1px solid transparent; transition: border-color .2s, box-shadow .3s;
+}
+.lp-nav.scrolled { border-bottom-color: var(--border); box-shadow: 0 1px 0 rgba(0,0,0,0.04), 0 8px 30px rgba(10,20,40,0.05); }
+.lp-nav-inner { max-width: 1240px; margin: 0 auto; padding: 0 28px; height: 66px; display: flex; align-items: center; justify-content: space-between; }
+.lp-logo { display: inline-flex; align-items: center; gap: 10px; }
+.lp-logo .mark { width: 28px; height: 28px; display: block; }
+.lp-logo .name { font-weight: 700; font-size: 18px; letter-spacing: -0.02em; color: var(--ink); }
+.lp-nav-actions { display: flex; align-items: center; gap: 12px; }
+.lp-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  font: 500 14.5px var(--font-sans); padding: 9px 18px; border-radius: 9px; border: 1px solid transparent;
+  cursor: pointer; white-space: nowrap; line-height: 1.4;
+  transition: background .25s ease, border-color .25s ease, color .16s, transform .15s var(--fp-ease), box-shadow .3s ease;
+}
+.lp-btn-outline { background: #fff; color: var(--fg); border-color: var(--border); }
+.lp-btn-outline:hover { background: #f5f5f5; border-color: var(--border-strong); }
+.lp-btn-accent { background: var(--fp-accent); color: #fff; border-color: var(--fp-accent); }
+.lp-btn-accent:hover { box-shadow: 0 10px 26px color-mix(in srgb, var(--fp-accent) 45%, transparent); transform: translateY(-1px); }
+.lp-btn-lg { font-size: 15.5px; padding: 12px 24px; border-radius: 10px; }
 
-    a { color: inherit; text-decoration: none; }
+/* ═══════════════════════════ HERO ═════════════════════════════ */
+.hero { position: relative; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 84px 32px 28px; }
+.fp-net { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
+.hero-inner { position: relative; z-index: 2; width: 100%; max-width: 1180px; display: flex; flex-direction: column; align-items: center; text-align: center; }
 
-    .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+.hero-eyebrow {
+  display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; color: var(--fg-2);
+  background: rgba(255,255,255,0.7); border: 1px solid var(--border); padding: 6px 14px; border-radius: 999px; margin-bottom: 16px;
+}
+.hero-eyebrow .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--fp-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--fp-accent) 22%, transparent); }
+.hero-headline { font-size: clamp(32px, 4.4vw, 52px); font-weight: 700; letter-spacing: -0.035em; line-height: 1.04; margin: 0 0 12px; color: var(--fg); text-wrap: balance; }
+.fp-word { display: inline-block; }
+.fp-word > span { display: inline-block; opacity: 0; transform: translateY(0.5em) rotate(2deg); filter: blur(6px); transition: opacity .7s var(--fp-ease), transform .7s var(--fp-ease), filter .7s var(--fp-ease); transition-delay: calc(var(--wi,0) * 70ms); }
+.hero.in .fp-word > span { opacity: 1; transform: none; filter: none; }
+.fp-grad { background: linear-gradient(100deg, var(--fp-accent), color-mix(in srgb, var(--fp-accent) 55%, #0891b2) 50%, var(--fp-accent)); background-size: 220% 100%; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent; animation: fpShine 6s linear infinite; }
+@keyframes fpShine { to { background-position: 220% 0; } }
+.hero-sub { font-size: clamp(15px, 1.6vw, 18px); color: var(--fg-2); margin: 0 0 20px; max-width: 560px; line-height: 1.5; }
+.hero-ctas { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; margin-bottom: 12px; }
+.hero-note { font-size: 13px; color: var(--fg-3); margin: 0 0 22px; display: inline-flex; align-items: center; gap: 7px; }
+.hero-note .av { display: inline-flex; }
+.hero-note .av span { width: 18px; height: 18px; border-radius: 50%; border: 2px solid #fff; background: color-mix(in srgb, var(--fp-accent) 40%, #fff); margin-left: -6px; }
+.hero-note .av span:first-child { margin-left: 0; }
 
-    /* Header */
-    header {
-      position: sticky;
-      top: 0;
-      background: rgba(255, 255, 255, 0.85);
-      backdrop-filter: saturate(180%) blur(12px);
-      border-bottom: 1px solid var(--line);
-      z-index: 10;
-    }
-    .nav {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      height: 64px;
-    }
-    .logo {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      font-weight: 700;
-      font-size: 18px;
-    }
-    .logo .mark {
-      width: 30px; height: 30px;
-      border-radius: 8px;
-      background: var(--green);
-      display: grid; place-items: center;
-      color: #fff; font-size: 16px;
-    }
-    .nav-links { display: flex; gap: 28px; align-items: center; }
-    .nav-links a { color: var(--muted); font-size: 15px; font-weight: 500; }
-    .nav-links a:hover { color: var(--ink); }
+.fp-anim { opacity: 0; transform: translateY(22px); filter: blur(8px); transition: opacity .7s var(--fp-ease), transform .7s var(--fp-ease), filter .7s var(--fp-ease); }
+.hero.in .fp-anim { opacity: 1; transform: none; filter: none; }
+.hero-inner > .fp-anim:nth-child(1){transition-delay:.05s}.hero-inner > .fp-anim:nth-child(2){transition-delay:.13s}.hero-inner > .fp-anim:nth-child(3){transition-delay:.21s}.hero-inner > .fp-anim:nth-child(4){transition-delay:.29s}.hero-inner > .fp-anim:nth-child(5){transition-delay:.40s}
 
-    .btn {
-      display: inline-block;
-      background: var(--green);
-      color: #fff;
-      font-weight: 600;
-      font-size: 15px;
-      padding: 10px 20px;
-      border-radius: 10px;
-      transition: background .15s ease, transform .15s ease;
-      border: none;
-      cursor: pointer;
-    }
-    .btn:hover { background: var(--green-dark); transform: translateY(-1px); }
-    .btn.lg { padding: 14px 28px; font-size: 16px; }
-    .btn.ghost {
-      background: #fff;
-      color: var(--ink);
-      border: 1px solid var(--line);
-    }
-    .btn.ghost:hover { background: var(--soft); }
+/* ═══════════════════ INTERACTIVE MACRO WINDOW ════════════════ */
+.win-stage { perspective: 1600px; width: 100%; display: flex; justify-content: center; }
+.win {
+  width: min(520px, 94vw);
+  height: auto;
+  display: flex; flex-direction: column;
+  background: #fff; border: 1px solid #d9dde3; border-radius: 12px; overflow: hidden;
+  transform: rotateX(var(--ry, 0deg)) rotateY(var(--rx, 0deg));
+  transition: transform .3s var(--fp-ease), box-shadow .4s ease;
+  box-shadow: 0 30px 80px rgba(10,20,40,0.18), 0 8px 22px rgba(10,20,40,0.08);
+  will-change: transform;
+}
+/* Faux Windows-11 title bar */
+.win-title { display: flex; align-items: center; gap: 9px; height: 38px; padding: 0 6px 0 12px; background: #f3f4f6; border-bottom: 1px solid #e6e7ea; flex-shrink: 0; }
+.win-title .ico { width: 17px; height: 17px; display: block; }
+.win-title .t { font-size: 12.5px; font-weight: 600; color: #444; flex: 1; }
+.win-ctrls { display: flex; align-items: center; }
+.win-ctrls i { width: 34px; height: 30px; display: grid; place-items: center; color: #6b7280; border-radius: 5px; }
+.win-ctrls i svg { display: block; }
+.win-ctrls i.close:hover { background: #e81123; color: #fff; }
+.win-ctrls i:hover { background: rgba(0,0,0,0.06); }
 
-    /* Hero */
-    .hero { text-align: center; padding: 96px 0 72px; }
-    .pill {
-      display: inline-block;
-      background: var(--soft);
-      border: 1px solid var(--line);
-      color: var(--muted);
-      font-size: 13px;
-      font-weight: 600;
-      padding: 6px 14px;
-      border-radius: 999px;
-      margin-bottom: 24px;
-    }
-    .hero h1 {
-      font-size: 52px;
-      line-height: 1.1;
-      letter-spacing: -1.5px;
-      margin-bottom: 20px;
-    }
-    .hero h1 .accent { color: var(--green); }
-    .hero p {
-      font-size: 19px;
-      color: var(--muted);
-      max-width: 600px;
-      margin: 0 auto 32px;
-    }
-    .cta-row { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
-    .sub-note { margin-top: 16px; font-size: 14px; color: var(--muted); }
+/* Macro app body — replica of macro.ahk's WebView2 UI */
+.win-body { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 14px 16px; gap: 11px; background: #fff; color: #1a1a1a; -webkit-user-select: none; user-select: none; }
+.win-body h1 { margin: 0; font-size: 16px; font-weight: 600; color: #1a1a1a; }
+.win-body .sub { font-size: 12px; color: #888; display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.win-body .sub a { color: #555; cursor: pointer; text-decoration: none; }
+.win-body .sub a:hover { color: #000; text-decoration: underline; }
+.win-list { flex: none; overflow: hidden; border: 1px solid #e6e6e6; border-radius: 8px;
+  display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; align-content: start;
+  background: linear-gradient(#f0f0f0,#f0f0f0) no-repeat 50% 0 / 1px 100%; }
+.win-row { display: flex; align-items: center; gap: 10px; padding: 5px 12px; cursor: pointer; min-width: 0; border-bottom: 1px solid #f0f0f0; }
+.win-row:hover { background: #f7f7f7; }
+.win-row.sel { background: #f2f2f2; }
+.win-box { width: 16px; height: 16px; flex-shrink: 0; border: 1.5px solid #bbb; border-radius: 4px; position: relative; }
+.win-row.sel .win-box { background: #1a1a1a; border-color: #1a1a1a; }
+.win-row.sel .win-box::after { content: "✓"; position: absolute; inset: 0; color: #fff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+.win-name { flex: 1; font-size: 13.5px; position: relative; }
+.win-row.sel .win-name { font-weight: 600; }
+.win-price { font-size: 12px; color: #999; font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
+/* High-rarity flair */
+.win-name.lg, .win-name.my, .win-name.sp { font-weight: 700; overflow: visible; }
+.win-name.lg { color: #e8a31a; text-shadow: 0 0 6px rgba(240,180,40,.65), 0 0 13px rgba(240,170,20,.4); animation: glowpulse 2s ease-in-out infinite; }
+.win-name.my { color: #a855f7; text-shadow: 0 0 6px rgba(168,85,247,.7), 0 0 13px rgba(150,70,255,.45); animation: glowpulse 2.2s ease-in-out infinite; }
+.win-name.sp { background: linear-gradient(90deg,#ff2d55,#ff8a00,#ffe600,#34c759,#00c7ff,#8b5cff,#ff2d55); background-size: 220% auto; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent; filter: drop-shadow(0 0 6px rgba(255,255,255,.55)); animation: rainbow 3s linear infinite; }
+@keyframes glowpulse { 0%,100%{filter:brightness(1)} 50%{filter:brightness(1.35)} }
+@keyframes rainbow { to { background-position: 220% center; } }
+.spark { position: absolute; width: 3px; height: 3px; border-radius: 50%; pointer-events: none; top: 50%; left: 0; opacity: 0; animation: twinkle 1.6s ease-in-out infinite; }
+.spark.lg { background: #ffd76b; box-shadow: 0 0 5px #ffcb45; }
+.spark.my { background: #d8b4fe; box-shadow: 0 0 5px #b56bff; }
+.spark.sp { background: #fff; box-shadow: 0 0 5px #fff; animation: twinkle 1.6s ease-in-out infinite, hue 3s linear infinite; }
+@keyframes twinkle { 0%{opacity:0;transform:translateY(2px) scale(.3)} 35%{opacity:1;transform:translateY(-3px) scale(1)} 100%{opacity:0;transform:translateY(-11px) scale(.3)} }
+@keyframes hue { to { filter: hue-rotate(360deg); } }
+.win-foot { display: flex; align-items: center; gap: 10px; }
+.win-foot label { font-size: 12px; color: #888; }
+.win-qty { width: 70px; background: #fff; border: 1px solid #d8d8d8; color: #1a1a1a; border-radius: 7px; padding: 8px 10px; font-size: 14px; outline: none; font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
+.win-qty:focus { border-color: #888; }
+.win-btn { border: 1px solid #d8d8d8; border-radius: 7px; padding: 9px 16px; font-size: 13px; font-weight: 500; cursor: pointer; font-family: inherit; background: #fff; color: #1a1a1a; }
+.win-btn:hover { background: #f3f3f3; }
+.win-btn.primary { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
+.win-btn.primary:hover { background: #000; }
+.win-btn:disabled { opacity: .35; cursor: default; }
+.win-status { margin-left: auto; font-size: 12px; color: #777; text-align: right; }
 
-    /* Features */
-    section { padding: 72px 0; }
-    .section-title { text-align: center; margin-bottom: 48px; }
-    .section-title h2 { font-size: 34px; letter-spacing: -0.5px; margin-bottom: 12px; }
-    .section-title p { color: var(--muted); font-size: 17px; }
+/* tiny legal line */
+.hero-legal { position: relative; z-index: 2; font-size: 11px; color: #98a2b3; text-align: center; max-width: 680px; margin: 26px auto 0; line-height: 1.55; padding: 0 24px; }
 
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 24px;
-    }
-    .card {
-      background: #fff;
-      border: 1px solid var(--line);
-      border-radius: 16px;
-      padding: 28px;
-      transition: box-shadow .2s ease, transform .2s ease;
-    }
-    .card:hover { box-shadow: 0 12px 32px rgba(15, 23, 42, 0.08); transform: translateY(-2px); }
-    .card .icon {
-      width: 44px; height: 44px;
-      border-radius: 12px;
-      background: #ecfdf5;
-      color: var(--green);
-      display: grid; place-items: center;
-      font-size: 22px;
-      margin-bottom: 16px;
-    }
-    .card h3 { font-size: 18px; margin-bottom: 8px; }
-    .card p { color: var(--muted); font-size: 15px; }
-
-    /* Pricing */
-    .pricing { background: var(--soft); }
-    .price-card {
-      max-width: 420px;
-      margin: 0 auto;
-      background: #fff;
-      border: 1px solid var(--line);
-      border-radius: 20px;
-      padding: 40px;
-      text-align: center;
-      box-shadow: 0 16px 40px rgba(15, 23, 42, 0.06);
-    }
-    .price-card .amount {
-      font-size: 56px;
-      font-weight: 800;
-      letter-spacing: -2px;
-    }
-    .price-card .amount span { font-size: 18px; color: var(--muted); font-weight: 500; }
-    .price-card ul { list-style: none; text-align: left; margin: 28px 0; }
-    .price-card li {
-      padding: 10px 0;
-      border-bottom: 1px solid var(--line);
-      display: flex; align-items: center; gap: 10px;
-      font-size: 15px;
-    }
-    .price-card li:last-child { border-bottom: none; }
-    .price-card li .check { color: var(--green); font-weight: 700; }
-    .price-card .btn { width: 100%; }
-
-    /* Steps */
-    .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px; }
-    .step { text-align: center; }
-    .step .num {
-      width: 48px; height: 48px;
-      margin: 0 auto 16px;
-      border-radius: 50%;
-      background: var(--green);
-      color: #fff;
-      font-weight: 700;
-      font-size: 20px;
-      display: grid; place-items: center;
-    }
-    .step h3 { font-size: 18px; margin-bottom: 8px; }
-    .step p { color: var(--muted); font-size: 15px; }
-
-    /* Footer */
-    footer {
-      border-top: 1px solid var(--line);
-      padding: 40px 0;
-      text-align: center;
-      color: var(--muted);
-      font-size: 14px;
-    }
-    footer .logo { justify-content: center; margin-bottom: 12px; color: var(--ink); }
-    .disclaimer { max-width: 560px; margin: 16px auto 0; font-size: 12.5px; line-height: 1.5; }
-
-    @media (max-width: 760px) {
-      .hero h1 { font-size: 38px; }
-      .grid, .steps { grid-template-columns: 1fr; }
-      .nav-links { display: none; }
-    }
-  </style>
+@media (max-width: 560px) {
+  .lp-nav-actions .lp-btn-outline { display: none; }
+  .hero { padding-top: 84px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fp-bg::after, .fp-grad, .win-name.lg, .win-name.my, .win-name.sp, .spark { animation: none !important; }
+  .fp-anim, .fp-word > span { transition-duration: .001s; }
+  .win { transform: none !important; }
+}
+</style>
 </head>
 <body>
-  <header>
-    <div class="wrap nav">
-      <div class="logo">
-        <span class="mark">🌱</span>
-        <span>GAG Seed Buyer</span>
-      </div>
-      <nav class="nav-links">
-        <a href="#features">Features</a>
-        <a href="#how">How it works</a>
-        <a href="#pricing">Pricing</a>
-        <a class="btn" href="/signin.html">Get Started</a>
-      </nav>
+
+<div class="fp-bg" aria-hidden="true"></div>
+
+<!-- NAV -->
+<nav class="lp-nav" id="lp-nav">
+  <div class="lp-nav-inner">
+    <a href="/index.html" class="lp-logo" aria-label="GAG Seed Buyer home">
+      <svg class="mark" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect width="64" height="64" rx="16" fill="#16a34a"></rect>
+        <path d="M32 52 V30" stroke="#fff" stroke-width="3.6" stroke-linecap="round"></path>
+        <path d="M32 36 C22 36 17 28 18 19 C28 20 33 27 32 36 Z" fill="#fff"></path>
+        <path d="M32 40 C42 40 47 32 46 23 C36 24 31 31 32 40 Z" fill="#fff"></path>
+      </svg>
+      <span class="name">GAG Seed Buyer</span>
+    </a>
+    <div class="lp-nav-actions">
+      <a class="lp-btn lp-btn-outline" href="/signin.html">Sign in</a>
+      <a class="lp-btn lp-btn-accent lp-btn-lg" href="/signin.html">Get started</a>
     </div>
-  </header>
+  </div>
+</nav>
 
-  <main>
-    <section class="hero">
-      <div class="wrap">
-        <span class="pill">For Roblox · Grow a Garden</span>
-        <h1>Never miss a seed restock <br /><span class="accent">again.</span></h1>
-        <p>
-          An auto seed-buyer macro that watches the shop and grabs the seeds you want —
-          instantly, every restock. Install once; it updates itself every day.
-        </p>
-        <div class="cta-row">
-          <a class="btn lg" href="/signin.html">Start for $4.50/mo</a>
-          <a class="btn lg ghost" href="#how">See how it works</a>
-        </div>
-        <p class="sub-note">Cancel anytime · Always the latest version</p>
-      </div>
-    </section>
-
-    <section id="features">
-      <div class="wrap">
-        <div class="section-title">
-          <h2>Built to never fall behind</h2>
-          <p>The game changes constantly. So does your macro — automatically.</p>
-        </div>
-        <div class="grid">
-          <div class="card">
-            <div class="icon">⚡</div>
-            <h3>Instant buying</h3>
-            <p>Detects restocks and buys your chosen seeds in milliseconds, faster than any human click.</p>
-          </div>
-          <div class="card">
-            <div class="icon">🔄</div>
-            <h3>Auto-updates daily</h3>
-            <p>New seeds, fixes, and game patches reach you on the next launch. No reinstalling, ever.</p>
-          </div>
-          <div class="card">
-            <div class="icon">🎯</div>
-            <h3>Pick your seeds</h3>
-            <p>Choose exactly which seeds to chase. Skip the junk, prioritize the rares.</p>
-          </div>
-          <div class="card">
-            <div class="icon">🪶</div>
-            <h3>Tiny download</h3>
-            <p>A featherweight launcher is all you install. It pulls the latest macro each time you run it.</p>
-          </div>
-          <div class="card">
-            <div class="icon">🛡️</div>
-            <h3>Account-locked</h3>
-            <p>Your subscription powers the macro. One login, one secure pipe to the newest build.</p>
-          </div>
-          <div class="card">
-            <div class="icon">💸</div>
-            <h3>Fair pricing</h3>
-            <p>One low monthly price. No upsells, no hidden tiers, cancel whenever you like.</p>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section id="how" style="background: var(--soft);">
-      <div class="wrap">
-        <div class="section-title">
-          <h2>Up and running in minutes</h2>
-          <p>Three steps from download to your first auto-bought seed.</p>
-        </div>
-        <div class="steps">
-          <div class="step">
-            <div class="num">1</div>
-            <h3>Subscribe & sign in</h3>
-            <p>Start your plan and log in with Google. That's your key.</p>
-          </div>
-          <div class="step">
-            <div class="num">2</div>
-            <h3>Run the launcher</h3>
-            <p>Download the small launcher and open it. It fetches today's macro for you.</p>
-          </div>
-          <div class="step">
-            <div class="num">3</div>
-            <h3>Garden on autopilot</h3>
-            <p>Pick your seeds and let it buy every restock while you do anything else.</p>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section id="pricing" class="pricing">
-      <div class="wrap">
-        <div class="section-title">
-          <h2>Simple pricing</h2>
-          <p>Everything included. Always the newest version.</p>
-        </div>
-        <div class="price-card">
-          <div class="amount">$4.50<span>/month</span></div>
-          <ul>
-            <li><span class="check">✓</span> Auto seed-buyer for Grow a Garden</li>
-            <li><span class="check">✓</span> Daily auto-updates, no reinstalls</li>
-            <li><span class="check">✓</span> Choose which seeds to target</li>
-            <li><span class="check">✓</span> Google login, cancel anytime</li>
-          </ul>
-          <a class="btn lg" href="/signin.html">Get Started</a>
-        </div>
-      </div>
-    </section>
-  </main>
-
-  <footer>
-    <div class="wrap">
-      <div class="logo">
-        <span class="mark">🌱</span>
-        <span>GAG Seed Buyer</span>
-      </div>
-      <p>© 2026 GAG Seed Buyer. All rights reserved.</p>
-      <p class="disclaimer">
-        Not affiliated with, endorsed by, or sponsored by Roblox Corporation or the creators of Grow a Garden.
-        Use of automation tools may be against the game's terms of service; use at your own risk.
-      </p>
+<!-- HERO (the whole page) -->
+<section class="hero" id="hero">
+  <canvas class="fp-net" id="fp-net" aria-hidden="true"></canvas>
+  <div class="hero-inner">
+    <span class="hero-eyebrow fp-anim"><span class="dot"></span>For Roblox · Grow a Garden</span>
+    <h1 class="hero-headline fp-anim">Never miss a seed restock again.</h1>
+    <p class="hero-sub fp-anim">An auto seed-buyer that watches the shop and grabs the seeds you want — every restock, instantly.</p>
+    <div class="hero-ctas fp-anim">
+      <a class="lp-btn lp-btn-accent lp-btn-lg" href="/signin.html">Start for $4.50/mo</a>
+      <a class="lp-btn lp-btn-outline lp-btn-lg" href="/signin.html">Sign in</a>
     </div>
-  </footer>
+    <div class="hero-note fp-anim"><span class="av"><span></span><span></span><span></span></span>Updates itself daily · cancel anytime</div>
+
+    <!-- Interactive replica of the real macro window (macro.ahk) -->
+    <div class="win-stage fp-anim">
+      <div class="win" id="macroWin">
+        <div class="win-title">
+          <svg class="ico" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect width="64" height="64" rx="16" fill="#16a34a"></rect>
+            <path d="M32 52 V30" stroke="#fff" stroke-width="3.6" stroke-linecap="round"></path>
+            <path d="M32 36 C22 36 17 28 18 19 C28 20 33 27 32 36 Z" fill="#fff"></path>
+            <path d="M32 40 C42 40 47 32 46 23 C36 24 31 31 32 40 Z" fill="#fff"></path>
+          </svg>
+          <span class="t">GAG Seed Buyer</span>
+          <div class="win-ctrls">
+            <i><svg width="11" height="11" viewBox="0 0 11 11"><path d="M2 5.5h7" stroke="currentColor" stroke-width="1.2"/></svg></i>
+            <i><svg width="11" height="11" viewBox="0 0 11 11"><rect x="2" y="2" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.2"/></svg></i>
+            <i class="close"><svg width="11" height="11" viewBox="0 0 11 11"><path d="M2.5 2.5l6 6M8.5 2.5l-6 6" stroke="currentColor" stroke-width="1.2"/></svg></i>
+          </div>
+        </div>
+        <div class="win-body">
+          <h1>GAG Seed Buyer</h1>
+          <div class="sub">
+            <span id="count">0 selected</span>
+            <span><a id="selAll">Select all</a> · <a id="selNone">Clear</a></span>
+          </div>
+          <div id="list" class="win-list"></div>
+          <div class="win-foot">
+            <label for="qty">Qty</label>
+            <input id="qty" class="win-qty" type="number" min="1" max="99999" value="20">
+            <button id="startBtn" class="win-btn primary">Start</button>
+            <button id="stopBtn" class="win-btn">Stop</button>
+            <span id="status" class="win-status">Idle.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<p class="hero-legal">
+  Not affiliated with, endorsed by, or sponsored by Roblox Corporation or the creators of Grow a Garden.
+  Use of automation tools may be against the game's terms of service; use at your own risk. © 2026 GAG Seed Buyer.
+</p>
+
+<script>
+(function () {
+  "use strict";
+  var reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* ── Seed list — same order/data as macro.ahk ── */
+  var SEEDS = [
+    {n:'Carrot',r:'Common',p:'1'},{n:'Strawberry',r:'Common',p:'10'},{n:'Blueberry',r:'Common',p:'25'},
+    {n:'Tulip',r:'Uncommon',p:'40'},{n:'Tomato',r:'Uncommon',p:'200'},{n:'Apple',r:'Uncommon',p:'400'},
+    {n:'Bamboo',r:'Rare',p:'700'},{n:'Corn',r:'Rare',p:'2,500'},{n:'Cactus',r:'Rare',p:'5,000'},{n:'Pineapple',r:'Rare',p:'10,000'},
+    {n:'Mushroom',r:'Epic',p:'15,000'},{n:'Green Bean',r:'Epic',p:'20,000'},{n:'Banana',r:'Epic',p:'30,000'},{n:'Grape',r:'Epic',p:'50,000'},
+    {n:'Coconut',r:'Epic',p:'140,000'},{n:'Mango',r:'Epic',p:'300,000'},
+    {n:'Dragon Fruit',r:'Legendary',p:'120,000'},{n:'Acorn',r:'Legendary',p:'700,000'},{n:'Cherry',r:'Legendary',p:'1,200,000'},{n:'Sunflower',r:'Legendary',p:'5,000,000'},
+    {n:'Venus Fly Trap',r:'Mythic',p:'7,000,000'},{n:'Pomegranate',r:'Mythic',p:'12,000,000'},{n:'Poison Apple',r:'Mythic',p:'25,000,000'},
+    {n:"Moon Bloom",r:'Super',p:'65,000,000'},{n:"Dragon's Breath",r:'Super',p:'90,000,000'}
+  ];
+  var RARECLASS = { Legendary:'lg', Mythic:'my', Super:'sp' };
+  var selected = {};   // 1-based index -> true
+  var running = false, runTimers = [];
+
+  var listEl = document.getElementById('list');
+  var countEl = document.getElementById('count');
+  var statusEl = document.getElementById('status');
+  var qtyEl = document.getElementById('qty');
+  var startBtn = document.getElementById('startBtn');
+  var stopBtn = document.getElementById('stopBtn');
+
+  function selectedList() {
+    var arr = [];
+    for (var k in selected) { if (selected[k]) arr.push(parseInt(k, 10)); }
+    arr.sort(function (a, b) { return a - b; });
+    return arr;
+  }
+  function updateCount() { countEl.textContent = selectedList().length + ' selected'; }
+  function qtyVal() { var q = parseInt(qtyEl.value, 10); return (!q || q < 1) ? 1 : q; }
+
+  function addSparks(nameEl, cls) {
+    for (var k = 0; k < 5; k++) {
+      var sp = document.createElement('i');
+      sp.className = 'spark ' + cls;
+      sp.style.left = (8 + Math.random() * 84) + '%';
+      sp.style.top = (Math.random() * 100) + '%';
+      sp.style.animationDelay = (Math.random() * 1.6) + 's';
+      sp.style.animationDuration = (1.2 + Math.random() * 1.3) + 's';
+      nameEl.appendChild(sp);
+    }
+  }
+  function render() {
+    listEl.innerHTML = '';
+    // Two columns: fill straight down the left, then continue down the right.
+    listEl.style.gridTemplateRows = 'repeat(' + Math.ceil(SEEDS.length / 2) + ', auto)';
+    SEEDS.forEach(function (s, i) {
+      var n = i + 1;
+      var row = document.createElement('div'); row.className = 'win-row';
+      var box = document.createElement('span'); box.className = 'win-box';
+      var name = document.createElement('span'); name.className = 'win-name';
+      var price = document.createElement('span'); price.className = 'win-price';
+      var cls = RARECLASS[s.r];
+      name.textContent = s.n;
+      if (cls) { name.classList.add(cls); addSparks(name, cls); }
+      price.textContent = s.p;
+      row.appendChild(box); row.appendChild(name); row.appendChild(price);
+      row.onclick = function () {
+        if (selected[n]) { delete selected[n]; row.classList.remove('sel'); }
+        else { selected[n] = true; row.classList.add('sel'); }
+        updateCount();
+      };
+      listEl.appendChild(row);
+    });
+  }
+  function setAll(v) {
+    var rows = listEl.querySelectorAll('.win-row');
+    for (var i = 0; i < SEEDS.length; i++) { var n = i + 1; if (v) selected[n] = true; else delete selected[n]; }
+    for (var j = 0; j < rows.length; j++) { if (v) rows[j].classList.add('sel'); else rows[j].classList.remove('sel'); }
+    updateCount();
+  }
+  function setRunning(on) { running = on; startBtn.disabled = on; stopBtn.disabled = !on; }
+  function clearRun() { runTimers.forEach(function (t) { clearTimeout(t); }); runTimers = []; }
+
+  // Start/Stop simulate the real macro's run loop (no real automation here).
+  function startSim() {
+    var arr = selectedList();
+    if (!arr.length) { statusEl.textContent = 'Tick at least one seed.'; return; }
+    setRunning(true);
+    var i = 0;
+    function step() {
+      if (!running) return;
+      if (i < arr.length) {
+        var s = SEEDS[arr[i] - 1];
+        statusEl.textContent = 'Buying ' + s.n + ' ×' + qtyVal() + '…';
+        i++; runTimers.push(setTimeout(step, 850));
+      } else {
+        statusEl.textContent = 'Done. Waiting for next restock…';
+        i = 0; runTimers.push(setTimeout(step, 2400));
+      }
+    }
+    step();
+  }
+  function stopSim() { setRunning(false); clearRun(); statusEl.textContent = 'Stopped.'; }
+
+  document.getElementById('selAll').onclick = function () { setAll(true); };
+  document.getElementById('selNone').onclick = function () { setAll(false); };
+  qtyEl.oninput = function () { /* free-typed; clamped on use */ };
+  startBtn.onclick = startSim;
+  stopBtn.onclick = stopSim;
+
+  render(); updateCount(); setRunning(false);
+
+  /* ── Hero headline: per-word staggered rise ── */
+  var hl = document.querySelector('.hero-headline');
+  if (hl) {
+    var words = hl.textContent.trim().split(/\s+/);
+    hl.textContent = '';
+    words.forEach(function (word, i) {
+      var wrap = document.createElement('span'); wrap.className = 'fp-word'; wrap.style.setProperty('--wi', i);
+      var inner = document.createElement('span'); inner.textContent = word;
+      if (/restock/i.test(word)) inner.className = 'fp-grad';
+      wrap.appendChild(inner); hl.appendChild(wrap); hl.appendChild(document.createTextNode(' '));
+    });
+  }
+
+  /* ── Reveal on load ── */
+  var hero = document.getElementById('hero');
+  requestAnimationFrame(function () { setTimeout(function () { hero.classList.add('in'); }, 60); });
+
+  /* ── Nav hairline on scroll (page may slightly overflow on short screens) ── */
+  var nav = document.getElementById('lp-nav');
+  function onScroll() { nav.classList.toggle('scrolled', window.scrollY > 8); }
+  window.addEventListener('scroll', onScroll, { passive: true }); onScroll();
+
+  /* ── Mouse-move tilt on the macro window (parallax following the cursor) ── */
+  var win = document.getElementById('macroWin');
+  if (win && !reduce) {
+    hero.addEventListener('pointermove', function (ev) {
+      var r = hero.getBoundingClientRect();
+      var px = (ev.clientX - r.left) / r.width - 0.5;
+      var py = (ev.clientY - r.top) / r.height - 0.5;
+      win.style.setProperty('--rx', (px * 6).toFixed(2) + 'deg');
+      win.style.setProperty('--ry', (-py * 5).toFixed(2) + 'deg');
+    });
+    hero.addEventListener('pointerleave', function () {
+      win.style.setProperty('--rx', '0deg'); win.style.setProperty('--ry', '0deg');
+    });
+  }
+
+  /* ── Magnetic CTA buttons ── */
+  if (!reduce) document.querySelectorAll('.hero-ctas .lp-btn').forEach(function (btn) {
+    btn.addEventListener('pointermove', function (ev) {
+      var r = btn.getBoundingClientRect();
+      var x = ev.clientX - r.left - r.width / 2, y = ev.clientY - r.top - r.height / 2;
+      btn.style.transform = 'translate(' + (x * 0.18).toFixed(1) + 'px,' + (y * 0.30).toFixed(1) + 'px)';
+    });
+    btn.addEventListener('pointerleave', function () { btn.style.transform = ''; });
+  });
+
+  /* ── Hero constellation: drifting nodes that link to the cursor ── */
+  var canvas = document.getElementById('fp-net');
+  if (canvas) startNet(canvas);
+  function startNet(canvas) {
+    var ctx = canvas.getContext('2d');
+    var dpr = Math.min(2, window.devicePixelRatio || 1);
+    var w = 0, h = 0, nodes = [], accent = '#16a34a';
+    var mouse = { x: -9999, y: -9999, on: false };
+    var animate = !reduce;
+    function resize() {
+      var r = canvas.getBoundingClientRect(); w = r.width; h = r.height;
+      canvas.width = w * dpr; canvas.height = h * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      var count = Math.max(20, Math.min(46, Math.round(w * h / 26000)));
+      nodes = Array.from({ length: count }, function () { return { x: Math.random() * w, y: Math.random() * h, vx: animate ? (Math.random() - 0.5) * 0.3 : 0, vy: animate ? (Math.random() - 0.5) * 0.3 : 0, r: 1.5 + Math.random() * 2.2 }; });
+    }
+    var LINK = 132;
+    function draw() {
+      ctx.clearRect(0, 0, w, h);
+      for (var k = 0; k < nodes.length; k++) {
+        var n = nodes[k]; n.x += n.vx; n.y += n.vy;
+        if (n.x < 0 || n.x > w) n.vx *= -1; if (n.y < 0 || n.y > h) n.vy *= -1;
+        if (mouse.on) { var ddx = mouse.x - n.x, ddy = mouse.y - n.y, dd = Math.hypot(ddx, ddy); if (dd < 150 && dd > 0.1) { n.x += ddx / dd * 0.5; n.y += ddy / dd * 0.5; } }
+      }
+      ctx.strokeStyle = accent;
+      for (var i = 0; i < nodes.length; i++) {
+        var a = nodes[i];
+        for (var j = i + 1; j < nodes.length; j++) {
+          var b = nodes[j]; var d = Math.hypot(a.x - b.x, a.y - b.y);
+          if (d < LINK) { ctx.globalAlpha = (1 - d / LINK) * 0.22; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); }
+        }
+        if (mouse.on) { var dm = Math.hypot(a.x - mouse.x, a.y - mouse.y); if (dm < 170) { ctx.globalAlpha = (1 - dm / 170) * 0.42; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(mouse.x, mouse.y); ctx.stroke(); } }
+      }
+      ctx.fillStyle = accent;
+      for (var m = 0; m < nodes.length; m++) { var nn = nodes[m]; ctx.globalAlpha = 0.5; ctx.beginPath(); ctx.arc(nn.x, nn.y, nn.r, 0, 6.2832); ctx.fill(); }
+      ctx.globalAlpha = 1;
+    }
+    function loop() { if (!document.hidden) draw(); requestAnimationFrame(loop); }
+    if (window.ResizeObserver) new ResizeObserver(resize).observe(canvas);
+    window.addEventListener('resize', resize);
+    if (animate) {
+      canvas.parentElement.addEventListener('pointermove', function (e) { var r = canvas.getBoundingClientRect(); mouse.x = e.clientX - r.left; mouse.y = e.clientY - r.top; mouse.on = true; });
+      canvas.parentElement.addEventListener('pointerleave', function () { mouse.on = false; mouse.x = mouse.y = -9999; });
+    }
+    resize();
+    if (animate) requestAnimationFrame(loop); else draw();
+  }
+})();
+</script>
 </body>
 </html>

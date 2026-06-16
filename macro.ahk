@@ -1,5 +1,6 @@
 #Requires AutoHotkey v2.0
 #SingleInstance Force
+#Include lib\WebView2.ahk
 
 ; ============================================================
 ;  GAG Seed Buyer  -  Roblox seed-shop macro
@@ -20,10 +21,14 @@
 ;  (restock loop) until you press Stop.
 ;
 ;  Controls:
-
 ;    Start button / F1 -> run
 ;    Stop  button / F2 -> stop (releases held keys)
 ;    Close window / Esc -> quit the script
+;
+;  The window is a WebView2 (Edge) control rendering the HTML/CSS/JS
+;  UI below. AHK stays the automation engine; the UI just sends it
+;  messages ("start" / "stop" / current selection + quantity) and
+;  AHK pushes status + run-state back to the page.
 ; ============================================================
 
 ; Send keys a little slower so the game reliably registers them.
@@ -35,6 +40,26 @@ global IntervalMs := 5 * 60 * 1000  ; how often to repeat: 5 minutes
 global FirstSel   := 0              ; index of first ticked seed (locked at Start)
 global LastSel    := 0              ; index of last ticked seed (locked at Start)
 global PassQty    := 20             ; quantity per seed (locked at Start)
+
+; Live UI state, kept in sync by messages from the page.
+global SelIndices := []             ; sorted 1-based indices currently ticked
+global CurQty     := 20             ; quantity currently typed in the box
+global SelSet     := Map()          ; locked-at-Start lookup: index -> true
+
+; WebView2 / window handles (kept global so they are not garbage-collected).
+global MainGui    := 0
+global controller := 0
+global wv         := 0
+
+; --- Free version: the macro is free, but the LAST `PremiumCount` seeds are
+;     locked until the user unlocks them with a subscription paste-code (the
+;     same Google + Stripe auth the website already uses). New seeds get added
+;     to the bottom of the list, so "the last N" always tracks the newest ones.
+global PremiumCount := 5
+global Unlocked     := false                          ; premium unlocked this session?
+global BackendBase  := "https://gagmacro.pages.dev"   ; subscription backend
+global VerifyUrl    := BackendBase "/api/desktop/verify"
+global TokenFile    := A_AppData "\GagSeedBuyer\token.txt"   ; saved paste-code
 
 ; --- Seed list in the SAME top-to-bottom order as the in-game shop ---
 global Seeds := [
@@ -65,83 +90,125 @@ global Seeds := [
     {name: "Dragon's Breath", rarity: "Super",     price: "90,000,000"}
 ]
 
-global Checks := []          ; checkbox controls, same index as Seeds
-global QtyEdit := ""         ; quantity input control
-global StatusText := ""      ; status line control
+BuildUi()
 
-BuildGui()
+; Re-check any previously saved access code in the background so returning
+; subscribers see the premium seeds already unlocked, without blocking the UI.
+SetTimer(CheckSavedLicense, -800)
 
 ; ============================================================
-;  GUI
+;  UI  (WebView2 window + HTML/CSS/JS)
 ; ============================================================
-BuildGui() {
-    global Seeds, Checks, QtyEdit, StatusText
+BuildUi() {
+    global MainGui, controller, wv, PremiumCount
 
-    MyGui := Gui("+AlwaysOnTop", "GAG Seed Buyer")
-    MyGui.SetFont("s9", "Segoe UI")
-    MyGui.Add("Text", "xm ym", "Tick seeds, set a quantity, then Start. Buys now, then repeats every 5 minutes.")
+    dllPath := A_ScriptDir "\lib\WebView2Loader.dll"
+    dataDir := A_AppData "\GagSeedBuyer\WebView2"   ; writable user-data folder
+    DirCreate dataDir
 
-    ; Two columns of checkboxes.
-    rows   := Ceil(Seeds.Length / 2)
-    startX := 10
-    startY := 32
-    colW   := 250
-    rowH   := 24
+    MainGui := Gui("+Resize +AlwaysOnTop", "GAG Seed Buyer")
+    MainGui.MarginX := 0
+    MainGui.MarginY := 0
+    MainGui.BackColor := 0xFFFFFF
+    ; Light title bar (Win11) to match the white UI. Harmless if unsupported.
+    try DllCall("dwmapi\DwmSetWindowAttribute", "ptr", MainGui.Hwnd, "int", 20, "int*", 0, "int", 4)
+    MainGui.OnEvent("Size",  OnGuiSize)
+    MainGui.OnEvent("Close", (*) => ExitApp())
+    MainGui.Show("w560 h600")
 
-    for i, s in Seeds {
-        col := (i - 1) // rows
-        row := Mod(i - 1, rows)
-        x := startX + col * colW
-        y := startY + row * rowH
-        label := s.name "  (" s.rarity ", " s.price ")"
-        Checks.Push(MyGui.Add("Checkbox", Format("x{} y{} w240", x, y), label))
+    ; Create the Edge WebView2 control filling the window. Pass the loader DLL
+    ; path explicitly and a writable data dir (the default would sit next to the
+    ; AutoHotkey exe in Program Files, which isn't writable).
+    controller := WebView2.create(MainGui.Hwnd, , 0, dataDir, "", 0, dllPath)
+    wv := controller.CoreWebView2
+
+    s := wv.Settings                          ; lock it down so it feels like an app
+    s.AreDefaultContextMenusEnabled := false
+    s.AreDevToolsEnabled            := false
+    s.IsZoomControlEnabled          := false
+    s.IsStatusBarEnabled            := false
+    try s.AreBrowserAcceleratorKeysEnabled := false
+
+    wv.add_WebMessageReceived(OnWebMessage)
+
+    html := StrReplace(HtmlTemplate(), "__SEEDS__", BuildSeedsJs())
+    html := StrReplace(html, "__PREMIUM__", PremiumCount)
+    wv.NavigateToString(html)
+}
+
+; Keep the WebView2 control sized to the window's client area.
+OnGuiSize(thisGui, minMax, w, h) {
+    global controller
+    if controller
+        controller.Fill()
+}
+
+; Build the seed list as a JS array literal injected into the page.
+BuildSeedsJs() {
+    global Seeds
+    out := "["
+    for i, sd in Seeds {
+        out .= "{n:" JsStr(sd.name) ",r:" JsStr(sd.rarity) ",p:" JsStr(sd.price) "}"
+        if i < Seeds.Length
+            out .= ","
     }
-
-    bottomY := startY + rows * rowH + 12
-
-    MyGui.Add("Text", Format("x{} y{} w160", startX, bottomY + 4), "Buy quantity per seed:")
-    QtyEdit := MyGui.Add("Edit", Format("x{} y{} w70", startX + 160, bottomY))
-    MyGui.Add("UpDown", "Range1-99999", 20)
-
-    btnY := bottomY + 34
-    selAll   := MyGui.Add("Button", Format("x{} y{} w90",  startX,       btnY), "Select All")
-    clrAll   := MyGui.Add("Button", Format("x{} y{} w90",  startX + 100, btnY), "Clear All")
-    startBtn := MyGui.Add("Button", Format("x{} y{} w120", startX + 250, btnY), "Start Loop (F1)")
-    stopBtn  := MyGui.Add("Button", Format("x{} y{} w100", startX + 390, btnY), "Stop (F2)")
-
-    StatusText := MyGui.Add("Text", Format("x{} y{} w480", startX, btnY + 36), "Idle.")
-
-    note := MyGui.Add("Text", Format("x{} y{} w480", startX, btnY + 60),
-        "NOTE: make sure you are facing the seed shop before you start.")
-    note.SetFont("Bold cRed")
-
-    selAll.OnEvent("Click",   (*) => SetAll(true))
-    clrAll.OnEvent("Click",   (*) => SetAll(false))
-    startBtn.OnEvent("Click", (*) => StartMacro())
-    stopBtn.OnEvent("Click",  (*) => StopMacro())
-    MyGui.OnEvent("Close",    (*) => ExitApp())
-
-    MyGui.Show()
+    return out "]"
 }
 
-SetAll(val) {
-    global Checks
-    for c in Checks
-        c.Value := val
+; JSON/JS-safe double-quoted string.
+JsStr(str) {
+    str := StrReplace(str, "\", "\\")
+    str := StrReplace(str, '"', '\"')
+    return '"' str '"'
 }
 
-SetStatus(txt) {
-    global StatusText
-    StatusText.Text := txt
+; ============================================================
+;  Messages from the page  ->  AHK
+;  Formats (pipe-delimited strings):
+;    "sel|1,3,5"   selection changed (csv of 1-based indices; may be empty)
+;    "qty|20"      quantity changed
+;    "start"       run / arm the loop
+;    "stop"        stop
+; ============================================================
+OnWebMessage(sender, args) {
+    global SelIndices, CurQty
+    msg := args.TryGetWebMessageAsString()
+    parts := StrSplit(msg, "|")
+    cmd := parts.Length >= 1 ? parts[1] : ""
+
+    switch cmd {
+        case "sel":
+            SelIndices := []
+            csv := parts.Length >= 2 ? parts[2] : ""
+            if csv != "" {
+                for token in StrSplit(csv, ",") {
+                    if IsInteger(token)
+                        SelIndices.Push(Integer(token))
+                }
+            }
+        case "qty":
+            v := parts.Length >= 2 ? parts[2] : ""
+            CurQty := (IsInteger(v) && Integer(v) >= 1) ? Integer(v) : 1
+        case "start":
+            StartMacro()
+        case "stop":
+            StopMacro()
+        case "openaccess":
+            OpenAccessPage()
+        case "activate":
+            p := InStr(msg, "|")            ; rest-of-line: the pasted code
+            ActivateCode(p ? SubStr(msg, p + 1) : "")
+    }
 }
 
-GetQty() {
-    global QtyEdit
-    val := QtyEdit.Value
-    if !IsNumber(val) || Integer(val) < 1
-        return 1
-    return Integer(val)
+; ---- Push to the page ----
+Post(str) {
+    global wv
+    if wv
+        try wv.PostWebMessageAsString(str)
 }
+UiStatus(text)  => Post("status|" text)            ; status line text
+UiState(on)     => Post("state|"  (on ? "1" : "0")) ; running? -> button enable/disable
 
 ; ============================================================
 ;  Hotkeys
@@ -151,34 +218,44 @@ F2:: StopMacro()
 Esc:: ExitApp
 
 StartMacro() {
-    global LoopActive, Running, IntervalMs, FirstSel, LastSel, PassQty, Checks
+    global LoopActive, Running, IntervalMs, FirstSel, LastSel, PassQty
+    global SelIndices, CurQty, SelSet, Unlocked
 
     if LoopActive               ; loop already armed -> ignore
         return
 
-    ; Lock in the selection for this whole loop session.
-    FirstSel := 0
-    LastSel  := 0
-    for i, c in Checks {
-        if c.Value {
-            if !FirstSel
-                FirstSel := i
-            LastSel := i
-        }
+    ; Drop any locked premium seeds unless they've been unlocked. The UI already
+    ; prevents ticking them; this is just defense in depth.
+    picks := []
+    for idx in SelIndices {
+        if (!Unlocked && IsPremiumIndex(idx))
+            continue
+        picks.Push(idx)
     }
-    if !FirstSel {
-        SetStatus("Nothing selected.")
+
+    if picks.Length = 0 {
+        UiStatus("Nothing selected.")
         MsgBox "No seeds selected. Tick at least one seed."
         return
     }
-    PassQty := GetQty()
+
+    ; Lock in the selection + quantity for this whole loop session.
+    FirstSel := picks[1]
+    LastSel  := picks[picks.Length]
+    SelSet   := Map()
+    for idx in picks
+        SelSet[idx] := true
+    PassQty := (CurQty >= 1) ? CurQty : 1
 
     LoopActive := true
     Running := true
+    UiState(true)
+
     ; One-time setup: open the shop UI and land on the first selected seed.
     if !Setup() {
         Running := false
         LoopActive := false
+        UiState(false)
         return
     }
     BuyPass()                   ; first buy pass (ends on the first selected seed)
@@ -186,7 +263,7 @@ StartMacro() {
 
     if LoopActive {             ; still armed -> schedule the repeats
         SetTimer(DoPass, IntervalMs)
-        SetStatus("Done. Waiting for next restock...  (Stop / F2 to end)")
+        UiStatus("Done. Waiting for next restock...  (Stop / F2 to end)")
     }
 }
 
@@ -201,7 +278,7 @@ DoPass() {
     BuyPass()
     Running := false
     if LoopActive
-        SetStatus("Done. Waiting for next restock...  (Stop / F2 to end)")
+        UiStatus("Done. Waiting for next restock...  (Stop / F2 to end)")
 }
 
 StopMacro() {
@@ -212,7 +289,139 @@ StopMacro() {
     ; Make sure no arrow key is left stuck down.
     Send "{Up up}"
     Send "{Down up}"
-    SetStatus("Stopped.")
+    UiState(false)
+    UiStatus("Stopped.")
+}
+
+; ============================================================
+;  Free version: premium unlock (last N seeds)
+;  The macro runs free; the last `PremiumCount` seeds stay locked until the
+;  user pastes a valid subscription code, checked against the same backend the
+;  website uses (/api/desktop/verify).
+; ============================================================
+
+; True if seed index `i` (1-based) is one of the locked premium seeds.
+IsPremiumIndex(i) {
+    global Seeds, PremiumCount
+    start := Seeds.Length - PremiumCount + 1
+    if (start < 1)
+        start := 1
+    return i >= start
+}
+
+; Background check on startup: if a saved code is still active, unlock live.
+CheckSavedLicense() {
+    global TokenFile, Unlocked
+    if Unlocked
+        return
+    if !FileExist(TokenFile)
+        return
+    token := ReadToken(TokenFile)
+    if (token = "")
+        return
+    res := VerifyToken(token)
+    if (res.status = "active") {
+        Unlocked := true
+        Post("unlock|1")
+    } else if (res.status = "inactive") {
+        try FileDelete(TokenFile)           ; cancelled / expired -> stay locked
+    } else {
+        ; Offline / server unreachable: trust the saved code for this session,
+        ; like the launcher does, so paying users aren't locked out offline.
+        Unlocked := true
+        Post("unlock|1")
+    }
+}
+
+; "Get access" -> open the sign-in / subscribe page in the default browser.
+OpenAccessPage() {
+    global BackendBase
+    url := BackendBase "/signin.html"
+    try
+        Run(url)
+    catch
+        try Run("explorer.exe " url)
+}
+
+; Verify a pasted code. On a confirmed active subscription: save it and unlock
+; the last 5 seeds live. Otherwise tell the page what went wrong.
+ActivateCode(code) {
+    global TokenFile, Unlocked
+    code := Trim(code)
+    if (code = "") {
+        Post("licensemsg|Paste your access code first.")
+        return
+    }
+    res := VerifyToken(code)
+    if (res.status = "active") {
+        SaveToken(TokenFile, code)
+        Unlocked := true
+        Post("unlock|1")
+    } else if (res.status = "inactive") {
+        Post("licensemsg|That code isn't valid or has no active subscription.")
+    } else {
+        Post("licensemsg|Couldn't reach the server (" res.err "). Check your internet and try again.")
+    }
+}
+
+; ---- Backend verification + token storage (mirrors the launcher) ----
+
+; POST { "token": <code> } and classify the outcome:
+;   "active"   -> HTTP 200 with active:true     -> unlock
+;   "inactive" -> HTTP 200 active:false, or 401  -> reject the code
+;   "error"    -> request never completed / non-conclusive (offline, 5xx)
+VerifyToken(token) {
+    global VerifyUrl
+    body := '{"token":"' JsonEscape(Trim(token)) '"}'
+    try {
+        req := ComObject("WinHttp.WinHttpRequest.5.1")
+        req.SetTimeouts(5000, 5000, 5000, 15000)    ; resolve, connect, send, receive (ms)
+        req.Open("POST", VerifyUrl, false)
+        req.SetRequestHeader("Content-Type", "application/json")
+        req.Send(body)
+        status := req.Status
+        if (status = 200)
+            return { status: ResponseIsActive(req.ResponseText) ? "active" : "inactive", err: "" }
+        if (status = 401)
+            return { status: "inactive", err: "HTTP 401" }
+        return { status: "error", err: "HTTP " status }
+    } catch as e {
+        return { status: "error", err: e.Message }
+    }
+}
+
+; True if the JSON body has  "active": true  (tolerant of whitespace and case).
+ResponseIsActive(text) {
+    return RegExMatch(text, 'i)"active"\s*:\s*true') > 0
+}
+
+; Minimal JSON-string escaping for the token (signed base64url, but escape
+; defensively so a stray quote/backslash can't break the request body).
+JsonEscape(s) {
+    s := StrReplace(s, "\", "\\")
+    s := StrReplace(s, '"', '\"')
+    s := StrReplace(s, "`r", "")
+    s := StrReplace(s, "`n", "")
+    s := StrReplace(s, "`t", "")
+    return s
+}
+
+; Read the saved paste-code (BOM-safe), trimmed. "" if missing / unreadable.
+ReadToken(path) {
+    try
+        return Trim(FileRead(path, "UTF-8"), " `t`r`n" Chr(0xFEFF))
+    catch
+        return ""
+}
+
+; Save the code with no BOM; create the folder if needed.
+SaveToken(path, text) {
+    SplitPath(path, , &dir)
+    if (dir != "" && !DirExist(dir))
+        DirCreate(dir)
+    f := FileOpen(path, "w", "UTF-8-RAW")
+    f.Write(text)
+    f.Close()
 }
 
 ; ============================================================
@@ -227,12 +436,12 @@ Setup() {
     CoordMode "Mouse", "Screen"
 
     ; 0. Focus the Roblox window.
-    SetStatus("Focusing Roblox...")
+    UiStatus("Focusing Roblox...")
     if WinExist("ahk_exe RobloxPlayerBeta.exe") {
         WinActivate
         WinWaitActive("ahk_exe RobloxPlayerBeta.exe", , 3)
     } else {
-        SetStatus("Roblox not found.")
+        UiStatus("Roblox not found.")
         MsgBox "Roblox window not found. Launch Roblox first."
         return false
     }
@@ -277,7 +486,7 @@ Setup() {
 
     ; 3b. Snap to the FIRST position: go down 5 times, then hold Up for
     ;     5 seconds to scroll all the way back to the top -> position 1.
-    SetStatus("Resetting to position 1...")
+    UiStatus("Resetting to position 1...")
     Loop 5 {
         Send "{Down}"
         if !Wait(300)
@@ -302,7 +511,7 @@ Setup() {
 ; Walks DOWN buying each ticked seed, then walks back UP to the first
 ; selected seed -> ends where it started, ready to repeat with no setup.
 BuyPass() {
-    global Running, Seeds, Checks, FirstSel, LastSel, PassQty
+    global Running, Seeds, SelSet, FirstSel, LastSel, PassQty
 
     ; Keep Roblox focused (this does NOT move the UI cursor).
     if WinExist("ahk_exe RobloxPlayerBeta.exe")
@@ -313,8 +522,8 @@ BuyPass() {
     Loop {
         if !Running
             return
-        if Checks[i].Value {
-            SetStatus(Format("Buying {} x{}", Seeds[i].name, PassQty))
+        if SelSet.Has(i) {
+            UiStatus(Format("Buying {} x{}", Seeds[i].name, PassQty))
             if !BuyHere(PassQty)
                 return
         }
@@ -378,4 +587,288 @@ Wait(ms) {
         elapsed += 50
     }
     return true
+}
+
+; ============================================================
+;  HTML / CSS / JS  (the entire UI). __SEEDS__ is replaced at runtime.
+;  ASCII-only on purpose (glyphs use CSS \unicode / HTML entities) so the
+;  script file's encoding can never mangle the UI.
+; ============================================================
+HtmlTemplate() {
+    return "
+(
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='utf-8'>
+<meta name='viewport' content='width=device-width, initial-scale=1'>
+<style>
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{
+    font-family:'Segoe UI',system-ui,-apple-system,sans-serif;
+    background:#fff; color:#1a1a1a;
+    display:flex; flex-direction:column; height:100vh;
+    padding:16px 18px; gap:12px;
+    -webkit-user-select:none; user-select:none; -webkit-font-smoothing:antialiased;
+  }
+  h1{margin:0;font-size:16px;font-weight:600}
+  .sub{font-size:12px;color:#888;display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+  .sub a{color:#555;cursor:pointer;text-decoration:none}
+  .sub a:hover{color:#000;text-decoration:underline}
+  /* List */
+  .list{flex:none;overflow:hidden;border:1px solid #e6e6e6;border-radius:8px;
+        display:grid;grid-auto-flow:column;grid-auto-columns:1fr;align-content:start;
+        background:linear-gradient(#f0f0f0,#f0f0f0) no-repeat 50% 0 / 1px 100%}
+  .row{display:flex;align-items:center;gap:10px;padding:5px 12px;cursor:pointer;min-width:0;
+       border-bottom:1px solid #f0f0f0}
+  .row:hover{background:#f7f7f7}
+  .row.sel{background:#f2f2f2}
+  .box{width:16px;height:16px;flex-shrink:0;border:1.5px solid #bbb;border-radius:4px;position:relative}
+  .row.sel .box{background:#1a1a1a;border-color:#1a1a1a}
+  .row.sel .box::after{content:'\2713';position:absolute;inset:0;color:#fff;font-size:11px;font-weight:700;
+        display:flex;align-items:center;justify-content:center}
+  .name{flex:1;font-size:13.5px;position:relative}
+  .row.sel .name{font-weight:600}
+  .price{font-size:12px;color:#999;font-variant-numeric:tabular-nums}
+  /* High-rarity flair: glowing names + twinkling particles */
+  .name.lg,.name.my,.name.sp{font-weight:700;overflow:visible}
+  .name.lg{color:#e8a31a;text-shadow:0 0 6px rgba(240,180,40,.65),0 0 13px rgba(240,170,20,.4);
+        animation:glowpulse 2s ease-in-out infinite}
+  .name.my{color:#a855f7;text-shadow:0 0 6px rgba(168,85,247,.7),0 0 13px rgba(150,70,255,.45);
+        animation:glowpulse 2.2s ease-in-out infinite}
+  .name.sp{background:linear-gradient(90deg,#ff2d55,#ff8a00,#ffe600,#34c759,#00c7ff,#8b5cff,#ff2d55);
+        background-size:220% auto;-webkit-background-clip:text;background-clip:text;
+        -webkit-text-fill-color:transparent;color:transparent;
+        filter:drop-shadow(0 0 6px rgba(255,255,255,.55));
+        animation:rainbow 3s linear infinite}
+  @keyframes glowpulse{0%,100%{filter:brightness(1)}50%{filter:brightness(1.35)}}
+  @keyframes rainbow{to{background-position:220% center}}
+  .spark{position:absolute;width:3px;height:3px;border-radius:50%;pointer-events:none;
+        top:50%;left:0;opacity:0;animation:twinkle 1.6s ease-in-out infinite}
+  .spark.lg{background:#ffd76b;box-shadow:0 0 5px #ffcb45}
+  .spark.my{background:#d8b4fe;box-shadow:0 0 5px #b56bff}
+  .spark.sp{background:#fff;box-shadow:0 0 5px #fff;animation:twinkle 1.6s ease-in-out infinite,hue 3s linear infinite}
+  @keyframes twinkle{0%{opacity:0;transform:translateY(2px) scale(.3)}
+        35%{opacity:1;transform:translateY(-3px) scale(1)}
+        100%{opacity:0;transform:translateY(-11px) scale(.3)}}
+  @keyframes hue{to{filter:hue-rotate(360deg)}}
+  /* Footer */
+  .footer{display:flex;align-items:center;gap:10px}
+  .footer label{font-size:12px;color:#888}
+  #qty{width:74px;background:#fff;border:1px solid #d8d8d8;color:#1a1a1a;border-radius:7px;
+       padding:8px 10px;font-size:14px;outline:none;font-variant-numeric:tabular-nums}
+  #qty:focus{border-color:#888}
+  .btn{border:1px solid #d8d8d8;border-radius:7px;padding:9px 16px;font-size:13px;font-weight:500;
+       cursor:pointer;font-family:inherit;background:#fff;color:#1a1a1a}
+  .btn:hover{background:#f3f3f3}
+  .btn.primary{background:#1a1a1a;color:#fff;border-color:#1a1a1a}
+  .btn.primary:hover{background:#000}
+  .btn:disabled{opacity:.35;cursor:default}
+  #status{margin-left:auto;font-size:12px;color:#777;text-align:right}
+  /* Free version: locked premium seeds + Get-access bar + unlock modal */
+  .row.locked{opacity:.65;cursor:pointer}
+  .row.locked:hover{background:#fbf7ec}
+  .row.locked .box{border-color:#e3c97a;background:#fbf1d2}
+  .row.locked .box::after{content:'\1F512';position:absolute;inset:0;font-size:9px;
+        display:flex;align-items:center;justify-content:center}
+  .row.locked .name{color:#b0892a !important;-webkit-text-fill-color:#b0892a;
+        text-shadow:none !important;animation:none;font-weight:600}
+  .row.locked .price{color:#cdb878}
+  .row.locked .spark{display:none}
+  .pbar{display:flex;align-items:center;gap:8px;padding:9px 12px;border:1px solid #ecdfb6;
+        background:#fdf8ea;border-radius:8px;font-size:12.5px;color:#8a6d1f;cursor:pointer}
+  .pbar:hover{background:#fcf3da}
+  .pbar .pget{margin-left:auto;font-weight:600;color:#16a34a}
+  .pbar.ok{background:#ecfdf5;border-color:#bbf7d0;color:#15803d;cursor:default;font-weight:500}
+  .overlay{position:fixed;inset:0;background:rgba(20,20,20,.45);display:flex;
+        align-items:center;justify-content:center;padding:20px;z-index:50}
+  .modal{background:#fff;border-radius:14px;border:1px solid #e6e6e6;max-width:380px;width:100%;
+        padding:20px;box-shadow:0 20px 50px rgba(0,0,0,.25)}
+  .mh{display:flex;align-items:center;gap:9px;margin-bottom:10px}
+  .mh h2{font-size:15px;font-weight:600;margin:0}
+  .mlock{font-size:16px}
+  .mx{margin-left:auto;border:none;background:none;font-size:21px;line-height:1;color:#aaa;
+        cursor:pointer;padding:0 2px}
+  .mx:hover{color:#333}
+  .mdesc{font-size:12.5px;color:#777;margin:0 0 12px;line-height:1.5}
+  .msteps{margin:0 0 14px 18px;padding:0;font-size:12.5px;color:#555;line-height:1.5}
+  .msteps li{margin-bottom:4px}
+  .btn.block{width:100%;margin-bottom:10px}
+  .btn.green{background:#16a34a;color:#fff;border-color:#16a34a}
+  .btn.green:hover{background:#15803d;border-color:#15803d}
+  .prow{display:flex;gap:8px}
+  #codeInput{flex:1;background:#fff;border:1px solid #d8d8d8;border-radius:7px;padding:8px 10px;
+        font-size:13px;outline:none;font-family:inherit}
+  #codeInput:focus{border-color:#16a34a}
+  .lmsg{font-size:12px;color:#92510a;margin-top:10px;min-height:15px;line-height:1.4}
+  [hidden]{display:none !important}
+</style>
+</head>
+<body>
+  <h1>GAG Seed Buyer</h1>
+  <div class='sub'>
+    <span id='count'>0 selected</span>
+    <span><a onclick='setAll(true)'>Select all</a> &middot; <a onclick='setAll(false)'>Clear</a></span>
+  </div>
+
+  <div id='list' class='list'></div>
+
+  <div id='premiumBar' class='pbar' onclick='openAccess()'>
+    <span class='plock'>&#128274;</span>
+    <span>Last 5 seeds are locked</span>
+    <span class='pget'>Get access &rarr;</span>
+  </div>
+
+  <div class='footer'>
+    <label for='qty'>Qty</label>
+    <input id='qty' type='number' min='1' max='99999' value='20' oninput='pushQty()'>
+    <button id='startBtn' class='btn primary' onclick='send("start")'>Start</button>
+    <button id='stopBtn'  class='btn'         onclick='send("stop")'>Stop</button>
+    <span id='status'>Idle.</span>
+  </div>
+
+  <div id='overlay' class='overlay' hidden>
+    <div class='modal'>
+      <div class='mh'>
+        <span class='mlock'>&#128274;</span>
+        <h2>Unlock the last 5 seeds</h2>
+        <button class='mx' onclick='closeAccess()'>&times;</button>
+      </div>
+      <p class='mdesc'>These premium seeds need GAG Seed Buyer access. Subscribe once, then paste your code to unlock them here &mdash; the rest of the macro stays free.</p>
+      <ol class='msteps'>
+        <li>Open the sign-in page and subscribe with Google.</li>
+        <li>Copy the access code it shows you.</li>
+        <li>Paste it below and click Unlock.</li>
+      </ol>
+      <button class='btn block' onclick='send("openaccess")'>Open sign-in page</button>
+      <div class='prow'>
+        <input id='codeInput' type='text' placeholder='Paste your access code' spellcheck='false' autocomplete='off'>
+        <button class='btn green' onclick='activate()'>Unlock</button>
+      </div>
+      <div id='licenseMsg' class='lmsg'></div>
+    </div>
+  </div>
+
+<script>
+  var SEEDS = __SEEDS__;
+  var PREMIUM = __PREMIUM__;          /* number of locked seeds at the bottom */
+  var unlocked = false;              /* premium unlocked this session? */
+  var selected = {};                 /* 1-based index -> true */
+  var wv = window.chrome.webview;
+
+  function send(s){ wv.postMessage(s); }
+
+  function selectedList(){
+    var arr = [];
+    for (var k in selected){ if (selected[k]) arr.push(parseInt(k,10)); }
+    arr.sort(function(a,b){ return a-b; });
+    return arr;
+  }
+  function pushSel(){
+    var arr = selectedList();
+    send('sel|' + arr.join(','));
+    document.getElementById('count').textContent = arr.length + ' selected';
+  }
+  function pushQty(){
+    var q = parseInt(document.getElementById('qty').value,10);
+    if (!q || q < 1) q = 1;
+    send('qty|' + q);
+  }
+  var RARECLASS = {Legendary:'lg', Mythic:'my', Super:'sp'};
+  function addSparks(nameEl, cls){
+    for (var k = 0; k < 5; k++){
+      var sp = document.createElement('i');
+      sp.className = 'spark ' + cls;
+      sp.style.left = (8 + Math.random() * 84) + '%';
+      sp.style.top  = (Math.random() * 100) + '%';
+      sp.style.animationDelay = (Math.random() * 1.6) + 's';
+      sp.style.animationDuration = (1.2 + Math.random() * 1.3) + 's';
+      nameEl.appendChild(sp);
+    }
+  }
+  function isLocked(n){ return !unlocked && n > SEEDS.length - PREMIUM; }
+  function render(){
+    var list = document.getElementById('list');
+    list.innerHTML = '';
+    /* fill straight down the left column, then continue down the right */
+    list.style.gridTemplateRows = 'repeat(' + Math.ceil(SEEDS.length / 2) + ', auto)';
+    SEEDS.forEach(function(s,i){
+      var n = i + 1;
+      var locked = isLocked(n);
+      var row = document.createElement('div');
+      row.className = 'row' + (locked ? ' locked' : '') + (selected[n] ? ' sel' : '');
+      var box = document.createElement('span'); box.className = 'box';
+      var name = document.createElement('span'); name.className = 'name';
+      var price = document.createElement('span'); price.className = 'price';
+      var cls = RARECLASS[s.r];
+      name.textContent = s.n;        /* set text first, then layer sparks on top */
+      if (cls && !locked){ name.classList.add(cls); addSparks(name, cls); }
+      price.textContent = s.p;
+      row.appendChild(box); row.appendChild(name); row.appendChild(price);
+      row.onclick = function(){
+        if (isLocked(n)) { openAccess(); return; }
+        if (selected[n]) { delete selected[n]; row.classList.remove('sel'); }
+        else { selected[n] = true; row.classList.add('sel'); }
+        pushSel();
+      };
+      list.appendChild(row);
+    });
+  }
+  function setAll(v){
+    for (var i = 0; i < SEEDS.length; i++){
+      var n = i + 1;
+      if (v && !isLocked(n)) selected[n] = true; else delete selected[n];
+    }
+    render();
+    pushSel();
+  }
+  /* Premium / unlock flow */
+  function openAccess(){
+    document.getElementById('overlay').hidden = false;
+    var inp = document.getElementById('codeInput');
+    setTimeout(function(){ inp.focus(); }, 30);
+  }
+  function closeAccess(){ document.getElementById('overlay').hidden = true; }
+  function setLicenseMsg(t){ document.getElementById('licenseMsg').textContent = t; }
+  function activate(){
+    var code = document.getElementById('codeInput').value.trim();
+    if (!code){ setLicenseMsg('Paste your access code first.'); return; }
+    setLicenseMsg('Checking your code...');
+    send('activate|' + code);
+  }
+  function unlockPremium(){
+    unlocked = true;
+    closeAccess();
+    var bar = document.getElementById('premiumBar');
+    bar.className = 'pbar ok';
+    bar.onclick = null;
+    bar.innerHTML = '<span>&#10003; Premium unlocked &mdash; all seeds available</span>';
+    render();
+    pushSel();
+  }
+  function setRunning(on){
+    document.getElementById('startBtn').disabled = on;
+    document.getElementById('stopBtn').disabled  = !on;
+  }
+  wv.addEventListener('message', function(e){
+    var data = '' + e.data;
+    var i = data.indexOf('|');
+    var type = (i < 0) ? data : data.substring(0, i);
+    var rest = (i < 0) ? ''   : data.substring(i + 1);
+    if (type === 'status') document.getElementById('status').textContent = rest;
+    else if (type === 'state') setRunning(rest === '1');
+    else if (type === 'unlock') unlockPremium();
+    else if (type === 'licensemsg') setLicenseMsg(rest);
+  });
+
+  /* init */
+  render();
+  pushQty();
+  pushSel();
+  setRunning(false);
+</script>
+</body>
+</html>
+)"
 }

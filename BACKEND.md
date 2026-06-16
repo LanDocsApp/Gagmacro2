@@ -63,10 +63,14 @@ External setup that must match:
 
 Active = `active`, `trialing`, or `past_due`.
 
-## Launcher integration
+## Launcher / macro integration (freemium)
 
-The paste-code is a signed token over the user's Google sub. Have the launcher
-store it (the existing `LicenseToken` slot) and call:
+The macro is **free** for everyone. The launcher (`launcher.ahk`) just
+auto-updates and runs it — no subscription gate. Licensing lives in the macro:
+the **last 5 seeds** are locked in the WebView UI until the user unlocks them.
+
+The paste-code is a signed token over the user's Google sub. In the macro's
+"Get access" modal the user pastes it; the macro calls:
 
 ```
 POST https://gagmacro.pages.dev/api/desktop/verify
@@ -75,9 +79,11 @@ Content-Type: application/json
 { "token": "<paste-code>" }
 ```
 
-Response: `{ "active": true }` or `{ "active": false }`. Only fetch/run the macro
-when `active` is true. `/api/desktop/verify` self-heals from Stripe if KV is cold
-or stale, so it stays correct even if a webhook is missed.
+Response: `{ "active": true }` or `{ "active": false }`. On `active` the macro
+saves the code to `%AppData%\GagSeedBuyer\token.txt` and unlocks the last 5
+seeds live; on the next launch it re-verifies in the background (and trusts the
+saved code when offline). `/api/desktop/verify` self-heals from Stripe if KV is
+cold or stale, so it stays correct even if a webhook is missed.
 
 ## Local dev
 
