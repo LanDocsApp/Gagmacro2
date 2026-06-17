@@ -512,8 +512,12 @@ Setup() {
     if !Wait(1500)
         return false
 
-    ; 3. Press backslash to enter keyboard navigation of the UI.
-    Send "\"
+    ; 3. Enter keyboard navigation of the UI. Send the PHYSICAL key by scancode
+    ;    (SC02B) instead of the "\" character: that key is "\" on US keyboards
+    ;    but "z-caron" on Slovenian QWERTZ, AltGr-mapped elsewhere on others.
+    ;    Roblox binds UI nav to the physical key, so the scancode works on every
+    ;    keyboard layout; Send "\" would press the wrong physical key abroad.
+    Send "{SC02B}"
     if !Wait(300)
         return false
 
