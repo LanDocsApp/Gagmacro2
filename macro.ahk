@@ -195,7 +195,26 @@ OnWebMessage(sender, args) {
         case "activate":
             p := InStr(msg, "|")            ; rest-of-line: the pasted code
             ActivateCode(p ? SubStr(msg, p + 1) : "")
+        case "fit":
+            if parts.Length >= 2 && IsInteger(parts[2])
+                FitWindowHeight(Integer(parts[2]))
     }
+}
+
+; Shrink the window so its client area is exactly `clientH` physical px tall.
+; The page measures the height it needs (through the Start/Stop row) and asks
+; for it via a "fit" message; width is left unchanged.
+FitWindowHeight(clientH) {
+    global MainGui, controller
+    if (!MainGui || clientH < 100)
+        return
+    hwnd := MainGui.Hwnd
+    WinGetPos(&wx, &wy, &winW, &winH, hwnd)
+    WinGetClientPos( , , , &cliH, hwnd)
+    chrome := winH - cliH                 ; title bar + borders (physical px)
+    WinMove(wx, wy, winW, clientH + chrome, hwnd)
+    if controller
+        controller.Fill()
 }
 
 ; ---- Push to the page ----
@@ -216,7 +235,7 @@ Esc:: ExitApp
 
 StartMacro() {
     global LoopActive, Running, IntervalMs, FirstSel, LastSel, PassQty
-    global SelIndices, SelSet, Unlocked
+    global SelIndices, SelSet, Unlocked, MainGui
 
     if LoopActive               ; loop already armed -> ignore
         return
@@ -248,11 +267,16 @@ StartMacro() {
     Running := true
     UiState(true)
 
+    ; Get out of the way: minimize the macro window so Roblox is in full view.
+    ; (Setup focuses Roblox next; use F2 to stop while it's running.)
+    try MainGui.Minimize()
+
     ; One-time setup: open the shop UI and land on the first selected seed.
     if !Setup() {
         Running := false
         LoopActive := false
         UiState(false)
+        try MainGui.Restore()   ; setup failed -> bring the window back so the error is visible
         return
     }
     BuyPass()                   ; first buy pass (ends on the first selected seed)
@@ -331,13 +355,15 @@ CheckSavedLicense() {
 }
 
 ; "Get access" -> open the sign-in / subscribe page in the default browser.
+; Minimize the macro window so the browser sign-in page is in full view.
 OpenAccessPage() {
-    global BackendBase
+    global BackendBase, MainGui
     url := BackendBase "/signin.html"
     try
         Run(url)
     catch
         try Run("explorer.exe " url)
+    try MainGui.Minimize()
 }
 
 ; "Help & setup" -> open the setup guide / Discord help page in the browser.
@@ -624,7 +650,7 @@ HtmlTemplate() {
   .sub a{color:#555;cursor:pointer;text-decoration:none}
   .sub a:hover{color:#000;text-decoration:underline}
   /* List */
-  .list{flex:none;overflow:hidden;border:1px solid #e6e6e6;border-radius:8px;
+  .list{flex:none;overflow:hidden;border-radius:8px;
         display:grid;grid-auto-flow:column;grid-auto-columns:1fr;align-content:start;
         background:linear-gradient(#f0f0f0,#f0f0f0) no-repeat 50% 0 / 1px 100%}
   .row{display:flex;align-items:center;gap:10px;padding:5px 12px;cursor:pointer;min-width:0;
@@ -668,19 +694,20 @@ HtmlTemplate() {
   .btn.primary{background:#1a1a1a;color:#fff;border-color:#1a1a1a}
   .btn.primary:hover{background:#000}
   .btn:disabled{opacity:.35;cursor:default}
-  #status{margin-left:auto;font-size:12px;color:#777;text-align:right}
+  .hk{font-size:11px;font-weight:600;opacity:.55;margin-left:6px;
+      font-family:'Consolas','JetBrains Mono',monospace}
   /* Free version: locked premium seeds + Get-access bar + unlock modal */
-  .row.locked{opacity:.65;cursor:pointer}
-  .row.locked:hover{background:#fbf7ec}
-  .row.locked .box{border-color:#e3c97a;background:#fbf1d2}
+  /* Locked premium rows keep their FULL rarity colors + glow + sparks (they
+     sell the upgrade). The only "locked" cue is a clean lock badge on the box. */
+  .row.locked{cursor:pointer}
+  .row.locked:hover{background:#f7f7f7}
+  .row.locked .box{border-color:#cfcfcf;background:#f4f4f4}
   .row.locked .box::after{content:'\1F512';position:absolute;inset:0;font-size:9px;
-        display:flex;align-items:center;justify-content:center}
-  .row.locked .name{color:#b0892a !important;-webkit-text-fill-color:#b0892a;
-        text-shadow:none !important;animation:none;font-weight:600}
-  .row.locked .spark{display:none}
-  .pbar{display:flex;align-items:center;gap:8px;padding:9px 12px;border:1px solid #ecdfb6;
-        background:#fdf8ea;border-radius:8px;font-size:12.5px;color:#8a6d1f;cursor:pointer}
-  .pbar:hover{background:#fcf3da}
+        color:#9a9a9a;display:flex;align-items:center;justify-content:center}
+  .pbar{display:flex;align-items:center;gap:9px;padding:10px 12px;
+        background:#fafafa;border-radius:8px;font-size:12.5px;color:#666;cursor:pointer}
+  .pbar:hover{background:#f3f3f3;border-color:#dcdcdc}
+  .pbar .plock{opacity:.55;font-size:13px}
   .pbar .pget{margin-left:auto;font-weight:600;color:#16a34a}
   .pbar.ok{background:#ecfdf5;border-color:#bbf7d0;color:#15803d;cursor:default;font-weight:500}
   .overlay{position:fixed;inset:0;background:rgba(20,20,20,.45);display:flex;
@@ -703,7 +730,7 @@ HtmlTemplate() {
   #codeInput{flex:1;background:#fff;border:1px solid #d8d8d8;border-radius:7px;padding:8px 10px;
         font-size:13px;outline:none;font-family:inherit}
   #codeInput:focus{border-color:#16a34a}
-  .lmsg{font-size:12px;color:#92510a;margin-top:10px;min-height:15px;line-height:1.4}
+  .lmsg{font-size:12px;color:#888;margin-top:10px;min-height:15px;line-height:1.4}
   [hidden]{display:none !important}
 </style>
 </head>
@@ -723,9 +750,8 @@ HtmlTemplate() {
   </div>
 
   <div class='footer'>
-    <button id='startBtn' class='btn primary' onclick='send("start")'>Start</button>
-    <button id='stopBtn'  class='btn'         onclick='send("stop")'>Stop</button>
-    <span id='status'>Idle.</span>
+    <button id='startBtn' class='btn primary' onclick='send("start")'>Start <span class='hk'>F1</span></button>
+    <button id='stopBtn'  class='btn'         onclick='send("stop")'>Stop <span class='hk'>F2</span></button>
   </div>
 
   <div id='overlay' class='overlay' hidden>
@@ -735,7 +761,7 @@ HtmlTemplate() {
         <h2>Unlock the last 5 seeds</h2>
         <button class='mx' onclick='closeAccess()'>&times;</button>
       </div>
-      <p class='mdesc'>These premium seeds need Garden Macro access. Subscribe once, then paste your code to unlock them here &mdash; the rest of the macro stays free.</p>
+      <p class='mdesc'>These premium seeds need Garden Macro access. Subscribe once, then paste your code to unlock them here. The rest of the macro stays free.</p>
       <ol class='msteps'>
         <li>Open the sign-in page and subscribe with Google.</li>
         <li>Copy the access code it shows you.</li>
@@ -797,7 +823,9 @@ HtmlTemplate() {
       var name = document.createElement('span'); name.className = 'name';
       var cls = RARECLASS[s.r];
       name.textContent = s.n;        /* set text first, then layer sparks on top */
-      if (cls && !locked){ name.classList.add(cls); addSparks(name, cls); }
+      /* Locked seeds keep their full rarity flair on purpose -- the pretty
+         premium seeds are what makes people want to unlock them. */
+      if (cls){ name.classList.add(cls); addSparks(name, cls); }
       row.appendChild(box); row.appendChild(name);
       row.onclick = function(){
         if (isLocked(n)) { openAccess(); return; }
@@ -834,11 +862,10 @@ HtmlTemplate() {
     unlocked = true;
     closeAccess();
     var bar = document.getElementById('premiumBar');
-    bar.className = 'pbar ok';
-    bar.onclick = null;
-    bar.innerHTML = '<span>&#10003; Premium unlocked &mdash; all seeds available</span>';
+    if (bar) bar.hidden = true;          /* access granted -> no upsell bar needed */
     render();
     pushSel();
+    requestAnimationFrame(function(){ requestAnimationFrame(fitWindow); });
   }
   function setRunning(on){
     document.getElementById('startBtn').disabled = on;
@@ -849,16 +876,25 @@ HtmlTemplate() {
     var i = data.indexOf('|');
     var type = (i < 0) ? data : data.substring(0, i);
     var rest = (i < 0) ? ''   : data.substring(i + 1);
-    if (type === 'status') document.getElementById('status').textContent = rest;
+    if (type === 'status') { /* status line removed from UI */ }
     else if (type === 'state') setRunning(rest === '1');
     else if (type === 'unlock') unlockPremium();
     else if (type === 'licensemsg') setLicenseMsg(rest);
   });
 
+  /* Ask AHK to shrink the window to end right at the Start/Stop row. */
+  function fitWindow(){
+    var f = document.querySelector('.footer');
+    if (!f) return;
+    var cssH = f.getBoundingClientRect().bottom + 16;   /* + body bottom padding */
+    send('fit|' + Math.ceil(cssH * (window.devicePixelRatio || 1)));
+  }
+
   /* init */
   render();
   pushSel();
   setRunning(false);
+  requestAnimationFrame(function(){ requestAnimationFrame(fitWindow); });
 </script>
 </body>
 </html>
