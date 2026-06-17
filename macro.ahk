@@ -528,12 +528,14 @@ Setup() {
     if !Wait(1500)
         return false
 
-    ; 3. Enter keyboard navigation of the UI. Send the PHYSICAL key by scancode
-    ;    (SC02B) instead of the "\" character: that key is "\" on US keyboards
-    ;    but "z-caron" on Slovenian QWERTZ, AltGr-mapped elsewhere on others.
-    ;    Roblox binds UI nav to the physical key, so the scancode works on every
-    ;    keyboard layout; Send "\" would press the wrong physical key abroad.
-    Send "{SC02B}"
+    ; 3. Enter keyboard navigation of the UI. Roblox reads the VIRTUAL-KEY code,
+    ;    not the raw scancode: Windows re-translates whatever we send through the
+    ;    active keyboard layout first. So Send "\" and Send "{SC02B}" both arrive
+    ;    at Roblox as the wrong key on non-US layouts (on Slovenian QWERTZ that
+    ;    physical key is "z-caron"/zcaron, with its own VK). Send the backslash
+    ;    virtual key directly (vkDC = VK_OEM_5) so Roblox always sees BackSlash;
+    ;    pin sc02B too so anything reading the scancode still gets the right key.
+    Send "{vkDCsc02B}"
     if !Wait(300)
         return false
 
