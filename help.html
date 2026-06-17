@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Help &amp; Setup — Garden Macro</title>
+  <meta name="description" content="Set up Garden Macro: resolution, facing the shop, enabling UI navigation toggle, and where to get help." />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      /* Brand accent — green (Grow a Garden) */
+      --accent:        #16a34a;
+      --accent-hover:  #15803d;
+      --accent-soft:   #f0fdf4;
+      --accent-line:   #bbf7d0;
+
+      /* Neutrals */
+      --bg:            #ffffff;
+      --bg-soft:       #fafafa;
+      --bg-muted:      #f5f5f5;
+      --border:        #e0e0e0;
+      --border-strong: #cccccc;
+
+      --ink:           #0a0a0a;
+      --ink-hover:     #333333;
+      --fg:            #111111;
+      --fg-2:          #555555;
+      --fg-3:          #777777;
+      --fg-4:          #888888;
+
+      /* Discord brand */
+      --discord:       #5865f2;
+      --discord-hover: #4752c4;
+
+      --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+      --font-mono: 'JetBrains Mono', ui-monospace, 'Courier New', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: var(--font-sans);
+      color: var(--fg);
+      background: var(--bg);
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      overflow-x: hidden;
+    }
+    a { color: inherit; text-decoration: none; }
+    .wrap { max-width: 1120px; margin: 0 auto; padding: 0 28px; }
+
+    /* ── Buttons ─────────────────────────────────────────── */
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      font: 500 14.5px var(--font-sans); padding: 10px 18px; border-radius: 8px;
+      border: 1px solid transparent; cursor: pointer; white-space: nowrap;
+      transition: background .16s, border-color .16s, color .16s;
+    }
+    .btn-ink { background: var(--ink); color: #fff; border-color: var(--ink); }
+    .btn-ink:hover { background: var(--ink-hover); border-color: var(--ink-hover); }
+    .btn-outline { background: #fff; color: var(--fg); border-color: var(--border); }
+    .btn-outline:hover { background: var(--bg-muted); border-color: var(--border-strong); }
+
+    /* ── Logo ────────────────────────────────────────────── */
+    .logo { display: inline-flex; align-items: center; gap: 10px; }
+    .logo .mark { width: 28px; height: 28px; border-radius: 7px; display: block; }
+    .logo .name { font-weight: 700; font-size: 17px; letter-spacing: -0.02em; color: var(--ink); }
+
+    /* ── Nav ─────────────────────────────────────────────── */
+    .nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      background: rgba(255,255,255,0.78);
+      backdrop-filter: blur(16px) saturate(160%);
+      -webkit-backdrop-filter: blur(16px) saturate(160%);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-inner { display: flex; align-items: center; justify-content: space-between; height: 64px; }
+    .nav-links { display: flex; align-items: center; gap: 30px; }
+    .nav-links a.link { color: var(--fg-2); font-size: 14.5px; font-weight: 500; transition: color .12s; }
+    .nav-links a.link:hover { color: var(--fg); }
+
+    /* ── Document ────────────────────────────────────────── */
+    .doc { padding: 116px 0 88px; }
+    .doc-inner { max-width: 760px; margin: 0 auto; }
+    .doc h1 {
+      font-size: clamp(34px, 5vw, 48px); font-weight: 700; line-height: 1.06;
+      letter-spacing: -0.035em; color: var(--ink); margin-bottom: 14px; text-wrap: balance;
+    }
+    .lead { font-size: 16.5px; color: var(--fg-2); line-height: 1.65; margin-bottom: 36px; }
+
+    .doc h2.sec {
+      font-size: 21px; font-weight: 700; letter-spacing: -0.02em; color: var(--ink);
+      margin: 44px 0 14px;
+    }
+    .doc p { font-size: 15.5px; color: var(--fg-2); line-height: 1.7; margin-bottom: 14px; }
+    .doc strong { color: var(--fg); font-weight: 600; }
+    .doc a.inline { color: var(--accent); font-weight: 500; }
+    .doc a.inline:hover { text-decoration: underline; }
+    code {
+      font-family: var(--font-mono); font-size: 0.86em;
+      background: var(--bg-muted); border: 1px solid var(--border);
+      border-radius: 5px; padding: 1px 6px; color: var(--ink);
+    }
+
+    /* ── Numbered setup steps ────────────────────────────── */
+    .steps { list-style: none; counter-reset: step; display: flex; flex-direction: column; gap: 18px; margin: 10px 0 8px; }
+    .steps > li {
+      position: relative; counter-increment: step;
+      padding: 18px 20px 18px 60px;
+      border: 1px solid var(--border); border-radius: 12px; background: var(--bg-soft);
+    }
+    .steps > li::before {
+      content: counter(step);
+      position: absolute; left: 18px; top: 17px;
+      width: 28px; height: 28px; border-radius: 50%;
+      background: var(--accent); color: #fff;
+      font-size: 14px; font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .steps h3 { font-size: 15.5px; font-weight: 600; color: var(--ink); margin-bottom: 4px; }
+    .steps p { font-size: 14.5px; color: var(--fg-2); line-height: 1.6; margin: 0; }
+
+    /* ── Screenshot figure ───────────────────────────────── */
+    figure.shot { margin: 16px 0 4px; }
+    figure.shot img {
+      display: block; width: 100%; height: auto;
+      border: 1px solid var(--border); border-radius: 12px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+    }
+    figure.shot figcaption {
+      margin-top: 10px; font-size: 13px; color: var(--fg-4); text-align: center;
+    }
+
+    /* ── Discord card ────────────────────────────────────── */
+    .discord-card {
+      display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+      background: var(--accent-soft); border: 1px solid var(--accent-line);
+      border-radius: 14px; padding: 22px 24px; margin: 8px 0 4px;
+    }
+    .discord-card .dc-text { flex: 1; min-width: 220px; }
+    .discord-card h3 { font-size: 17px; font-weight: 700; color: var(--ink); margin-bottom: 4px; }
+    .discord-card p { font-size: 14.5px; color: var(--fg-2); margin: 0; }
+    .btn-discord { background: var(--discord); color: #fff; border-color: var(--discord); }
+    .btn-discord:hover { background: var(--discord-hover); border-color: var(--discord-hover); }
+
+    /* ── Footer ──────────────────────────────────────────── */
+    footer { border-top: 1px solid var(--border); padding: 44px 0 36px; }
+    .foot-top { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 24px; }
+    .foot-links { display: flex; gap: 24px; flex-wrap: wrap; }
+    .foot-links a { font-size: 14px; color: var(--fg-2); transition: color .12s; }
+    .foot-links a:hover { color: var(--fg); }
+    .foot-meta { font-size: 13px; color: var(--fg-4); }
+    .disclaimer { font-size: 12px; color: var(--fg-4); line-height: 1.6; max-width: 720px; margin-top: 10px; }
+
+    @media (max-width: 880px) {
+      .doc { padding: 96px 0 64px; }
+      .nav-links .link { display: none; }
+    }
+    @media (max-width: 560px) {
+      .nav-links .btn-outline { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <!-- ── Nav ─────────────────────────────────────────────── -->
+  <header class="nav">
+    <div class="wrap nav-inner">
+      <a class="logo" href="/index.html" aria-label="Garden Macro home">
+        <svg class="mark" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect width="64" height="64" rx="14" fill="#16a34a"></rect>
+          <path d="M32 52 V30" stroke="#fff" stroke-width="3.6" stroke-linecap="round"></path>
+          <path d="M32 36 C22 36 17 28 18 19 C28 20 33 27 32 36 Z" fill="#fff"></path>
+          <path d="M32 40 C42 40 47 32 46 23 C36 24 31 31 32 40 Z" fill="#fff"></path>
+        </svg>
+        <span class="name">Garden Macro</span>
+      </a>
+      <nav class="nav-links">
+        <a class="link" href="/index.html#features">Features</a>
+        <a class="link" href="/index.html#pricing">Pricing</a>
+        <a class="link" href="/index.html#faq">FAQ</a>
+        <a class="btn btn-outline" href="/signin.html">Sign in</a>
+        <a class="btn btn-ink" href="/signin.html">Get started</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="doc">
+    <div class="wrap">
+      <div class="doc-inner">
+        <h1>Help &amp; setup guide</h1>
+        <p class="lead">
+          A quick checklist to get Garden Macro running smoothly. Go through these once before you
+          press Start, and you'll be auto-buying seeds in under a minute.
+        </p>
+
+        <!-- ── Before you start ──────────────────────────── -->
+        <h2 class="sec">Before you start</h2>
+        <ol class="steps">
+          <li>
+            <h3>Set your display to 1920&times;1080</h3>
+            <p>
+              The macro clicks fixed spots on the screen, so it's tuned for a <strong>1920&times;1080</strong>
+              resolution. Other resolutions can make it click the wrong place and miss the shop. In Windows,
+              set your display resolution to <code>1920&times;1080</code> and run Roblox before starting.
+            </p>
+          </li>
+          <li>
+            <h3>Stand facing the seed shop</h3>
+            <p>
+              Walk your character up to the <strong>seed shop</strong> and make sure you're
+              <strong>facing it</strong> before you press Start. The macro opens the shop from where you're
+              standing, so if you're turned away or too far back it won't open.
+            </p>
+          </li>
+          <li>
+            <h3>Turn on "UI navigation toggle"</h3>
+            <p>
+              In Roblox, open <strong>Settings &rarr; View &amp; Controls</strong> and set
+              <strong>UI navigation toggle</strong> to <strong>On</strong>. The macro uses the
+              <code>\</code> key to move through the shop menu, and that only works when this setting
+              is enabled.
+            </p>
+            <figure class="shot">
+              <img src="/ui-navigation-toggle.png" alt="Roblox Settings showing the 'UI navigation toggle' option set to On, circled in red." />
+              <figcaption>Roblox Settings &rarr; View &amp; Controls &mdash; make sure <strong>UI navigation toggle</strong> is <strong>On</strong>.</figcaption>
+            </figure>
+          </li>
+          <li>
+            <h3>Launch Roblox first</h3>
+            <p>
+              Open <strong>Grow a Garden</strong> and load into your garden before you start the macro.
+              When you press Start, the macro focuses the Roblox window, opens the shop, and begins buying
+              the seeds you ticked &mdash; then re-buys them automatically on every restock.
+            </p>
+          </li>
+        </ol>
+
+        <!-- ── Need help ─────────────────────────────────── -->
+        <h2 class="sec">Need help or found a bug?</h2>
+        <p>
+          The fastest way to get help, report a problem, or suggest a feature is our Discord. Come say hi &mdash;
+          we're happy to walk you through setup.
+        </p>
+        <div class="discord-card">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="#5865f2" aria-hidden="true">
+            <path d="M20.317 4.369A19.79 19.79 0 0 0 15.885 3a13.6 13.6 0 0 0-.617 1.27 18.27 18.27 0 0 0-5.535 0A13.4 13.4 0 0 0 9.11 3a19.74 19.74 0 0 0-4.432 1.369C1.78 8.741.99 13 .991 17.2a19.93 19.93 0 0 0 6.038 3.072c.49-.668.926-1.377 1.302-2.122a12.9 12.9 0 0 1-2.05-.99c.172-.127.34-.26.502-.395a14.23 14.23 0 0 0 12.18 0c.164.14.332.272.502.395-.654.388-1.343.72-2.053.992.376.744.81 1.453 1.3 2.12a19.9 19.9 0 0 0 6.04-3.07c.116-4.93-.79-9.155-3.435-12.834zM8.02 14.62c-1.183 0-2.157-1.085-2.157-2.42 0-1.336.955-2.42 2.157-2.42 1.21 0 2.176 1.094 2.157 2.42 0 1.335-.955 2.42-2.157 2.42zm7.96 0c-1.183 0-2.157-1.085-2.157-2.42 0-1.336.955-2.42 2.157-2.42 1.21 0 2.176 1.094 2.157 2.42 0 1.335-.946 2.42-2.157 2.42z"/>
+          </svg>
+          <div class="dc-text">
+            <h3>Join the Garden Macro Discord</h3>
+            <p>Setup help, bug reports, updates, and the community.</p>
+          </div>
+          <a class="btn btn-discord" href="https://discord.gg/RFMnrZmQWp" target="_blank" rel="noopener noreferrer">Join Discord</a>
+        </div>
+
+        <!-- ── Quick troubleshooting ─────────────────────── -->
+        <h2 class="sec">Quick troubleshooting</h2>
+        <p>
+          <strong>It clicks the wrong spot or doesn't open the shop.</strong> Double-check your resolution is
+          <code>1920&times;1080</code> and that you're standing in front of the shop facing it.
+        </p>
+        <p>
+          <strong>It opens the shop but doesn't move through the menu.</strong> Make sure
+          <strong>UI navigation toggle</strong> is set to <strong>On</strong> in Roblox settings (see above).
+        </p>
+        <p>
+          <strong>"Roblox window not found."</strong> Launch Grow a Garden and load into the game first, then
+          press Start.
+        </p>
+        <p>
+          Still stuck? <a class="inline" href="https://discord.gg/RFMnrZmQWp" target="_blank" rel="noopener noreferrer">Ask in the Discord</a>
+          and we'll help you out.
+        </p>
+      </div>
+    </div>
+  </main>
+
+  <!-- ── Footer ──────────────────────────────────────────── -->
+  <footer>
+    <div class="wrap">
+      <div class="foot-top">
+        <a class="logo" href="/index.html">
+          <svg class="mark" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect width="64" height="64" rx="14" fill="#16a34a"></rect>
+            <path d="M32 52 V30" stroke="#fff" stroke-width="3.6" stroke-linecap="round"></path>
+            <path d="M32 36 C22 36 17 28 18 19 C28 20 33 27 32 36 Z" fill="#fff"></path>
+            <path d="M32 40 C42 40 47 32 46 23 C36 24 31 31 32 40 Z" fill="#fff"></path>
+          </svg>
+          <span class="name">Garden Macro</span>
+        </a>
+        <nav class="foot-links">
+          <a href="/index.html#features">Features</a>
+          <a href="/index.html#pricing">Pricing</a>
+          <a href="/index.html#faq">FAQ</a>
+          <a href="/help.html">Help</a>
+          <a href="/signin.html">Sign in</a>
+          <a href="/privacy.html">Privacy</a>
+        </nav>
+      </div>
+      <p class="foot-meta">© 2026 Garden Macro. All rights reserved.</p>
+      <p class="disclaimer">
+        Not affiliated with, endorsed by, or sponsored by Roblox Corporation or the creators of Grow a Garden.
+        Use of automation tools may be against the game's terms of service; use at your own risk.
+      </p>
+    </div>
+  </footer>
+</body>
+</html>

@@ -190,6 +190,8 @@ OnWebMessage(sender, args) {
             StopMacro()
         case "openaccess":
             OpenAccessPage()
+        case "openhelp":
+            OpenHelpPage()
         case "activate":
             p := InStr(msg, "|")            ; rest-of-line: the pasted code
             ActivateCode(p ? SubStr(msg, p + 1) : "")
@@ -332,6 +334,16 @@ CheckSavedLicense() {
 OpenAccessPage() {
     global BackendBase
     url := BackendBase "/signin.html"
+    try
+        Run(url)
+    catch
+        try Run("explorer.exe " url)
+}
+
+; "Help & setup" -> open the setup guide / Discord help page in the browser.
+OpenHelpPage() {
+    global BackendBase
+    url := BackendBase "/help.html"
     try
         Run(url)
     catch
@@ -699,7 +711,7 @@ HtmlTemplate() {
   <h1>Garden Macro</h1>
   <div class='sub'>
     <span id='count'>0 selected</span>
-    <span><a onclick='setAll(true)'>Select all</a> &middot; <a onclick='setAll(false)'>Clear</a></span>
+    <span><a onclick='send("openhelp")'>Help &amp; setup</a> &middot; <a onclick='setAll(true)'>Select all</a> &middot; <a onclick='setAll(false)'>Clear</a></span>
   </div>
 
   <div id='list' class='list'></div>
