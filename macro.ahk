@@ -528,14 +528,19 @@ Setup() {
     if !Wait(1500)
         return false
 
-    ; 3. Enter keyboard navigation of the UI. Roblox reads the VIRTUAL-KEY code,
-    ;    not the raw scancode: Windows re-translates whatever we send through the
-    ;    active keyboard layout first. So Send "\" and Send "{SC02B}" both arrive
-    ;    at Roblox as the wrong key on non-US layouts (on Slovenian QWERTZ that
-    ;    physical key is "z-caron"/zcaron, with its own VK). Send the backslash
-    ;    virtual key directly (vkDC = VK_OEM_5) so Roblox always sees BackSlash;
-    ;    pin sc02B too so anything reading the scancode still gets the right key.
-    Send "{vkDCsc02B}"
+    ; 3. Enter keyboard navigation of the UI by pressing the "\" / VK_OEM_5 key.
+    ;    Every OTHER key here (e, arrows, Enter) worked but this one didn't, and
+    ;    the reason is HOW it was sent. "{SC02B}" is a scancode-only event, so it
+    ;    can reach Roblox with no virtual key attached -> Roblox reads the virtual
+    ;    key and ignores it. So send vkDC (VK_OEM_5 = BackSlash) AND sc02B, as a
+    ;    real down -> brief hold -> up. The hold matters too: SendInput fires
+    ;    down+up instantly (SetKeyDelay is ignored in this mode) and Roblox can
+    ;    miss a zero-length tap; a human press is held tens of ms. (On a Slovenian
+    ;    QWERTZ that physical key types "zcaron" but still reports vk=DC sc=02B,
+    ;    so this matches a real keypress on every layout.)
+    Send "{vkDCsc02B down}"
+    Sleep 60
+    Send "{vkDCsc02B up}"
     if !Wait(300)
         return false
 
