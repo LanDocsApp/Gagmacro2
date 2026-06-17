@@ -513,7 +513,7 @@ Setup() {
         return false
 
     Send "e"
-    if !Wait(1500)
+    if !Wait(3500)
         return false
 
     ; 2. Enter keyboard navigation of the UI by pressing the "\" / VK_OEM_5 key.
