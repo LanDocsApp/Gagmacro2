@@ -56,6 +56,11 @@ global wv         := 0
 ;     to the bottom of the list, so "the last N" always tracks the newest ones.
 global PremiumCount := 5
 global Unlocked     := false                          ; premium unlocked this session?
+
+; Version shown in the window's bottom corner. Bump AppVersion on real releases;
+; the build time is taken from this file's last-modified date, so it changes every
+; time you save the script -> an easy "did my latest change actually load?" check.
+global AppVersion := "1.0.0"
 global BackendBase  := "https://gardenmacro.com"   ; subscription backend
 global VerifyUrl    := BackendBase "/api/desktop/verify"
 global TokenFile    := A_AppData "\GardenMacro\token.txt"   ; saved paste-code
@@ -132,6 +137,7 @@ BuildUi() {
 
     html := StrReplace(HtmlTemplate(), "__SEEDS__", BuildSeedsJs())
     html := StrReplace(html, "__PREMIUM__", PremiumCount)
+    html := StrReplace(html, "__VERSION__", VersionLabel())
     wv.NavigateToString(html)
 }
 
@@ -152,6 +158,16 @@ BuildSeedsJs() {
             out .= ","
     }
     return out "]"
+}
+
+; Version string for the bottom-corner label, e.g. "1.0.0  built Jun 17 14:32".
+; The build time comes from this script file's last-modified date, so it updates
+; every time you save -> a quick visual check that the running build is current.
+VersionLabel() {
+    global AppVersion
+    label := AppVersion
+    try label .= "  built " FormatTime(FileGetTime(A_ScriptFullPath, "M"), "MMM d HH:mm")
+    return label
 }
 
 ; JSON/JS-safe double-quoted string.
@@ -700,6 +716,8 @@ HtmlTemplate() {
   .btn:disabled{opacity:.35;cursor:default}
   .hk{font-size:11px;font-weight:600;opacity:.55;margin-left:6px;
       font-family:'Consolas','JetBrains Mono',monospace}
+  .ver{margin-left:auto;font-size:11px;color:#bbb;white-space:nowrap;
+       font-family:'Consolas','JetBrains Mono',monospace}
   /* Free version: locked premium seeds + Get-access bar + unlock modal */
   /* Locked premium rows keep their FULL rarity colors + glow + sparks (they
      sell the upgrade). The only "locked" cue is a clean lock badge on the box. */
@@ -756,6 +774,7 @@ HtmlTemplate() {
   <div class='footer'>
     <button id='startBtn' class='btn primary' onclick='send("start")'>Start <span class='hk'>F1</span></button>
     <button id='stopBtn'  class='btn'         onclick='send("stop")'>Stop <span class='hk'>F2</span></button>
+    <span class='ver'>v__VERSION__</span>
   </div>
 
   <div id='overlay' class='overlay' hidden>
