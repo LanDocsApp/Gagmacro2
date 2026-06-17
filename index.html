@@ -77,6 +77,45 @@ a { color: inherit; text-decoration: none; }
 .lp-btn-accent:hover { box-shadow: 0 10px 26px color-mix(in srgb, var(--fp-accent) 45%, transparent); transform: translateY(-1px); }
 .lp-btn-lg { font-size: 15.5px; padding: 12px 24px; border-radius: 10px; }
 
+/* ═══════════════ AUTOHOTKEY INSTALL PROMPT (post-download) ═══════════════ */
+.ahk-overlay {
+  position: fixed; inset: 0; z-index: 200; display: none;
+  align-items: center; justify-content: center; padding: 24px;
+  background: rgba(10,20,40,0.45);
+  backdrop-filter: blur(5px) saturate(140%); -webkit-backdrop-filter: blur(5px) saturate(140%);
+  opacity: 0; transition: opacity .25s var(--fp-ease);
+}
+.ahk-overlay.open { display: flex; opacity: 1; }
+.ahk-modal {
+  position: relative; width: min(450px, 100%); background: #fff;
+  border: 1px solid var(--border); border-radius: 16px; padding: 30px 28px 28px;
+  box-shadow: 0 30px 80px rgba(10,20,40,0.28), 0 8px 22px rgba(10,20,40,0.10);
+  text-align: left; transform: translateY(14px) scale(.97);
+  transition: transform .3s var(--fp-ease);
+}
+.ahk-overlay.open .ahk-modal { transform: none; }
+.ahk-x {
+  position: absolute; top: 14px; right: 14px; width: 30px; height: 30px;
+  display: grid; place-items: center; border: none; background: transparent;
+  color: var(--fg-3); border-radius: 8px; cursor: pointer; transition: background .18s, color .18s;
+}
+.ahk-x:hover { background: #f3f4f6; color: var(--fg); }
+.ahk-ico { width: 46px; height: 46px; border-radius: 12px; background: color-mix(in srgb, var(--fp-accent) 14%, #fff); display: grid; place-items: center; margin-bottom: 16px; }
+.ahk-modal h2 { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 8px; color: var(--ink); }
+.ahk-modal p { font-size: 14.5px; line-height: 1.55; color: var(--fg-2); margin: 0 0 18px; }
+.ahk-modal p strong { color: var(--fg); font-weight: 600; }
+.ahk-steps { list-style: none; counter-reset: step; padding: 0; margin: 0 0 24px; }
+.ahk-steps li { position: relative; padding-left: 34px; margin-bottom: 13px; font-size: 14px; color: var(--fg); line-height: 1.45; }
+.ahk-steps li:last-child { margin-bottom: 0; }
+.ahk-steps li::before {
+  counter-increment: step; content: counter(step); position: absolute; left: 0; top: -1px;
+  width: 22px; height: 22px; border-radius: 50%; background: var(--fp-accent); color: #fff;
+  font-size: 12px; font-weight: 600; display: grid; place-items: center;
+}
+.ahk-steps code { font-family: var(--font-mono); font-size: 12.5px; background: #f3f4f6; padding: 1.5px 6px; border-radius: 5px; color: var(--fg); }
+.ahk-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.ahk-actions .lp-btn { flex: 1 1 auto; }
+
 /* ═══════════════════════════ HERO ═════════════════════════════ */
 .hero { position: relative; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 84px 32px 28px; }
 .fp-net { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
@@ -175,11 +214,10 @@ a { color: inherit; text-decoration: none; }
   .lp-nav-actions .lp-btn-outline { display: none; }
   .hero { padding-top: 84px; }
 }
-@media (prefers-reduced-motion: reduce) {
-  .fp-bg::after, .fp-grad, .win-name.lg, .win-name.my, .win-name.sp, .spark { animation: none !important; }
-  .fp-anim, .fp-word > span { transition-duration: .001s; }
-  .win { transform: none !important; }
-}
+/* ── Static by default: animations off for a cleaner, lighter page (also satisfies prefers-reduced-motion) ── */
+.fp-bg::after, .fp-grad, .win-name.lg, .win-name.my, .win-name.sp, .spark { animation: none !important; }
+.fp-anim, .fp-word > span { transition-duration: .001s; }
+.win { transform: none !important; }
 </style>
 </head>
 <body>
@@ -200,7 +238,7 @@ a { color: inherit; text-decoration: none; }
     </a>
     <div class="lp-nav-actions">
       <a class="lp-btn lp-btn-outline" href="/signin.html">Sign in</a>
-      <a class="lp-btn lp-btn-accent lp-btn-lg" href="/launcher.ahk" download="GardenMacro.ahk">Download</a>
+      <a class="lp-btn lp-btn-accent lp-btn-lg js-download" href="/launcher.ahk" download="GardenMacro.ahk">Download</a>
     </div>
   </div>
 </nav>
@@ -212,10 +250,10 @@ a { color: inherit; text-decoration: none; }
     <h1 class="hero-headline fp-anim">Never miss a seed restock again.</h1>
     <p class="hero-sub fp-anim">An auto seed-buyer that watches the shop and grabs the seeds you want on every restock, instantly.</p>
     <div class="hero-ctas fp-anim">
-      <a class="lp-btn lp-btn-accent lp-btn-lg" href="/launcher.ahk" download="GardenMacro.ahk">Download for free</a>
+      <a class="lp-btn lp-btn-accent lp-btn-lg js-download" href="/launcher.ahk" download="GardenMacro.ahk">Download for free</a>
       <a class="lp-btn lp-btn-outline lp-btn-lg" href="/signin.html">Sign in</a>
     </div>
-    <div class="hero-req fp-anim">Windows · requires <a href="https://www.autohotkey.com/download/" target="_blank" rel="noopener">AutoHotkey v2</a> (free)</div>
+    <div class="hero-req fp-anim">Windows · requires <a href="https://www.autohotkey.com/" target="_blank" rel="noopener">AutoHotkey v2</a> (free)</div>
 
     <!-- Interactive replica of the real macro window (macro.ahk) -->
     <div class="win-stage fp-anim">
@@ -257,10 +295,37 @@ a { color: inherit; text-decoration: none; }
   Use of automation tools may be against the game's terms of service; use at your own risk. © 2026 Garden Macro.
 </p>
 
+<!-- AutoHotkey install prompt — shown the moment the GardenMacro.ahk download starts -->
+<div class="ahk-overlay" id="ahkOverlay" role="dialog" aria-modal="true" aria-labelledby="ahkTitle" aria-describedby="ahkDesc">
+  <div class="ahk-modal">
+    <button class="ahk-x" type="button" data-ahk-close aria-label="Close">
+      <svg width="14" height="14" viewBox="0 0 14 14"><path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+    </button>
+    <div class="ahk-ico">
+      <svg width="26" height="26" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M32 52 V30" stroke="#16a34a" stroke-width="3.6" stroke-linecap="round"></path>
+        <path d="M32 36 C22 36 17 28 18 19 C28 20 33 27 32 36 Z" fill="#16a34a"></path>
+        <path d="M32 40 C42 40 47 32 46 23 C36 24 31 31 32 40 Z" fill="#16a34a"></path>
+      </svg>
+    </div>
+    <h2 id="ahkTitle">One free install to go</h2>
+    <p id="ahkDesc">Your download of <strong>GardenMacro.ahk</strong> has started. To run it you need <strong>AutoHotkey v2</strong> — a tiny, free tool. Install it once and you're set for good.</p>
+    <ol class="ahk-steps">
+      <li>Install <strong>AutoHotkey v2</strong> (free) with the button below.</li>
+      <li>Double-click <code>GardenMacro.ahk</code> in your Downloads.</li>
+      <li>Pick your seeds and hit <strong>Start</strong>.</li>
+    </ol>
+    <div class="ahk-actions">
+      <a class="lp-btn lp-btn-accent lp-btn-lg" href="https://www.autohotkey.com/" target="_blank" rel="noopener" data-ahk-close>Install AutoHotkey v2</a>
+      <button class="lp-btn lp-btn-outline lp-btn-lg" type="button" data-ahk-close>I already have it</button>
+    </div>
+  </div>
+</div>
+
 <script>
 (function () {
   "use strict";
-  var reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var reduce = true;  // page is static by default — disables canvas motion, window tilt, and magnetic buttons
 
   /* ── Seed list — same order/data as macro.ahk ── */
   var SEEDS = [
@@ -376,6 +441,20 @@ a { color: inherit; text-decoration: none; }
   /* ── Reveal on load ── */
   var hero = document.getElementById('hero');
   requestAnimationFrame(function () { setTimeout(function () { hero.classList.add('in'); }, 60); });
+
+  /* ── Download → AutoHotkey install prompt ── */
+  var ahkOverlay = document.getElementById('ahkOverlay');
+  function openAhk() { if (ahkOverlay) { ahkOverlay.classList.add('open'); document.body.style.overflow = 'hidden'; } }
+  function closeAhk() { if (ahkOverlay) { ahkOverlay.classList.remove('open'); document.body.style.overflow = ''; } }
+  // Don't preventDefault — let the GardenMacro.ahk download proceed, then nudge the install.
+  document.querySelectorAll('.js-download').forEach(function (a) {
+    a.addEventListener('click', function () { setTimeout(openAhk, 350); });
+  });
+  if (ahkOverlay) {
+    ahkOverlay.addEventListener('click', function (e) { if (e.target === ahkOverlay) closeAhk(); });
+    document.querySelectorAll('[data-ahk-close]').forEach(function (b) { b.addEventListener('click', closeAhk); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeAhk(); });
+  }
 
   /* ── Nav hairline on scroll (page may slightly overflow on short screens) ── */
   var nav = document.getElementById('lp-nav');
