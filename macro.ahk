@@ -8,13 +8,12 @@
 ;  Pick which seeds to buy in the window, set the quantity,
 ;  then press Start (or F1). The macro:
 ;    0. Focuses Roblox + small mouse nudge
-;    1. Opens chat ("/"), types a message, presses Enter
-;    2. Clicks the shop at (697, 103), presses "e"
-;    3. Presses "\" for keyboard UI nav, snaps to position 1
+;    1. Clicks the shop at (697, 103), presses "e"
+;    2. Presses "\" for keyboard UI nav, snaps to position 1
 ;       (down 5x, hold Up 5s), then moves onto the first ticked seed.
-;  Steps 0-3 (Setup) run ONCE. The shop UI then stays open and the
+;  Steps 0-2 (Setup) run ONCE. The shop UI then stays open and the
 ;  cursor stays put, so each restock only repeats the buy pass:
-;    4. From the first ticked seed, walk DOWN buying each ticked seed
+;    3. From the first ticked seed, walk DOWN buying each ticked seed
 ;       N times, then walk back UP to the first ticked seed.
 ;
 ;  Setup runs on Start; the buy pass then repeats every 5 minutes
@@ -504,18 +503,7 @@ Setup() {
     if !Wait(200)
         return false
 
-    ; 1. Open chat with "/", type the message, then send it.
-    Send "/"
-    if !Wait(400)
-        return false
-    SendText "hi!"
-    if !Wait(200)
-        return false
-    Send "{Enter}"
-    if !Wait(500)
-        return false
-
-    ; 2. Nudge the mouse to the target, then click (absolute screen position).
+    ; 1. Nudge the mouse to the target, then click (absolute screen position).
     MouseMove 697 + 5, 103 + 5, 0
     MouseMove 697, 103, 0
     if !Wait(150)
@@ -528,7 +516,7 @@ Setup() {
     if !Wait(1500)
         return false
 
-    ; 3. Enter keyboard navigation of the UI by pressing the "\" / VK_OEM_5 key.
+    ; 2. Enter keyboard navigation of the UI by pressing the "\" / VK_OEM_5 key.
     ;    Every OTHER key here (e, arrows, Enter) worked but this one didn't, and
     ;    the reason is HOW it was sent. "{SC02B}" is a scancode-only event, so it
     ;    can reach Roblox with no virtual key attached -> Roblox reads the virtual
@@ -544,7 +532,7 @@ Setup() {
     if !Wait(300)
         return false
 
-    ; 3b. Snap to the FIRST position: go down 5 times, then hold Up for
+    ; 2b. Snap to the FIRST position: go down 5 times, then hold Up for
     ;     5 seconds to scroll all the way back to the top -> position 1.
     UiStatus("Resetting to position 1...")
     Loop 5 {
@@ -558,7 +546,7 @@ Setup() {
     if !Wait(300)
         return false
 
-    ; 3c. Move down from position 1 onto the FIRST selected seed.
+    ; 2c. Move down from position 1 onto the FIRST selected seed.
     Loop FirstSel - 1 {
         Send "{Down}"
         if !Wait(300)
