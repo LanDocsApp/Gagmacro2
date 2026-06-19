@@ -49,12 +49,23 @@ global MainGui    := 0
 global controller := 0
 global wv         := 0
 
-; --- Free version: the macro is free, but the LAST `PremiumCount` seeds are
-;     locked until the user unlocks them with a subscription paste-code (the
-;     same Google + Stripe auth the website already uses). New seeds get added
-;     to the bottom of the list, so "the last N" always tracks the newest ones.
-global PremiumCount := 5
+; --- Free version: the macro is free, but the BEST seeds (bottom of the list)
+;     are locked until the user unlocks them with a subscription paste-code (the
+;     same Google + Stripe auth the website already uses).
+;
+;     The lock is a drip funnel: on the install day the best `BaseLock` (5) seeds
+;     are locked; every calendar day after that, `DailyLock` (4) more lock from
+;     best toward worst, until the whole list is locked. The unlocked region is
+;     anchored on the seed count AT INSTALL, so new seeds (always appended to the
+;     bottom = best end) join the locked block without ever freeing a previously
+;     locked seed -- i.e. any seed better than a locked one is locked too. The
+;     live locked count is computed once at startup into PremiumCount (see
+;     ComputeLockedCount); everything downstream still just locks "the last N".
+global BaseLock     := 5      ; best seeds locked on the install day (day 0)
+global DailyLock    := 4      ; extra best seeds locked per calendar day after install
+global PremiumCount := 5      ; locked best-seed count THIS session (set at startup)
 global Unlocked     := false                          ; premium unlocked this session?
+global InstallFile  := A_AppData "\GardenMacro\install.txt"  ; first-run stamp + seed count
 
 ; Version shown in the window's bottom corner. Bump AppVersion on real releases;
 ; the build time is taken from this file's last-modified date, so it changes every
@@ -65,6 +76,18 @@ global VerifyUrl    := BackendBase "/api/desktop/verify"
 global TokenFile    := A_AppData "\GardenMacro\token.txt"   ; saved paste-code
 
 ; --- Seed list in the SAME top-to-bottom order as the in-game shop ---
+;
+;  ADDING A NEW SEED:  just APPEND it to the BOTTOM of this list. Nothing else --
+;  no count to bump, no config. The drip-lock funnel auto-adjusts: the new seed
+;  becomes the new best, locks immediately, and every already-locked seed stays
+;  locked (the UI reads the same injected count, so page + engine stay in sync).
+;
+;  IMPORTANT:  new seeds MUST go at the bottom (best end). The lock anchor counts
+;  the free seeds from the TOP (worst end), so appending preserves every existing
+;  seed's index and the anchor holds. INSERTING a seed in the MIDDLE shifts the
+;  indices above it and throws the anchor off -- don't do that. For this game it
+;  never happens (new seeds are always the new top tier), but it's the one rule
+;  to follow when editing this list.  (See ComputeLockedCount for the mechanism.)
 global Seeds := [
     {name: "Carrot",          rarity: "Common"},
     {name: "Strawberry",      rarity: "Common"},
@@ -92,6 +115,11 @@ global Seeds := [
     {name: "Moon Bloom",      rarity: "Super"},
     {name: "Dragon's Breath", rarity: "Super"}
 ]
+
+; Work out how many best seeds are locked for this session (drip funnel; the
+; count grows each calendar day after install). Must run after Seeds is defined
+; and before BuildUi, which injects the count into the page.
+PremiumCount := ComputeLockedCount()
 
 BuildUi()
 
@@ -329,10 +357,11 @@ StopMacro() {
 }
 
 ; ============================================================
-;  Free version: premium unlock (last N seeds)
-;  The macro runs free; the last `PremiumCount` seeds stay locked until the
-;  user pastes a valid subscription code, checked against the same backend the
-;  website uses (/api/desktop/verify).
+;  Free version: premium unlock (best N seeds, drip funnel)
+;  The macro runs free; the best `PremiumCount` seeds stay locked until the user
+;  pastes a valid subscription code, checked against the same backend the website
+;  uses (/api/desktop/verify). PremiumCount is not fixed -- it grows each calendar
+;  day after install (see ComputeLockedCount), locking from best to worst.
 ; ============================================================
 
 ; True if seed index `i` (1-based) is one of the locked premium seeds.
@@ -342,6 +371,67 @@ IsPremiumIndex(i) {
     if (start < 1)
         start := 1
     return i >= start
+}
+
+; How many of the BEST seeds are locked right now. Anchored on the seed count at
+; install: the worst `(installCount - BaseLock)` seeds start free, and that free
+; pool shrinks by DailyLock every calendar day, so the lock spreads from best to
+; worst until nothing is free. Because the anchor uses the INSTALL-time count,
+; seeds later appended to the bottom (best end) join the locked block and never
+; free a seed that was already locked.
+ComputeLockedCount() {
+    global Seeds, BaseLock, DailyLock
+    rec  := GetInstallRecord()
+    days := CalendarDaysSince(rec.stamp)
+
+    freeWorst := (rec.count - BaseLock) - DailyLock * days   ; worst seeds still free
+    if (freeWorst < 0)
+        freeWorst := 0
+
+    locked := Seeds.Length - freeWorst
+    minLock := Min(BaseLock, Seeds.Length)   ; always keep at least the day-0 baseline
+    if (locked < minLock)
+        locked := minLock
+    if (locked > Seeds.Length)
+        locked := Seeds.Length
+    return locked
+}
+
+; Read (or, on first run, create) the install record: the timestamp of first run
+; plus the seed count at that moment. Stored as "<YYYYMMDDHHMMSS>|<count>".
+GetInstallRecord() {
+    global InstallFile, Seeds
+    if FileExist(InstallFile) {
+        raw := ""
+        try raw := Trim(FileRead(InstallFile, "UTF-8"), " `t`r`n" Chr(0xFEFF))
+        parts := StrSplit(raw, "|")
+        stamp := parts.Length >= 1 ? parts[1] : ""
+        cnt   := parts.Length >= 2 ? parts[2] : ""
+        if (stamp != "" && IsInteger(stamp) && StrLen(stamp) >= 8) {
+            count := (cnt != "" && IsInteger(cnt)) ? Integer(cnt) : Seeds.Length
+            return { stamp: stamp, count: count }
+        }
+    }
+    ; First run: stamp "now" and snapshot the current seed count.
+    rec := { stamp: A_Now, count: Seeds.Length }
+    try {
+        SplitPath(InstallFile, , &dir)
+        if (dir != "" && !DirExist(dir))
+            DirCreate(dir)
+        f := FileOpen(InstallFile, "w", "UTF-8-RAW")
+        f.Write(rec.stamp "|" rec.count)
+        f.Close()
+    }
+    return rec
+}
+
+; Whole calendar days from the install date to today (install day = 0). Compares
+; the date parts only so a rollover past midnight counts as a new day.
+CalendarDaysSince(stamp) {
+    today   := SubStr(A_Now, 1, 8) "000000"
+    install := SubStr(stamp,  1, 8) "000000"
+    d := DateDiff(today, install, "Days")
+    return d < 0 ? 0 : d
 }
 
 ; Background check on startup: if a saved code is still active, unlock live.
@@ -761,7 +851,7 @@ HtmlTemplate() {
 
   <div id='premiumBar' class='pbar' onclick='openAccess()'>
     <span class='plock'>&#128274;</span>
-    <span>Last 5 seeds are locked</span>
+    <span id='pbarText'>Last 5 seeds are locked</span>
     <span class='pget'>Get access &rarr;</span>
   </div>
 
@@ -775,7 +865,7 @@ HtmlTemplate() {
     <div class='modal'>
       <div class='mh'>
         <span class='mlock'>&#128274;</span>
-        <h2>Unlock the last 5 seeds</h2>
+        <h2 id='modalTitle'>Unlock the last 5 seeds</h2>
         <button class='mx' onclick='closeAccess()'>&times;</button>
       </div>
       <p class='mdesc'>These premium seeds need Garden Macro access. Subscribe once, then paste your code to unlock them here. The rest of the macro stays free.</p>
@@ -826,6 +916,20 @@ HtmlTemplate() {
     }
   }
   function isLocked(n){ return !unlocked && n > SEEDS.length - PREMIUM; }
+  /* Keep the upsell copy in step with however many seeds are locked today. */
+  function lockText(){
+    return (PREMIUM >= SEEDS.length) ? 'All seeds are locked'
+                                     : 'Last ' + PREMIUM + ' seeds are locked';
+  }
+  function applyLockUi(){
+    var t = document.getElementById('pbarText');
+    if (t) t.textContent = lockText();
+    var h = document.getElementById('modalTitle');
+    if (h) h.textContent = (PREMIUM >= SEEDS.length) ? 'Unlock all seeds'
+                                                     : 'Unlock the last ' + PREMIUM + ' seeds';
+    var bar = document.getElementById('premiumBar');
+    if (bar) bar.hidden = unlocked || PREMIUM <= 0;
+  }
   function render(){
     var list = document.getElementById('list');
     list.innerHTML = '';
@@ -909,6 +1013,7 @@ HtmlTemplate() {
 
   /* init */
   render();
+  applyLockUi();
   pushSel();
   setRunning(false);
   requestAnimationFrame(function(){ requestAnimationFrame(fitWindow); });
