@@ -22,7 +22,7 @@
 ;  Controls:
 ;    Start button / F1 -> run
 ;    Stop  button / F2 -> stop (releases held keys)
-;    Close window / Esc -> quit the script
+;    Close window     -> quit the script
 ;
 ;  The window is a WebView2 (Edge) control rendering the HTML/CSS/JS
 ;  UI below. AHK stays the automation engine; the UI just sends it
@@ -246,7 +246,6 @@ UiState(on)     => Post("state|"  (on ? "1" : "0")) ; running? -> button enable/
 ; ============================================================
 F1:: StartMacro()
 F2:: StopMacro()
-Esc:: ExitApp
 
 StartMacro() {
     global LoopActive, Running, IntervalMs, FirstSel, LastSel, PassQty
