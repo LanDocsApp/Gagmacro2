@@ -900,6 +900,8 @@ HtmlTemplate() {
   .sub{font-size:12px;color:#888;display:flex;justify-content:space-between;align-items:baseline;gap:10px}
   .sub a{color:#555;cursor:pointer;text-decoration:none}
   .sub a:hover{color:#000;text-decoration:underline}
+  .sub a.help{color:#dc2626}
+  .sub a.help:hover{color:#b91c1c}
   /* Tabs (Seeds / Gears) */
   .tabs{display:flex;gap:4px;border-bottom:1px solid #eee}
   .tab{appearance:none;border:none;background:none;font-family:inherit;font-size:13px;
@@ -1020,7 +1022,7 @@ HtmlTemplate() {
   </div>
   <div class='sub'>
     <span id='count'>0 selected</span>
-    <span><a onclick='send("openhelp")'>Help &amp; setup</a> &middot; <a onclick='setAll(true)'>Select all</a> &middot; <a onclick='setAll(false)'>Clear</a></span>
+    <span><a class='help' onclick='send("openhelp")'>Help &amp; setup</a> &middot; <a onclick='setAll(true)'>Select all</a> &middot; <a onclick='setAll(false)'>Clear</a></span>
   </div>
 
   <div id='seedsPane'>
