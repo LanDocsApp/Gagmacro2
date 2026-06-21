@@ -9,6 +9,13 @@ compatibility_date = "2025-06-01"
 binding = "SUBS"
 id = "9d7061b6da29408d9f99dad54d624f82"
 
+# Anonymous usage stats. One row per install (device id + last_seen), upserted on
+# each macro heartbeat. Powers /api/stats and stats.html (live / today / week).
+[[d1_databases]]
+binding = "STATS"
+database_name = "gagmacro-stats"
+database_id = "47bbd7b5-f689-41c6-836c-5499b44a25e7"
+
 # Secrets/vars are configured in the Cloudflare dashboard (Pages > Settings >
 # Environment variables), not here:
 #   STRIPE_SECRET_KEY, STRIPE_PRICE_ID, STRIPE_WEBHOOK_SECRET,

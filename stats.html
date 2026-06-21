@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex, nofollow" />
+<title>Garden Macro — usage</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #f7f8fa; --card: #ffffff; --line: #e6e8eb;
+    --ink: #0f172a; --muted: #64748b; --green: #16a34a; --green-soft: #dcfce7;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: Inter, system-ui, sans-serif; background: var(--bg);
+    color: var(--ink); -webkit-font-smoothing: antialiased; padding: 40px 20px;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; }
+  header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 28px; }
+  h1 { font-size: 20px; font-weight: 700; margin: 0; }
+  .sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+  @media (min-width: 620px) { .grid { grid-template-columns: repeat(4, 1fr); } }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 20px 18px;
+  }
+  .card .label { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .card .value { font-family: "JetBrains Mono", monospace; font-size: 34px; font-weight: 600; margin-top: 8px; }
+  .card.live .value { color: var(--green); }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--green); margin-right: 6px; animation: pulse 1.6s infinite; vertical-align: middle; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+  .foot { margin-top: 22px; color: var(--muted); font-size: 12px; }
+  .gate { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 28px; max-width: 420px; margin: 60px auto; }
+  .gate input { width: 100%; padding: 11px 12px; border: 1px solid var(--line); border-radius: 9px; font-size: 14px; margin: 14px 0; font-family: "JetBrains Mono", monospace; }
+  .gate button, .signout {
+    background: var(--green); color: #fff; border: 0; border-radius: 9px; padding: 11px 16px;
+    font-weight: 600; font-size: 14px; cursor: pointer; font-family: inherit;
+  }
+  .signout { background: transparent; color: var(--muted); padding: 6px 10px; font-size: 12px; border: 1px solid var(--line); }
+  .err { color: #dc2626; font-size: 13px; min-height: 18px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="gate" class="gate" hidden>
+    <h1>Usage dashboard</h1>
+    <div class="sub">Enter your stats key to continue.</div>
+    <input id="key" type="password" placeholder="STATS_KEY" autocomplete="off" />
+    <div class="err" id="gateErr"></div>
+    <button id="enter">View stats</button>
+  </div>
+
+  <div id="dash" hidden>
+    <header>
+      <div>
+        <h1>Garden Macro — usage</h1>
+        <div class="sub">Anonymous installs. Auto-refreshes every 15s.</div>
+      </div>
+      <button class="signout" id="signout">Sign out</button>
+    </header>
+    <div class="grid">
+      <div class="card live"><div class="label"><span class="dot"></span>Live now</div><div class="value" id="v-live">—</div></div>
+      <div class="card"><div class="label">Today</div><div class="value" id="v-today">—</div></div>
+      <div class="card"><div class="label">This week</div><div class="value" id="v-week">—</div></div>
+      <div class="card"><div class="label">Total installs</div><div class="value" id="v-total">—</div></div>
+    </div>
+    <div class="foot" id="foot">Loading…</div>
+  </div>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const KEY_STORE = "gm_stats_key";
+  let timer = null;
+
+  function show(dash) {
+    $("dash").hidden = !dash;
+    $("gate").hidden = dash;
+  }
+
+  async function load() {
+    const key = localStorage.getItem(KEY_STORE);
+    if (!key) return show(false);
+    try {
+      const r = await fetch("/api/stats?key=" + encodeURIComponent(key), { cache: "no-store" });
+      if (r.status === 401) {
+        localStorage.removeItem(KEY_STORE);
+        $("gateErr").textContent = "That key was rejected.";
+        return show(false);
+      }
+      const d = await r.json();
+      show(true);
+      $("v-live").textContent = d.live;
+      $("v-today").textContent = d.today;
+      $("v-week").textContent = d.week;
+      $("v-total").textContent = d.total;
+      $("foot").textContent = "Updated " + new Date(d.at).toLocaleTimeString() +
+        " · today/week boundaries are UTC";
+    } catch (e) {
+      $("foot").textContent = "Couldn't reach the server. Retrying…";
+    }
+  }
+
+  $("enter").onclick = () => {
+    const v = $("key").value.trim();
+    if (!v) return;
+    localStorage.setItem(KEY_STORE, v);
+    $("gateErr").textContent = "";
+    load();
+  };
+  $("key").addEventListener("keydown", (e) => { if (e.key === "Enter") $("enter").click(); });
+  $("signout").onclick = () => { localStorage.removeItem(KEY_STORE); show(false); };
+
+  load();
+  timer = setInterval(load, 15000);
+</script>
+</body>
+</html>

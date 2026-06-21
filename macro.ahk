@@ -87,7 +87,11 @@ global InstallFile  := A_AppData "\GardenMacro\install.txt"  ; first-run stamp +
 global AppVersion := "1.0.0"
 global BackendBase  := "https://gardenmacro.com"   ; subscription backend
 global VerifyUrl    := BackendBase "/api/desktop/verify"
+global PingUrl      := BackendBase "/api/ping"              ; anonymous usage stats
 global TokenFile    := A_AppData "\GardenMacro\token.txt"   ; saved paste-code
+global DeviceFile   := A_AppData "\GardenMacro\device.txt"  ; random anon install id
+global DeviceId     := ""           ; set at startup (see GetOrCreateDeviceId)
+global HeartbeatReq := 0            ; keeps the async ping COM object alive in-flight
 
 ; --- Seed list in the SAME top-to-bottom order as the in-game shop ---
 ;
@@ -170,6 +174,13 @@ BuildUi()
 ; Re-check any previously saved access code in the background so returning
 ; subscribers see the premium seeds already unlocked, without blocking the UI.
 SetTimer(CheckSavedLicense, -800)
+
+; Anonymous usage heartbeat: one random install id, a ping now and every 60s
+; while the macro is open. Powers the live/today/week counts. Fire-and-forget
+; and async, so it can never stall the UI or block anything.
+DeviceId := GetOrCreateDeviceId()
+SetTimer(SendHeartbeat, 60000)
+SetTimer(SendHeartbeat, -1500)      ; first beat shortly after launch
 
 ; ============================================================
 ;  UI  (WebView2 window + HTML/CSS/JS)
@@ -626,6 +637,48 @@ SaveToken(path, text) {
     f := FileOpen(path, "w", "UTF-8-RAW")
     f.Write(text)
     f.Close()
+}
+
+; ---- Anonymous usage stats (heartbeat) ----
+
+; Return this install's random anonymous id, creating + saving one on first run.
+; It's just a GUID — no account, email, or machine info — used only to count
+; distinct installs (live / today / this week) on the backend.
+GetOrCreateDeviceId() {
+    global DeviceFile
+    id := ReadToken(DeviceFile)
+    if (id != "" && RegExMatch(id, "^[A-Za-z0-9-]{8,64}$"))
+        return id
+    id := NewGuid()
+    SaveToken(DeviceFile, id)        ; reuses the BOM-free saver
+    return id
+}
+
+; A fresh GUID via the Windows API, e.g. "3F2504E0-4F89-41D3-9A0C-0305E82C3301".
+NewGuid() {
+    buf := Buffer(16, 0)
+    if (DllCall("ole32\CoCreateGuid", "ptr", buf) != 0)
+        return Format("{:08x}{:08x}", Random(0, 0xFFFFFFFF), Random(0, 0xFFFFFFFF))
+    out := Buffer(80, 0)
+    DllCall("ole32\StringFromGUID2", "ptr", buf, "ptr", out, "int", 39)
+    return RegExReplace(StrGet(out, "UTF-16"), "[{}]", "")
+}
+
+; Fire-and-forget usage ping. Async (Open with bAsync=true) and never waited on,
+; so it returns instantly and can't stall the UI; we keep the COM object in a
+; global so it isn't collected before the request finishes.
+SendHeartbeat() {
+    global PingUrl, DeviceId, AppVersion, HeartbeatReq
+    if (DeviceId = "")
+        return
+    body := '{"id":"' JsonEscape(DeviceId) '","v":"' JsonEscape(AppVersion) '"}'
+    try {
+        HeartbeatReq := ComObject("WinHttp.WinHttpRequest.5.1")
+        HeartbeatReq.SetTimeouts(3000, 3000, 3000, 8000)
+        HeartbeatReq.Open("POST", PingUrl, true)      ; true = async, don't block
+        HeartbeatReq.SetRequestHeader("Content-Type", "application/json")
+        HeartbeatReq.Send(body)
+    }
 }
 
 ; ============================================================
