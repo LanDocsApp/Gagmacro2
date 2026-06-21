@@ -9,7 +9,7 @@
 // Protected by the STATS_KEY env var (set in the Cloudflare dashboard). Without
 // a configured key the endpoint stays locked.
 
-import { json } from "../../_lib/http.js";
+import { json } from "../_lib/http.js";
 
 export async function onRequestGet({ request, env }) {
   const url = new URL(request.url);

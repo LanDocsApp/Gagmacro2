@@ -7,7 +7,7 @@
 // Fire-and-forget from the client: always returns 200 quickly, never errors out
 // loud, so a stats hiccup can never affect the macro.
 
-import { json } from "../../_lib/http.js";
+import { json } from "../_lib/http.js";
 
 export async function onRequestPost({ request, env }) {
   let id = "";
