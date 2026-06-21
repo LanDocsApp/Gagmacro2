@@ -598,16 +598,16 @@ html { scroll-behavior: smooth; }
         <path d="M32 40 C42 40 47 32 46 23 C36 24 31 31 32 40 Z" fill="#16a34a"></path>
       </svg>
     </div>
-    <h2 id="ahkTitle">One free install to go</h2>
-    <p id="ahkDesc">Your download of <strong>GardenMacro.ahk</strong> has started. To run it you need <strong>AutoHotkey v2</strong>, a tiny free tool. Install it once and you're set for good.</p>
+    <h2 id="ahkTitle">Important!</h2>
+    <p id="ahkDesc">To run <strong>GardenMacro.ahk</strong> you need <strong>AutoHotkey v2</strong>, a tiny free tool. Grab it first if you don't have it. Your download starts as soon as you choose below.</p>
     <ol class="ahk-steps">
       <li>Install <strong>AutoHotkey v2</strong> (free) with the button below.</li>
-      <li>Double-click <code>GardenMacro.ahk</code> in your Downloads.</li>
+      <li>We'll download <code>GardenMacro.ahk</code>, then double-click it in your Downloads.</li>
       <li>Pick your seeds and hit <strong>Start</strong>.</li>
     </ol>
     <div class="ahk-actions">
-      <a class="lp-btn lp-btn-accent lp-btn-lg" href="https://www.autohotkey.com/" target="_blank" rel="noopener" data-ahk-close>Install AutoHotkey v2</a>
-      <button class="lp-btn lp-btn-outline lp-btn-lg" type="button" data-ahk-close>I already have it</button>
+      <a class="lp-btn lp-btn-accent lp-btn-lg" href="https://www.autohotkey.com/" target="_blank" rel="noopener" data-ahk-install>Install AutoHotkey v2</a>
+      <button class="lp-btn lp-btn-outline lp-btn-lg" type="button" data-ahk-have>I already have it</button>
     </div>
   </div>
 </div>
@@ -732,18 +732,46 @@ html { scroll-behavior: smooth; }
   var hero = document.getElementById('hero');
   requestAnimationFrame(function () { setTimeout(function () { hero.classList.add('in'); }, 60); });
 
-  /* ── Download → AutoHotkey install prompt ── */
+  /* ── AutoHotkey install prompt → then download ──
+     Clicking a download button no longer downloads right away. We first ask the
+     user to confirm AutoHotkey v2 is installed; the file downloads only once they
+     answer ("Install AutoHotkey v2" or "I already have it"). */
   var ahkOverlay = document.getElementById('ahkOverlay');
+  var pending = null;  // { href, name } captured from the clicked download button
+
   function openAhk() { if (ahkOverlay) { ahkOverlay.classList.add('open'); document.body.style.overflow = 'hidden'; } }
   function closeAhk() { if (ahkOverlay) { ahkOverlay.classList.remove('open'); document.body.style.overflow = ''; } }
-  // Don't preventDefault — let the GardenMacro.ahk download proceed, then nudge the install.
+
+  function startDownload() {
+    if (!pending) return;
+    var a = document.createElement('a');
+    a.href = pending.href;
+    if (pending.name) a.download = pending.name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    pending = null;
+  }
+
+  // Intercept the download buttons: capture the target file, show the prompt instead.
   document.querySelectorAll('.js-download').forEach(function (a) {
-    a.addEventListener('click', function () { setTimeout(openAhk, 350); });
+    a.addEventListener('click', function (e) {
+      e.preventDefault();
+      pending = { href: a.getAttribute('href'), name: a.getAttribute('download') || '' };
+      openAhk();
+    });
   });
+
   if (ahkOverlay) {
-    ahkOverlay.addEventListener('click', function (e) { if (e.target === ahkOverlay) closeAhk(); });
-    document.querySelectorAll('[data-ahk-close]').forEach(function (b) { b.addEventListener('click', closeAhk); });
-    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeAhk(); });
+    // Both choices start the download. "Install AutoHotkey v2" also opens autohotkey.com
+    // (its own anchor target="_blank" handles that); we just kick off the file + close.
+    document.querySelectorAll('[data-ahk-install], [data-ahk-have]').forEach(function (b) {
+      b.addEventListener('click', function () { startDownload(); closeAhk(); });
+    });
+    // X button / backdrop / Esc just dismiss without downloading.
+    ahkOverlay.addEventListener('click', function (e) { if (e.target === ahkOverlay) { pending = null; closeAhk(); } });
+    document.querySelectorAll('[data-ahk-close]').forEach(function (b) { b.addEventListener('click', function () { pending = null; closeAhk(); }); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { pending = null; closeAhk(); } });
   }
 
   /* ── Nav hairline on scroll (page may slightly overflow on short screens) ── */
