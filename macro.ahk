@@ -3,7 +3,7 @@
 #Include lib\WebView2.ahk
 
 ; ============================================================
-;  Garden Macro  -  Roblox seed-shop macro
+;  Garden Macro  -  Roblox seed-shop & gear-shop macro
 ;
 ;  Pick which seeds to buy in the window, set the quantity,
 ;  then press Start (or F1). The macro:
@@ -18,6 +18,13 @@
 ;
 ;  Setup runs on Start; the buy pass then repeats every 5 minutes
 ;  (restock loop) until you press Stop.
+;
+;  The window has two tabs: "Seeds" (above) and "Gears". The Gears tab
+;  buys from the in-game GEAR SHOP and differs only in setup: you must
+;  already be standing in the open Gear Shop UI when you press Start, so
+;  it skips the shop click + "e". It presses "\" for keyboard nav, taps
+;  Down 2x to land on position 1 (the first gear), then walks down onto
+;  the first ticked gear. From there the buy pass is identical to seeds.
 ;
 ;  Controls:
 ;    Start button / F1 -> run
@@ -36,13 +43,20 @@ SetKeyDelay 50, 50
 global Running    := false          ; a single buy pass is currently executing
 global LoopActive := false          ; the repeat loop is armed
 global IntervalMs := 5 * 60 * 1000  ; how often to repeat: 5 minutes
-global FirstSel   := 0              ; index of first ticked seed (locked at Start)
-global LastSel    := 0              ; index of last ticked seed (locked at Start)
-global PassQty    := 20             ; fixed quantity bought per seed each pass
+global FirstSel   := 0              ; index of first ticked item (locked at Start)
+global LastSel    := 0              ; index of last ticked item (locked at Start)
+global PassQty    := 20             ; fixed quantity bought per item each pass
 
-; Live UI state, kept in sync by messages from the page.
-global SelIndices := []             ; sorted 1-based indices currently ticked
-global SelSet     := Map()          ; locked-at-Start lookup: index -> true
+; Which shop the macro drives: "seeds" or "gears".
+global UiActiveMode := "seeds"      ; tab currently shown in the UI (live)
+global ActiveMode   := "seeds"      ; tab locked in for the running pass
+global ActiveItems  := []           ; item list for the running pass (Seeds or Gears)
+
+; Live UI state, kept in sync by messages from the page. Each tab keeps its own
+; ticked set; the active tab's set is snapshotted into SelSet at Start.
+global SeedSel := []                ; sorted 1-based seed indices currently ticked
+global GearSel := []                ; sorted 1-based gear indices currently ticked
+global SelSet  := Map()             ; locked-at-Start lookup: index -> true
 
 ; WebView2 / window handles (kept global so they are not garbage-collected).
 global MainGui    := 0
@@ -116,6 +130,36 @@ global Seeds := [
     {name: "Dragon's Breath", rarity: "Super"}
 ]
 
+; --- Gear list in the SAME top-to-bottom order as the in-game GEAR SHOP ---
+;
+;  The Gears tab is fully FREE (no drip-lock funnel applies to it). Order matters:
+;  it must match the shop exactly, because the macro navigates purely by counting
+;  Down presses. Rarity is cosmetic only -- it drives the same name flair as seeds
+;  (Legendary glow / Mythic glow / Super rainbow); other rarities render plain.
+global Gears := [
+    {name: "Common Watering Can",  rarity: "Common"},
+    {name: "Common Sprinkler",     rarity: "Common"},
+    {name: "Sign",                 rarity: "Common"},
+    {name: "Uncommon Sprinkler",   rarity: "Uncommon"},
+    {name: "Trowel",               rarity: "Uncommon"},
+    {name: "Rare Sprinkler",       rarity: "Rare"},
+    {name: "Jump Mushroom",        rarity: "Rare"},
+    {name: "Speed Mushroom",       rarity: "Rare"},
+    {name: "Megaphone",            rarity: "Rare"},
+    {name: "Lantern",              rarity: "Epic"},
+    {name: "Supersize Mushroom",   rarity: "Epic"},
+    {name: "Shrink Mushroom",      rarity: "Epic"},
+    {name: "Gnome",                rarity: "Epic"},
+    {name: "Flashbang",            rarity: "Epic"},
+    {name: "Basic Pot",            rarity: "Common"},
+    {name: "Legendary Sprinkler",  rarity: "Legendary"},
+    {name: "Invisibility Mushroom",rarity: "Legendary"},
+    {name: "Wheelbarrow",          rarity: "Legendary"},
+    {name: "Player Magnet",        rarity: "Mythic"},
+    {name: "Super Watering Can",   rarity: "Super"},
+    {name: "Super Sprinkler",      rarity: "Super"}
+]
+
 ; Work out how many best seeds are locked for this session (drip funnel; the
 ; count grows each calendar day after install). Must run after Seeds is defined
 ; and before BuildUi, which injects the count into the page.
@@ -131,7 +175,7 @@ SetTimer(CheckSavedLicense, -800)
 ;  UI  (WebView2 window + HTML/CSS/JS)
 ; ============================================================
 BuildUi() {
-    global MainGui, controller, wv, PremiumCount
+    global MainGui, controller, wv, PremiumCount, Seeds, Gears
 
     dllPath := A_ScriptDir "\lib\WebView2Loader.dll"
     dataDir := A_AppData "\GardenMacro\WebView2"   ; writable user-data folder
@@ -162,7 +206,8 @@ BuildUi() {
 
     wv.add_WebMessageReceived(OnWebMessage)
 
-    html := StrReplace(HtmlTemplate(), "__SEEDS__", BuildSeedsJs())
+    html := StrReplace(HtmlTemplate(), "__SEEDS__", BuildItemsJs(Seeds))
+    html := StrReplace(html, "__GEARS__", BuildItemsJs(Gears))
     html := StrReplace(html, "__PREMIUM__", PremiumCount)
     html := StrReplace(html, "__VERSION__", VersionLabel())
     wv.NavigateToString(html)
@@ -175,13 +220,12 @@ OnGuiSize(thisGui, minMax, w, h) {
         controller.Fill()
 }
 
-; Build the seed list as a JS array literal injected into the page.
-BuildSeedsJs() {
-    global Seeds
+; Build an item list (Seeds or Gears) as a JS array literal injected into the page.
+BuildItemsJs(list) {
     out := "["
-    for i, sd in Seeds {
-        out .= "{n:" JsStr(sd.name) ",r:" JsStr(sd.rarity) "}"
-        if i < Seeds.Length
+    for i, it in list {
+        out .= "{n:" JsStr(it.name) ",r:" JsStr(it.rarity) "}"
+        if i < list.Length
             out .= ","
     }
     return out "]"
@@ -212,21 +256,30 @@ JsStr(str) {
 ;    "stop"        stop
 ; ============================================================
 OnWebMessage(sender, args) {
-    global SelIndices
+    global SeedSel, GearSel, UiActiveMode
     msg := args.TryGetWebMessageAsString()
     parts := StrSplit(msg, "|")
     cmd := parts.Length >= 1 ? parts[1] : ""
 
     switch cmd {
         case "sel":
-            SelIndices := []
-            csv := parts.Length >= 2 ? parts[2] : ""
+            ; "sel|<tab>|<csv>" -> store into that tab's selection array.
+            tab := parts.Length >= 2 ? parts[2] : "seeds"
+            csv := parts.Length >= 3 ? parts[3] : ""
+            arr := []
             if csv != "" {
                 for token in StrSplit(csv, ",") {
                     if IsInteger(token)
-                        SelIndices.Push(Integer(token))
+                        arr.Push(Integer(token))
                 }
             }
+            if (tab = "gears")
+                GearSel := arr
+            else
+                SeedSel := arr
+        case "tab":
+            ; "tab|<name>" -> remember which tab is showing so F1 starts the right one.
+            UiActiveMode := (parts.Length >= 2 && parts[2] = "gears") ? "gears" : "seeds"
         case "start":
             StartMacro()
         case "stop":
@@ -277,23 +330,37 @@ F2:: StopMacro()
 
 StartMacro() {
     global LoopActive, Running, IntervalMs, FirstSel, LastSel, PassQty
-    global SelIndices, SelSet, Unlocked, MainGui
+    global SeedSel, GearSel, SelSet, Unlocked, MainGui
+    global UiActiveMode, ActiveMode, ActiveItems, Seeds, Gears
 
     if LoopActive               ; loop already armed -> ignore
         return
 
-    ; Drop any locked premium seeds unless they've been unlocked. The UI already
-    ; prevents ticking them; this is just defense in depth.
+    ; Snapshot which tab/shop we're running plus its item list + selection.
+    ActiveMode  := (UiActiveMode = "gears") ? "gears" : "seeds"
+    ActiveItems := (ActiveMode = "gears") ? Gears : Seeds
+    src         := (ActiveMode = "gears") ? GearSel : SeedSel
+
+    ; Gears is a Pro feature -- if it isn't unlocked, don't run; open the unlock UI.
+    if (ActiveMode = "gears" && !Unlocked) {
+        UiStatus("Gears is a Pro feature.")
+        Post("access|open")
+        return
+    }
+
+    ; Drop any locked premium seeds unless they've been unlocked (seeds only -- the
+    ; gear tab has no lock). The UI already prevents ticking them; defense in depth.
     picks := []
-    for idx in SelIndices {
-        if (!Unlocked && IsPremiumIndex(idx))
+    for idx in src {
+        if (ActiveMode = "seeds" && !Unlocked && IsPremiumIndex(idx))
             continue
         picks.Push(idx)
     }
 
     if picks.Length = 0 {
         UiStatus("Nothing selected.")
-        MsgBox "No seeds selected. Tick at least one seed."
+        noun := (ActiveMode = "gears") ? "gear" : "seed"
+        MsgBox "No " noun "s selected. Tick at least one " noun "."
         return
     }
 
@@ -303,7 +370,7 @@ StartMacro() {
     SelSet   := Map()
     for idx in picks
         SelSet[idx] := true
-    PassQty := 20               ; fixed buy amount per seed
+    PassQty := 20               ; fixed buy amount per item
 
     LoopActive := true
     Running := true
@@ -313,7 +380,7 @@ StartMacro() {
     ; (Setup focuses Roblox next; use F2 to stop while it's running.)
     try MainGui.Minimize()
 
-    ; One-time setup: open the shop UI and land on the first selected seed.
+    ; One-time setup: get into the shop UI and land on the first selected item.
     if !Setup() {
         Running := false
         LoopActive := false
@@ -321,7 +388,7 @@ StartMacro() {
         try MainGui.Restore()   ; setup failed -> bring the window back so the error is visible
         return
     }
-    BuyPass()                   ; first buy pass (ends on the first selected seed)
+    BuyPass()                   ; first buy pass (ends on the first selected item)
     Running := false
 
     if LoopActive {             ; still armed -> schedule the repeats
@@ -565,11 +632,19 @@ SaveToken(path, text) {
 ;  Setup (runs once) + Buy pass (repeats)
 ; ============================================================
 
-; One-time setup: focus Roblox, open the shop, enter keyboard navigation,
-; snap to position 1, then move down onto the FIRST selected seed.
+; One-time setup: focus Roblox, get into the shop UI, enter keyboard navigation,
+; snap to a known anchor, then move down onto the FIRST selected item.
+;
+;   Seeds:  click the shop at (697,103), press "e", then "\". Anchor = position 1
+;           (the first seed) via Down 5x + hold Up 5s. The first seed sits ON the
+;           anchor, so reaching seed N takes N-1 Down presses.
+;   Gears:  you must already be standing in the open Gear Shop UI, so NO click and
+;           NO "e" -- just "\". Anchor = position 1 (the first gear) via Down 2x, so
+;           reaching gear N takes N-1 Down presses (same as seeds).
+;
 ; Returns false if stopped or Roblox is missing.
 Setup() {
-    global FirstSel
+    global ActiveMode, FirstSel
     CoordMode "Mouse", "Screen"
 
     ; 0. Focus the Roblox window.
@@ -592,18 +667,21 @@ Setup() {
     if !Wait(200)
         return false
 
-    ; 1. Nudge the mouse to the target, then click (absolute screen position).
-    MouseMove 697 + 5, 103 + 5, 0
-    MouseMove 697, 103, 0
-    if !Wait(150)
-        return false
-    Click 697, 103
-    if !Wait(300)
-        return false
+    ; 1. Open the shop. Gears: you're already inside the Gear Shop UI, so skip the
+    ;    shop click and the "e". Seeds: nudge to the shop, click it, press "e".
+    if (ActiveMode != "gears") {
+        MouseMove 697 + 5, 103 + 5, 0
+        MouseMove 697, 103, 0
+        if !Wait(150)
+            return false
+        Click 697, 103
+        if !Wait(300)
+            return false
 
-    Send "e"
-    if !Wait(3500)
-        return false
+        Send "e"
+        if !Wait(3500)
+            return false
+    }
 
     ; 2. Enter keyboard navigation of the UI by pressing the "\" / VK_OEM_5 key.
     ;    Every OTHER key here (e, arrows, Enter) worked but this one didn't, and
@@ -621,22 +699,38 @@ Setup() {
     if !Wait(300)
         return false
 
-    ; 2b. Snap to the FIRST position: go down 5 times, then hold Up for
-    ;     5 seconds to scroll all the way back to the top -> position 1.
-    UiStatus("Resetting to position 1...")
-    Loop 5 {
-        Send "{Down}"
+    if (ActiveMode = "gears") {
+        ; 2b-gears. Land on position 1 (the first gear): Down 2x.
+        UiStatus("Resetting to position 1...")
+        Loop 2 {
+            Send "{Down}"
+            if !Wait(300)
+                return false
+        }
+        ; 2c-gears. Position 1 is the first gear, so reach gear FirstSel with
+        ;           FirstSel-1 Down presses (same as seeds).
+        downsToFirst := FirstSel - 1
+    } else {
+        ; 2b-seeds. Snap to position 1: Down 5x, then hold Up 5s to scroll all the
+        ;           way back to the top -> the first seed.
+        UiStatus("Resetting to position 1...")
+        Loop 5 {
+            Send "{Down}"
+            if !Wait(300)
+                return false
+        }
+        Send "{Up down}"
+        Wait(5000)
+        Send "{Up up}"
         if !Wait(300)
             return false
+        ; 2c-seeds. Position 1 is the first seed, so reach seed FirstSel with
+        ;           FirstSel-1 Down presses.
+        downsToFirst := FirstSel - 1
     }
-    Send "{Up down}"
-    Wait(5000)
-    Send "{Up up}"
-    if !Wait(300)
-        return false
 
-    ; 2c. Move down from position 1 onto the FIRST selected seed.
-    Loop FirstSel - 1 {
+    ; 3. Move down from the anchor onto the FIRST selected item.
+    Loop downsToFirst {
         Send "{Down}"
         if !Wait(300)
             return false
@@ -648,7 +742,7 @@ Setup() {
 ; Walks DOWN buying each ticked seed, then walks back UP to the first
 ; selected seed -> ends where it started, ready to repeat with no setup.
 BuyPass() {
-    global Running, Seeds, SelSet, FirstSel, LastSel, PassQty
+    global Running, ActiveItems, SelSet, FirstSel, LastSel, PassQty
 
     ; Keep Roblox focused (this does NOT move the UI cursor).
     if WinExist("ahk_exe RobloxPlayerBeta.exe")
@@ -660,7 +754,7 @@ BuyPass() {
         if !Running
             return
         if SelSet.Has(i) {
-            UiStatus(Format("Buying {} x{}", Seeds[i].name, PassQty))
+            UiStatus(Format("Buying {} x{}", ActiveItems[i].name, PassQty))
             if !BuyHere(PassQty)
                 return
         }
@@ -753,6 +847,31 @@ HtmlTemplate() {
   .sub{font-size:12px;color:#888;display:flex;justify-content:space-between;align-items:baseline;gap:10px}
   .sub a{color:#555;cursor:pointer;text-decoration:none}
   .sub a:hover{color:#000;text-decoration:underline}
+  /* Tabs (Seeds / Gears) */
+  .tabs{display:flex;gap:4px;border-bottom:1px solid #eee}
+  .tab{appearance:none;border:none;background:none;font-family:inherit;font-size:13px;
+       font-weight:600;color:#9a9a9a;cursor:pointer;padding:7px 13px;border-radius:7px 7px 0 0;
+       border-bottom:2px solid transparent;margin-bottom:-1px}
+  .tab:hover{color:#555}
+  .tab.on{color:#1a1a1a;border-bottom-color:#1a1a1a}
+  /* "Open the gear shop first" banner on the Gears tab */
+  .note{display:flex;align-items:flex-start;gap:8px;padding:9px 11px;margin-bottom:2px;
+        background:#fff8e6;border:1px solid #ffe6a8;border-radius:8px;
+        font-size:12px;color:#8a6d1a;line-height:1.45}
+  .note .ni{font-size:13px;line-height:1.2;flex-shrink:0}
+  .note b{color:#6f5512}
+  /* Gears = Pro feature: the menu opens but is grayed out behind a lock */
+  .prowrap{position:relative}
+  .prodim{opacity:.5;filter:grayscale(100%);pointer-events:none;user-select:none}
+  .prolock{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
+        justify-content:center;gap:9px;text-align:center;padding:16px;
+        background:rgba(248,248,248,.55);backdrop-filter:blur(1px);border-radius:8px}
+  .prolock .pl-ic{width:46px;height:46px;border-radius:50%;background:#e4e4e4;color:#8a8a8a;
+        display:flex;align-items:center;justify-content:center;font-size:21px;
+        box-shadow:0 3px 10px rgba(0,0,0,.10)}
+  .prolock .pl-t{font-size:14.5px;font-weight:700;color:#3a3a3a}
+  .prolock .pl-s{font-size:12px;color:#888;max-width:250px;line-height:1.45;margin-top:-3px}
+  .prolock .btn{margin-top:3px}
   /* List */
   .list{flex:none;overflow:hidden;border-radius:8px;
         display:grid;grid-auto-flow:column;grid-auto-columns:1fr;align-content:start;
@@ -842,17 +961,40 @@ HtmlTemplate() {
 </head>
 <body>
   <h1>Garden Macro</h1>
+  <div class='tabs'>
+    <button id='tabSeeds' class='tab on' onclick='switchTab("seeds")'>Seeds</button>
+    <button id='tabGears' class='tab'    onclick='switchTab("gears")'>Gears</button>
+  </div>
   <div class='sub'>
     <span id='count'>0 selected</span>
     <span><a onclick='send("openhelp")'>Help &amp; setup</a> &middot; <a onclick='setAll(true)'>Select all</a> &middot; <a onclick='setAll(false)'>Clear</a></span>
   </div>
 
-  <div id='list' class='list'></div>
+  <div id='seedsPane'>
+    <div id='list' class='list'></div>
+    <div id='premiumBar' class='pbar' onclick='openAccess()'>
+      <span class='plock'>&#128274;</span>
+      <span id='pbarText'>Last 5 seeds are locked</span>
+      <span class='pget'>Get access &rarr;</span>
+    </div>
+  </div>
 
-  <div id='premiumBar' class='pbar' onclick='openAccess()'>
-    <span class='plock'>&#128274;</span>
-    <span id='pbarText'>Last 5 seeds are locked</span>
-    <span class='pget'>Get access &rarr;</span>
+  <div id='gearsPane' hidden>
+    <div class='prowrap'>
+      <div id='gearContent'>
+        <div class='note'>
+          <span class='ni'>&#9888;</span>
+          <span>Open the in-game <b>Gear Shop</b> and keep it on screen <b>before</b> you press Start &mdash; the gear macro begins from inside that menu.</span>
+        </div>
+        <div id='gearList' class='list'></div>
+      </div>
+      <div id='gearLock' class='prolock'>
+        <span class='pl-ic'>&#128274;</span>
+        <div class='pl-t'>Get Pro</div>
+        <div class='pl-s'>The Gears macro is a Pro feature. Unlock it with Garden Macro Pro.</div>
+        <button class='btn green' onclick='openAccess()'>Get Pro &rarr;</button>
+      </div>
+    </div>
   </div>
 
   <div class='footer'>
@@ -868,7 +1010,7 @@ HtmlTemplate() {
         <h2 id='modalTitle'>Unlock the last 5 seeds</h2>
         <button class='mx' onclick='closeAccess()'>&times;</button>
       </div>
-      <p class='mdesc'>These premium seeds need Garden Macro access. Subscribe once, then paste your code to unlock them here. The rest of the macro stays free.</p>
+      <p class='mdesc'>Premium seeds and the Gears macro need Garden Macro Pro. Subscribe once, then paste your code to unlock them here.</p>
       <ol class='msteps'>
         <li>Open the sign-in page and subscribe with Google.</li>
         <li>Copy the access code it shows you.</li>
@@ -885,24 +1027,38 @@ HtmlTemplate() {
 
 <script>
   var SEEDS = __SEEDS__;
+  var GEARS = __GEARS__;
   var PREMIUM = __PREMIUM__;          /* number of locked seeds at the bottom */
-  var unlocked = false;              /* premium unlocked this session? */
-  var selected = {};                 /* 1-based index -> true */
+  var unlocked = false;              /* premium (seeds) unlocked this session? */
+  var seedSel = {};                  /* 1-based index -> true (seeds tab) */
+  var gearSel = {};                  /* 1-based index -> true (gears tab) */
+  var activeTab = 'seeds';           /* which tab the footer Start applies to */
   var wv = window.chrome.webview;
 
   function send(s){ wv.postMessage(s); }
 
-  function selectedList(){
-    var arr = [];
-    for (var k in selected){ if (selected[k]) arr.push(parseInt(k,10)); }
+  function items(tab){ return tab === 'gears' ? GEARS : SEEDS; }
+  function selMap(tab){ return tab === 'gears' ? gearSel : seedSel; }
+  /* Only seeds carry the premium drip-lock; every gear is always free. */
+  function isLocked(tab, n){
+    return tab === 'seeds' && !unlocked && n > SEEDS.length - PREMIUM;
+  }
+
+  function selectedList(tab){
+    var m = selMap(tab), arr = [];
+    for (var k in m){ if (m[k]) arr.push(parseInt(k,10)); }
     arr.sort(function(a,b){ return a-b; });
     return arr;
   }
-  function pushSel(){
-    var arr = selectedList();
-    send('sel|' + arr.join(','));
-    document.getElementById('count').textContent = arr.length + ' selected';
+  function pushSel(tab){
+    send('sel|' + tab + '|' + selectedList(tab).join(','));
+    if (tab === activeTab) updateCount();
   }
+  function updateCount(){
+    document.getElementById('count').textContent =
+      selectedList(activeTab).length + ' selected';
+  }
+
   var RARECLASS = {Legendary:'lg', Mythic:'my', Super:'sp'};
   function addSparks(nameEl, cls){
     for (var k = 0; k < 5; k++){
@@ -915,7 +1071,7 @@ HtmlTemplate() {
       nameEl.appendChild(sp);
     }
   }
-  function isLocked(n){ return !unlocked && n > SEEDS.length - PREMIUM; }
+
   /* Keep the upsell copy in step with however many seeds are locked today. */
   function lockText(){
     return (PREMIUM >= SEEDS.length) ? 'All seeds are locked'
@@ -930,16 +1086,25 @@ HtmlTemplate() {
     var bar = document.getElementById('premiumBar');
     if (bar) bar.hidden = unlocked || PREMIUM <= 0;
   }
-  function render(){
-    var list = document.getElementById('list');
-    list.innerHTML = '';
+  /* Gears is a Pro feature: gray out the menu + show the lock until unlocked. */
+  function applyGearLock(){
+    var locked = !unlocked;
+    var c = document.getElementById('gearContent');
+    var l = document.getElementById('gearLock');
+    if (c) c.classList.toggle('prodim', locked);
+    if (l) l.hidden = !locked;
+  }
+
+  function renderList(tab, listEl){
+    var arr = items(tab), m = selMap(tab);
+    listEl.innerHTML = '';
     /* fill straight down the left column, then continue down the right */
-    list.style.gridTemplateRows = 'repeat(' + Math.ceil(SEEDS.length / 2) + ', auto)';
-    SEEDS.forEach(function(s,i){
+    listEl.style.gridTemplateRows = 'repeat(' + Math.ceil(arr.length / 2) + ', auto)';
+    arr.forEach(function(s,i){
       var n = i + 1;
-      var locked = isLocked(n);
+      var locked = isLocked(tab, n);
       var row = document.createElement('div');
-      row.className = 'row' + (locked ? ' locked' : '') + (selected[n] ? ' sel' : '');
+      row.className = 'row' + (locked ? ' locked' : '') + (m[n] ? ' sel' : '');
       var box = document.createElement('span'); box.className = 'box';
       var name = document.createElement('span'); name.className = 'name';
       var cls = RARECLASS[s.r];
@@ -949,23 +1114,44 @@ HtmlTemplate() {
       if (cls){ name.classList.add(cls); addSparks(name, cls); }
       row.appendChild(box); row.appendChild(name);
       row.onclick = function(){
-        if (isLocked(n)) { openAccess(); return; }
-        if (selected[n]) { delete selected[n]; row.classList.remove('sel'); }
-        else { selected[n] = true; row.classList.add('sel'); }
-        pushSel();
+        if (isLocked(tab, n)) { openAccess(); return; }
+        if (m[n]) { delete m[n]; row.classList.remove('sel'); }
+        else { m[n] = true; row.classList.add('sel'); }
+        pushSel(tab);
       };
-      list.appendChild(row);
+      listEl.appendChild(row);
     });
   }
-  function setAll(v){
-    for (var i = 0; i < SEEDS.length; i++){
-      var n = i + 1;
-      if (v && !isLocked(n)) selected[n] = true; else delete selected[n];
-    }
-    render();
-    pushSel();
+  function renderAll(){
+    renderList('seeds', document.getElementById('list'));
+    renderList('gears', document.getElementById('gearList'));
   }
-  /* Premium / unlock flow */
+
+  function setAll(v){
+    var tab = activeTab;
+    if (tab === 'gears' && !unlocked){ openAccess(); return; }  /* Pro-locked */
+    var arr = items(tab), m = selMap(tab);
+    for (var i = 0; i < arr.length; i++){
+      var n = i + 1;
+      if (v && !isLocked(tab, n)) m[n] = true; else delete m[n];
+    }
+    renderAll();
+    pushSel(tab);
+  }
+
+  function switchTab(tab){
+    if (tab === activeTab) return;
+    activeTab = tab;
+    document.getElementById('seedsPane').hidden = (tab !== 'seeds');
+    document.getElementById('gearsPane').hidden = (tab !== 'gears');
+    document.getElementById('tabSeeds').classList.toggle('on', tab === 'seeds');
+    document.getElementById('tabGears').classList.toggle('on', tab === 'gears');
+    updateCount();
+    send('tab|' + tab);               /* so F1 starts whichever tab is showing */
+    requestAnimationFrame(function(){ requestAnimationFrame(fitWindow); });
+  }
+
+  /* Premium / unlock flow (seeds only) */
   function openAccess(){
     document.getElementById('overlay').hidden = false;
     var inp = document.getElementById('codeInput');
@@ -984,8 +1170,9 @@ HtmlTemplate() {
     closeAccess();
     var bar = document.getElementById('premiumBar');
     if (bar) bar.hidden = true;          /* access granted -> no upsell bar needed */
-    render();
-    pushSel();
+    applyGearLock();                     /* Pro -> the Gears tab is now usable */
+    renderAll();
+    pushSel('seeds');
     requestAnimationFrame(function(){ requestAnimationFrame(fitWindow); });
   }
   function setRunning(on){
@@ -1001,6 +1188,7 @@ HtmlTemplate() {
     else if (type === 'state') setRunning(rest === '1');
     else if (type === 'unlock') unlockPremium();
     else if (type === 'licensemsg') setLicenseMsg(rest);
+    else if (type === 'access') openAccess();   /* tried to Start a Pro-locked tab */
   });
 
   /* Ask AHK to shrink the window to end right at the Start/Stop row. */
@@ -1012,9 +1200,11 @@ HtmlTemplate() {
   }
 
   /* init */
-  render();
+  renderAll();
   applyLockUi();
-  pushSel();
+  applyGearLock();
+  pushSel('seeds');
+  pushSel('gears');
   setRunning(false);
   requestAnimationFrame(function(){ requestAnimationFrame(fitWindow); });
 </script>
