@@ -188,8 +188,11 @@ SetTimer(CheckSavedLicense, -800)
 ; while the macro is open. Powers the live/today/week counts. Fire-and-forget
 ; and async, so it can never stall the UI or block anything.
 DeviceId := GetOrCreateDeviceId()
-SetTimer(SendHeartbeat, 60000)
-SetTimer(SendHeartbeat, -1500)      ; first beat shortly after launch
+; One-shot wrapper for the first beat. It MUST be a different function than
+; SendHeartbeat: SetTimer keys on the callback, so scheduling SendHeartbeat both
+; repeating and as a -one-shot would collapse into a single one-shot timer (the
+; last call wins) and we'd only ever ping once per launch.
+SetTimer(StartHeartbeat, -1500)     ; first beat shortly after launch, then repeat
 
 ; ============================================================
 ;  UI  (WebView2 window + HTML/CSS/JS)
@@ -732,6 +735,14 @@ NewGuid() {
     out := Buffer(80, 0)
     DllCall("ole32\StringFromGUID2", "ptr", buf, "ptr", out, "int", 39)
     return RegExReplace(StrGet(out, "UTF-16"), "[{}]", "")
+}
+
+; First beat after launch, then arm the repeating 60s heartbeat. Kept separate
+; from SendHeartbeat so the two timers have distinct callbacks (see SetTimer note
+; at startup) — otherwise the repeat would never run.
+StartHeartbeat() {
+    SendHeartbeat()
+    SetTimer(SendHeartbeat, 60000)
 }
 
 ; Fire-and-forget usage ping. Async (Open with bAsync=true) and never waited on,
