@@ -130,6 +130,7 @@ global Seeds := [
     {name: "Venus Fly Trap",  rarity: "Mythic"},
     {name: "Pomegranate",     rarity: "Mythic"},
     {name: "Poison Apple",    rarity: "Mythic"},
+    {name: "Venom Spitter",   rarity: "Mythic"},
     {name: "Moon Bloom",      rarity: "Super"},
     {name: "Dragon's Breath", rarity: "Super"}
 ]
@@ -151,8 +152,8 @@ global Gears := [
     {name: "Speed Mushroom",       rarity: "Rare"},
     {name: "Megaphone",            rarity: "Rare"},
     {name: "Lantern",              rarity: "Epic"},
-    {name: "Supersize Mushroom",   rarity: "Epic"},
     {name: "Shrink Mushroom",      rarity: "Epic"},
+    {name: "Supersize Mushroom",   rarity: "Epic"},
     {name: "Gnome",                rarity: "Epic"},
     {name: "Flashbang",            rarity: "Epic"},
     {name: "Basic Pot",            rarity: "Common"},
@@ -160,6 +161,7 @@ global Gears := [
     {name: "Invisibility Mushroom",rarity: "Legendary"},
     {name: "Wheelbarrow",          rarity: "Legendary"},
     {name: "Player Magnet",        rarity: "Mythic"},
+    {name: "Strawberry Sniper",    rarity: "Mythic"},
     {name: "Super Watering Can",   rarity: "Super"},
     {name: "Super Sprinkler",      rarity: "Super"}
 ]
