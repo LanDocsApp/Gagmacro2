@@ -69,17 +69,24 @@ global wv         := 0
 ;
 ;     The lock is a drip funnel: on the install day the best `BaseLock` (5) seeds
 ;     are locked; every calendar day after that, `DailyLock` (4) more lock from
-;     best toward worst, until the whole list is locked. The unlocked region is
-;     anchored on the seed count AT INSTALL, so new seeds (always appended to the
-;     bottom = best end) join the locked block without ever freeing a previously
-;     locked seed -- i.e. any seed better than a locked one is locked too. The
-;     live locked count is computed once at startup into PremiumCount (see
-;     ComputeLockedCount); everything downstream still just locks "the last N".
+;     best toward worst, until the whole list is locked.
+;
+;     The free region is anchored on the seeds that existed AT INSTALL, matched by
+;     NAME (not by list position). At install we snapshot the ordered seed names;
+;     the free seeds are the worst `freeWorst` of that snapshot, and freeWorst
+;     shrinks each calendar day. Because the anchor is by name, ANY seed that
+;     wasn't in the install snapshot -- no matter where it's inserted in the list
+;     -- is locked, and a seed that was already free stays free. This is what lets
+;     new seeds be added ANYWHERE in the list (to match the in-game shop order)
+;     without re-locking a previously free seed (see ComputeFreeNames). FreeNames
+;     + PremiumCount are computed once at startup; the page gets a per-seed locked
+;     flag (__LOCKED__), so it never has to assume the locked seeds are "the last N".
 global BaseLock     := 5      ; best seeds locked on the install day (day 0)
 global DailyLock    := 4      ; extra best seeds locked per calendar day after install
-global PremiumCount := 5      ; locked best-seed count THIS session (set at startup)
+global PremiumCount := 5      ; locked-seed count THIS session (set at startup; UI copy)
+global FreeNames    := Map()  ; seed NAME -> true for seeds outside the paywall (set at startup)
 global Unlocked     := false                          ; premium unlocked this session?
-global InstallFile  := A_AppData "\GardenMacro\install.txt"  ; first-run stamp + seed count
+global InstallFile  := A_AppData "\GardenMacro\install.txt"  ; first-run stamp + seed-name snapshot
 
 ; Version shown in the window's bottom corner. Bump AppVersion on real releases;
 ; the build time is taken from this file's last-modified date, so it changes every
@@ -95,17 +102,16 @@ global HeartbeatReq := 0            ; keeps the async ping COM object alive in-f
 
 ; --- Seed list in the SAME top-to-bottom order as the in-game shop ---
 ;
-;  ADDING A NEW SEED:  just APPEND it to the BOTTOM of this list. Nothing else --
-;  no count to bump, no config. The drip-lock funnel auto-adjusts: the new seed
-;  becomes the new best, locks immediately, and every already-locked seed stays
-;  locked (the UI reads the same injected count, so page + engine stay in sync).
+;  ADDING A NEW SEED:  drop it in at the position that matches the in-game shop
+;  order -- ANYWHERE in this list, top, middle, or bottom. Nothing else to do:
+;  no count to bump, no config. Keep this list in the exact shop order, because
+;  the macro navigates by counting Down presses (order = correctness).
 ;
-;  IMPORTANT:  new seeds MUST go at the bottom (best end). The lock anchor counts
-;  the free seeds from the TOP (worst end), so appending preserves every existing
-;  seed's index and the anchor holds. INSERTING a seed in the MIDDLE shifts the
-;  indices above it and throws the anchor off -- don't do that. For this game it
-;  never happens (new seeds are always the new top tier), but it's the one rule
-;  to follow when editing this list.  (See ComputeLockedCount for the mechanism.)
+;  The drip-lock funnel auto-adjusts: any seed that wasn't present at install is
+;  treated as premium and locks immediately, and every seed that was already free
+;  stays free -- regardless of where the new seed is inserted. The lock is
+;  anchored by seed NAME (snapshotted at install), not by list position, so a
+;  mid-list insert no longer shifts the anchor.  (See ComputeFreeNames.)
 global Seeds := [
     {name: "Carrot",          rarity: "Common"},
     {name: "Strawberry",      rarity: "Common"},
@@ -166,10 +172,11 @@ global Gears := [
     {name: "Super Sprinkler",      rarity: "Super"}
 ]
 
-; Work out how many best seeds are locked for this session (drip funnel; the
-; count grows each calendar day after install). Must run after Seeds is defined
-; and before BuildUi, which injects the count into the page.
-PremiumCount := ComputeLockedCount()
+; Work out which seeds are free this session (drip funnel; the locked set grows
+; each calendar day after install). Must run after Seeds is defined and before
+; BuildUi, which injects the per-seed locked flags + count into the page.
+FreeNames    := ComputeFreeNames()
+PremiumCount := CountLocked()
 
 BuildUi()
 
@@ -221,6 +228,7 @@ BuildUi() {
 
     html := StrReplace(HtmlTemplate(), "__SEEDS__", BuildItemsJs(Seeds))
     html := StrReplace(html, "__GEARS__", BuildItemsJs(Gears))
+    html := StrReplace(html, "__LOCKED__", BuildLockedJs())
     html := StrReplace(html, "__PREMIUM__", PremiumCount)
     html := StrReplace(html, "__VERSION__", VersionLabel())
     wv.NavigateToString(html)
@@ -239,6 +247,21 @@ BuildItemsJs(list) {
     for i, it in list {
         out .= "{n:" JsStr(it.name) ",r:" JsStr(it.rarity) "}"
         if i < list.Length
+            out .= ","
+    }
+    return out "]"
+}
+
+; Build a JS array of 0/1 locked flags, one per seed, in Seeds order (1 = locked).
+; The page uses this to mark premium rows directly, so it never has to assume the
+; locked seeds are a contiguous block at the bottom (they are in practice, but a
+; mid-list insert into the free region wouldn't break the UI this way).
+BuildLockedJs() {
+    global Seeds, FreeNames
+    out := "["
+    for i, it in Seeds {
+        out .= FreeNames.Has(it.name) ? "0" : "1"
+        if i < Seeds.Length
             out .= ","
     }
     return out "]"
@@ -437,48 +460,82 @@ StopMacro() {
 }
 
 ; ============================================================
-;  Free version: premium unlock (best N seeds, drip funnel)
-;  The macro runs free; the best `PremiumCount` seeds stay locked until the user
-;  pastes a valid subscription code, checked against the same backend the website
-;  uses (/api/desktop/verify). PremiumCount is not fixed -- it grows each calendar
-;  day after install (see ComputeLockedCount), locking from best to worst.
+;  Free version: premium unlock (best seeds, drip funnel)
+;  The macro runs free; the best seeds stay locked until the user pastes a valid
+;  subscription code, checked against the same backend the website uses
+;  (/api/desktop/verify). The locked set is not fixed -- it grows each calendar
+;  day after install (see ComputeFreeNames), locking from best to worst. Which
+;  seeds are free is decided by NAME, so new seeds can be inserted anywhere.
 ; ============================================================
 
-; True if seed index `i` (1-based) is one of the locked premium seeds.
+; True if seed index `i` (1-based) is a locked premium seed. Decided by name via
+; the precomputed FreeNames set, so list position / insert order doesn't matter.
 IsPremiumIndex(i) {
-    global Seeds, PremiumCount
-    start := Seeds.Length - PremiumCount + 1
-    if (start < 1)
-        start := 1
-    return i >= start
+    global Seeds, FreeNames
+    if (i < 1 || i > Seeds.Length)
+        return false
+    return !FreeNames.Has(Seeds[i].name)
 }
 
-; How many of the BEST seeds are locked right now. Anchored on the seed count at
-; install: the worst `(installCount - BaseLock)` seeds start free, and that free
-; pool shrinks by DailyLock every calendar day, so the lock spreads from best to
-; worst until nothing is free. Because the anchor uses the INSTALL-time count,
-; seeds later appended to the bottom (best end) join the locked block and never
-; free a seed that was already locked.
-ComputeLockedCount() {
+; Count of locked seeds in the current list (for the UI upsell copy).
+CountLocked() {
+    global Seeds, FreeNames
+    n := 0
+    for it in Seeds
+        if !FreeNames.Has(it.name)
+            n++
+    return n
+}
+
+; Current seed names, in list order.
+SeedNames() {
+    global Seeds
+    out := []
+    for it in Seeds
+        out.Push(it.name)
+    return out
+}
+
+; Work out which seeds are FREE right now and return them as a name -> true Map.
+; Anchored on the seed list AT INSTALL (matched by name): the worst
+; `(installCount - BaseLock)` seeds start free, and that free pool shrinks by
+; DailyLock every calendar day, so the lock spreads from best to worst until
+; nothing is free. Because the anchor is by name, ANY seed not in the install
+; snapshot is locked no matter where it's inserted, and a seed that was already
+; free is never re-locked by an insert.
+ComputeFreeNames() {
     global Seeds, BaseLock, DailyLock
     rec  := GetInstallRecord()
     days := CalendarDaysSince(rec.stamp)
 
-    freeWorst := (rec.count - BaseLock) - DailyLock * days   ; worst seeds still free
+    ; Install-era ordered names. Old records stored only a count (no names) -- fall
+    ; back to the current list's prefix for naming, but keep the install-time COUNT
+    ; (rec.count) as the drip anchor so existing users' locked set doesn't move.
+    ; The prefix matches the real install-era worst seeds as long as nothing was
+    ; inserted into that install's free region (the worst seeds; never happens).
+    src       := rec.names.Length ? rec.names : SeedNames()
+    baseCount := rec.count
+
+    freeWorst := (baseCount - BaseLock) - DailyLock * days   ; worst seeds still free
     if (freeWorst < 0)
         freeWorst := 0
+    ; Never free so many that the day-0 baseline (BaseLock best seeds) isn't locked.
+    maxFree := Seeds.Length - Min(BaseLock, Seeds.Length)
+    if (freeWorst > maxFree)
+        freeWorst := maxFree
 
-    locked := Seeds.Length - freeWorst
-    minLock := Min(BaseLock, Seeds.Length)   ; always keep at least the day-0 baseline
-    if (locked < minLock)
-        locked := minLock
-    if (locked > Seeds.Length)
-        locked := Seeds.Length
-    return locked
+    free := Map()
+    Loop Min(freeWorst, src.Length)
+        free[src[A_Index]] := true
+    return free
 }
 
-; Read (or, on first run, create) the install record: the timestamp of first run
-; plus the seed count at that moment. Stored as "<YYYYMMDDHHMMSS>|<count>".
+; Read (or, on first run, create) the install record: the first-run timestamp plus
+; an ordered snapshot of the seed names at that moment, stored as
+; "<YYYYMMDDHHMMSS>|name1|name2|...". Returns { stamp, names, count }: `count` is
+; the install-era seed count (the drip anchor). Old records used "<stamp>|<count>";
+; those read back with an empty `names` (count from the file) so the drip math is
+; unchanged for existing users; ComputeFreeNames falls back to the current names.
 GetInstallRecord() {
     global InstallFile, Seeds
     if FileExist(InstallFile) {
@@ -486,20 +543,31 @@ GetInstallRecord() {
         try raw := Trim(FileRead(InstallFile, "UTF-8"), " `t`r`n" Chr(0xFEFF))
         parts := StrSplit(raw, "|")
         stamp := parts.Length >= 1 ? parts[1] : ""
-        cnt   := parts.Length >= 2 ? parts[2] : ""
         if (stamp != "" && IsInteger(stamp) && StrLen(stamp) >= 8) {
-            count := (cnt != "" && IsInteger(cnt)) ? Integer(cnt) : Seeds.Length
-            return { stamp: stamp, count: count }
+            names := []
+            ; New format: stamp|name1|name2|...  (the second field is non-numeric).
+            ; Old format: stamp|count -> keep names empty, take count from the file.
+            if (parts.Length >= 2 && !IsInteger(parts[2])) {
+                Loop parts.Length - 1
+                    names.Push(parts[A_Index + 1])
+                return { stamp: stamp, names: names, count: names.Length }
+            }
+            if (parts.Length >= 2 && IsInteger(parts[2]))
+                return { stamp: stamp, names: names, count: Integer(parts[2]) }
+            return { stamp: stamp, names: names, count: Seeds.Length }
         }
     }
-    ; First run: stamp "now" and snapshot the current seed count.
-    rec := { stamp: A_Now, count: Seeds.Length }
+    ; First run: stamp "now" and snapshot the current ordered seed names.
+    rec := { stamp: A_Now, names: SeedNames(), count: Seeds.Length }
     try {
         SplitPath(InstallFile, , &dir)
         if (dir != "" && !DirExist(dir))
             DirCreate(dir)
         f := FileOpen(InstallFile, "w", "UTF-8-RAW")
-        f.Write(rec.stamp "|" rec.count)
+        body := rec.stamp
+        for nm in rec.names
+            body .= "|" nm
+        f.Write(body)
         f.Close()
     }
     return rec
@@ -1085,7 +1153,8 @@ HtmlTemplate() {
 <script>
   var SEEDS = __SEEDS__;
   var GEARS = __GEARS__;
-  var PREMIUM = __PREMIUM__;          /* number of locked seeds at the bottom */
+  var LOCKED = __LOCKED__;            /* per-seed 0/1 lock flags, aligned to SEEDS */
+  var PREMIUM = __PREMIUM__;          /* number of locked seeds (for the upsell copy) */
   var unlocked = false;              /* premium (seeds) unlocked this session? */
   var seedSel = {};                  /* 1-based index -> true (seeds tab) */
   var gearSel = {};                  /* 1-based index -> true (gears tab) */
@@ -1096,9 +1165,11 @@ HtmlTemplate() {
 
   function items(tab){ return tab === 'gears' ? GEARS : SEEDS; }
   function selMap(tab){ return tab === 'gears' ? gearSel : seedSel; }
-  /* Only seeds carry the premium drip-lock; every gear is always free. */
+  /* Only seeds carry the premium drip-lock; every gear is always free. The lock
+     flag is per-seed (decided by name in the macro), so insert order doesn't
+     matter -- we don't assume the locked seeds are the last N. */
   function isLocked(tab, n){
-    return tab === 'seeds' && !unlocked && n > SEEDS.length - PREMIUM;
+    return tab === 'seeds' && !unlocked && !!LOCKED[n - 1];
   }
 
   function selectedList(tab){
