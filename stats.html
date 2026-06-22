@@ -34,6 +34,17 @@
   .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--green); margin-right: 6px; animation: pulse 1.6s infinite; vertical-align: middle; }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
   .foot { margin-top: 22px; color: var(--muted); font-size: 12px; }
+  .sessions { margin-top: 30px; }
+  .sessions h2 { font-size: 14px; font-weight: 600; margin: 0 0 12px; }
+  .sessions table {
+    width: 100%; border-collapse: collapse;
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px; overflow: hidden;
+  }
+  .sessions th, .sessions td { text-align: left; padding: 11px 14px; font-size: 13px; border-bottom: 1px solid var(--line); }
+  .sessions th { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .sessions tr:last-child td { border-bottom: 0; }
+  .sessions td.mono, .sessions td.len { font-family: "JetBrains Mono", monospace; }
+  .muted { color: var(--muted); }
   .gate { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 28px; max-width: 420px; margin: 60px auto; }
   .gate input { width: 100%; padding: 11px 12px; border: 1px solid var(--line); border-radius: 9px; font-size: 14px; margin: 14px 0; font-family: "JetBrains Mono", monospace; }
   .gate button, .signout {
@@ -67,8 +78,18 @@
       <div class="card"><div class="label">Today</div><div class="value" id="v-today">—</div></div>
       <div class="card"><div class="label">This week</div><div class="value" id="v-week">—</div></div>
       <div class="card"><div class="label">Total installs</div><div class="value" id="v-total">—</div></div>
+      <div class="card"><div class="label">Sessions today</div><div class="value" id="v-sessions">—</div></div>
+      <div class="card"><div class="label">Avg session</div><div class="value" id="v-avg">—</div></div>
     </div>
     <div class="foot" id="foot">Loading…</div>
+
+    <div class="sessions">
+      <h2>Recent sessions</h2>
+      <table>
+        <thead><tr><th>Device</th><th>Started</th><th>Length</th><th>Pings</th><th>Version</th></tr></thead>
+        <tbody id="sess-body"><tr><td colspan="5" class="muted">Loading…</td></tr></tbody>
+      </table>
+    </div>
   </div>
 </div>
 
@@ -76,6 +97,38 @@
   const $ = (id) => document.getElementById(id);
   const KEY_STORE = "gm_stats_key";
   let timer = null;
+
+  // ms -> "1h 4m" / "9m 30s" / "45s"
+  function fmtDuration(ms) {
+    const s = Math.round((ms || 0) / 1000);
+    if (s < 60) return s + "s";
+    const m = Math.floor(s / 60), rs = s % 60;
+    if (m < 60) return m + "m" + (rs ? " " + rs + "s" : "");
+    const h = Math.floor(m / 60), rm = m % 60;
+    return h + "h" + (rm ? " " + rm + "m" : "");
+  }
+
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+  function renderSessions(list) {
+    const body = $("sess-body");
+    if (!list || !list.length) {
+      body.innerHTML = '<tr><td colspan="5" class="muted">No sessions yet.</td></tr>';
+      return;
+    }
+    body.innerHTML = list.map((s) => {
+      const live = Date.now() - s.last_ping < 3 * 60 * 1000;
+      const len = fmtDuration(s.durationMs) + (live ? " ·live" : "");
+      return "<tr>" +
+        '<td class="mono">' + esc(s.device) + "</td>" +
+        "<td>" + new Date(s.started_at).toLocaleString() + "</td>" +
+        '<td class="len">' + esc(len) + "</td>" +
+        "<td>" + (s.pings || 0) + "</td>" +
+        '<td class="mono">' + (s.version ? esc(s.version) : "—") + "</td>" +
+        "</tr>";
+    }).join("");
+  }
 
   function show(dash) {
     $("dash").hidden = !dash;
@@ -98,8 +151,11 @@
       $("v-today").textContent = d.today;
       $("v-week").textContent = d.week;
       $("v-total").textContent = d.total;
+      $("v-sessions").textContent = d.sessionsToday ?? "—";
+      $("v-avg").textContent = d.avgSession ? fmtDuration(d.avgSession) : "—";
+      renderSessions(d.sessions);
       $("foot").textContent = "Updated " + new Date(d.at).toLocaleTimeString() +
-        " · today/week boundaries are UTC";
+        " · today/week boundaries are UTC · avg excludes single-ping launches";
     } catch (e) {
       $("foot").textContent = "Couldn't reach the server. Retrying…";
     }

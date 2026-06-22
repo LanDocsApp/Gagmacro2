@@ -1,15 +1,22 @@
 // POST /api/ping — anonymous usage heartbeat from the macro.
 //
 // Body: { "id": "<random device id>", "v": "<app version>" }
-// Upserts one row per install into the STATS D1 table (no PII — just a random
-// id the macro generates once and stores locally). Powers /api/stats.
+// Upserts one row per install into the STATS D1 `devices` table (no PII — just a
+// random id the macro generates once and stores locally) and stitches pings into
+// `sessions` rows. Powers /api/stats.
 //
 // Fire-and-forget from the client: always returns 200 quickly, never errors out
 // loud, so a stats hiccup can never affect the macro.
 
 import { json } from "../_lib/http.js";
 
-export async function onRequestPost({ request, env }) {
+// A session is "still going" as long as pings keep arriving within this window.
+// Pings fire every 60s; allowing ~2 missed beats means a flaky network or a brief
+// sleep won't shatter one real session into many (which would inflate the session
+// count and tank the average length). A gap longer than this starts a new session.
+const SESSION_GAP_MS = 3 * 60 * 1000;
+
+export async function onRequestPost({ request, env, waitUntil }) {
   let id = "";
   let version = "";
   try {
@@ -28,17 +35,84 @@ export async function onRequestPost({ request, env }) {
   if (env.STATS) {
     const now = Date.now();
     try {
-      await env.STATS.prepare(
+      // Upsert the install. RETURNING tells us whether this row was just created:
+      // on a fresh insert first_seen == now; on a conflict-update it keeps its old
+      // (smaller) first_seen. So `first_seen = now` is a reliable "new install" flag.
+      const dev = await env.STATS.prepare(
         `INSERT INTO devices (id, first_seen, last_seen, version)
          VALUES (?1, ?2, ?2, ?3)
-         ON CONFLICT(id) DO UPDATE SET last_seen = ?2, version = ?3`
+         ON CONFLICT(id) DO UPDATE SET last_seen = ?2, version = ?3
+         RETURNING (first_seen = ?2) AS is_new`
       )
         .bind(id, now, version || null)
-        .run();
+        .first();
+
+      await recordSession(env, id, version, now);
+
+      if (dev && dev.is_new) {
+        // Off the response path so the Discord call never delays the macro.
+        const p = notifyNewInstall(env, version, now);
+        if (waitUntil) waitUntil(p);
+        else await p.catch(() => {});
+      }
     } catch {
       // Never let a stats write surface as an error to the macro.
     }
   }
 
   return json({ ok: true });
+}
+
+// Extend the device's current session, or open a new one if the last ping is
+// older than the grace gap. Session length is read elsewhere as last_ping - started_at.
+async function recordSession(env, id, version, now) {
+  const last = await env.STATS.prepare(
+    `SELECT session_id, last_ping FROM sessions
+     WHERE device_id = ?1 ORDER BY last_ping DESC LIMIT 1`
+  )
+    .bind(id)
+    .first();
+
+  if (last && now - last.last_ping <= SESSION_GAP_MS) {
+    await env.STATS.prepare(
+      `UPDATE sessions SET last_ping = ?1, pings = pings + 1 WHERE session_id = ?2`
+    )
+      .bind(now, last.session_id)
+      .run();
+  } else {
+    await env.STATS.prepare(
+      `INSERT INTO sessions (device_id, started_at, last_ping, pings, version)
+       VALUES (?1, ?2, ?2, 1, ?3)`
+    )
+      .bind(id, now, version || null)
+      .run();
+  }
+}
+
+// Post a minimal milestone to Discord when a brand-new install first pings.
+// No-op if DISCORD_WEBHOOK_URL isn't configured.
+async function notifyNewInstall(env, version, now) {
+  const hook = env.DISCORD_WEBHOOK_URL && env.DISCORD_WEBHOOK_URL.trim();
+  if (!hook) return;
+
+  let total = 0;
+  try {
+    const row = await env.STATS.prepare(`SELECT COUNT(*) AS n FROM devices`).first();
+    total = (row && row.n) || 0;
+  } catch {
+    /* count is best-effort */
+  }
+
+  const v = version ? " · v" + version : "";
+  const content = `🌱 New install! Total installs: ${total.toLocaleString("en-US")}${v}`;
+
+  try {
+    await fetch(hook, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content }),
+    });
+  } catch {
+    /* Discord being down must never matter here */
+  }
 }
