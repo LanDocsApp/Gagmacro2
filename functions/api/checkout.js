@@ -22,6 +22,9 @@ async function handle({ request, env }) {
     mode: "subscription",
     line_items: [{ price: env.STRIPE_PRICE_ID, quantity: 1 }],
     allow_promotion_codes: true,
+    // Skip card collection when nothing is owed (e.g. a 100%-off-forever comp
+    // for a creator). Paying customers still owe $4.50, so they're unaffected.
+    payment_method_collection: "if_required",
     client_reference_id: session.sub,
     metadata: { google_id: session.sub },
     subscription_data: { metadata: { google_id: session.sub } },
