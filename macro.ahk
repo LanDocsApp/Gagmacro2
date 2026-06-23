@@ -46,6 +46,7 @@ global IntervalMs := 5 * 60 * 1000  ; how often to repeat: 5 minutes
 global FirstSel   := 0              ; index of first ticked item (locked at Start)
 global LastSel    := 0              ; index of last ticked item (locked at Start)
 global PassQty    := 20             ; fixed quantity bought per item each pass
+global SessionStart := 0            ; A_TickCount when the current run's buying began (0 = idle)
 
 ; Which shop the macro drives: "seeds" or "gears".
 global UiActiveMode := "seeds"      ; tab currently shown in the UI (live)
@@ -67,9 +68,11 @@ global wv         := 0
 ;     are locked until the user unlocks them with a subscription paste-code (the
 ;     same Google + Stripe auth the website already uses).
 ;
-;     The lock is a drip funnel: on the install day the best `BaseLock` (5) seeds
-;     are locked; every calendar day after that, `DailyLock` (4) more lock from
-;     best toward worst, until the whole list is locked.
+;     The lock is a drip funnel: on the install day NOTHING is locked (BaseLock 0),
+;     so a brand-new user gets the WHOLE list free for day one; every calendar day
+;     after that, `DailyLock` (2) more lock from best toward worst, until the whole
+;     list is locked. The gentle ramp keeps day-one users from getting frustrated
+;     and bouncing to a different macro before they've felt the value.
 ;
 ;     The free region is anchored on the seeds that existed AT INSTALL, matched by
 ;     NAME (not by list position). At install we snapshot the ordered seed names;
@@ -81,9 +84,15 @@ global wv         := 0
 ;     without re-locking a previously free seed (see ComputeFreeNames). FreeNames
 ;     + PremiumCount are computed once at startup; the page gets a per-seed locked
 ;     flag (__LOCKED__), so it never has to assume the locked seeds are "the last N".
-global BaseLock     := 5      ; best seeds locked on the install day (day 0)
-global DailyLock    := 4      ; extra best seeds locked per calendar day after install
-global PremiumCount := 5      ; locked-seed count THIS session (set at startup; UI copy)
+global BaseLock     := 0      ; best seeds locked on the install day (day 0) -> 0 = whole list free on day one
+global DailyLock    := 2      ; extra best seeds locked per calendar day after install
+global PremiumCount := 0      ; locked-seed count THIS session (set at startup; UI copy)
+; Per-restock in-game appearance chance of EACH seed of a rarity. Drives the
+; post-run "what you missed" upsell estimate (see MaybeShowUpgradeHint). The
+; estimate always multiplies by the FULL count of that rarity in the list, not
+; the locked count.
+global SuperChance  := 0.003  ; ~0.3% per restock per super seed
+global MythicChance := 0.014  ; ~1.4% per restock per mythic seed
 global FreeNames    := Map()  ; seed NAME -> true for seeds outside the paywall (set at startup)
 global Unlocked     := false                          ; premium unlocked this session?
 global InstallFile  := A_AppData "\GardenMacro\install.txt"  ; first-run stamp + seed-name snapshot
@@ -369,7 +378,7 @@ F2:: StopMacro()
 
 StartMacro() {
     global LoopActive, Running, IntervalMs, FirstSel, LastSel, PassQty
-    global SeedSel, GearSel, SelSet, Unlocked, MainGui
+    global SeedSel, GearSel, SelSet, Unlocked, MainGui, SessionStart
     global UiActiveMode, ActiveMode, ActiveItems, Seeds, Gears
 
     if LoopActive               ; loop already armed -> ignore
@@ -427,6 +436,7 @@ StartMacro() {
         try MainGui.Restore()   ; setup failed -> bring the window back so the error is visible
         return
     }
+    SessionStart := A_TickCount ; setup done -> start timing the run (drives the post-run upsell hint)
     BuyPass()                   ; first buy pass (ends on the first selected item)
     Running := false
 
@@ -451,7 +461,7 @@ DoPass() {
 }
 
 StopMacro() {
-    global Running, LoopActive
+    global Running, LoopActive, SessionStart
     LoopActive := false
     SetTimer(DoPass, 0)         ; cancel the 5-minute loop
     Running := false            ; interrupt any pass in progress
@@ -460,6 +470,14 @@ StopMacro() {
     Send "{Down up}"
     UiState(false)
     UiStatus("Stopped.")
+
+    ; End of a real run -> maybe show the free user what the locked super seeds
+    ; would have earned them this session. Guarded so a Stop with no run does nothing.
+    if (SessionStart > 0) {
+        elapsed := A_TickCount - SessionStart
+        SessionStart := 0
+        MaybeShowUpgradeHint(elapsed)
+    }
 }
 
 ; ============================================================
@@ -488,6 +506,72 @@ CountLocked() {
         if !FreeNames.Has(it.name)
             n++
     return n
+}
+
+; Count seeds of a given rarity in the current list (ALL of them, locked or not).
+; Read live from Seeds so the upsell estimate tracks the list -- adding a seed of
+; that rarity raises the number on its own; nothing is hardcoded.
+CountSeedsByRarity(rarity) {
+    global Seeds
+    n := 0
+    for it in Seeds
+        if (it.rarity = rarity)
+            n++
+    return n
+}
+
+; Count LOCKED seeds of a given rarity right now (the premium ones behind the
+; paywall). Used only to decide WHICH tiers the popup mentions, not the estimate.
+CountLockedSeedsByRarity(rarity) {
+    global Seeds, FreeNames
+    n := 0
+    for it in Seeds
+        if (it.rarity = rarity && !FreeNames.Has(it.name))
+            n++
+    return n
+}
+
+; After a run, optionally show a free user what the locked premium seeds would
+; have earned them this session. Per-rarity estimate = (restocks the run spanned,
+; one every IntervalMs) x (the FULL count of that rarity in the list) x (that
+; rarity's per-restock appearance chance). The multiplier is always the full
+; rarity count, never the locked count. Two tiers:
+;   - If ANY mythic seed is locked, gate on mythics (1.4% each -> fires on a
+;     realistic ~1-2h session) and show BOTH the mythic and super counts.
+;   - Otherwise gate on supers alone (0.3% each -> long session), the original
+;     behavior, shown super-only.
+; Skipped entirely when nothing is locked (already Pro, or day-one fully-free).
+; Counts are rounded to the nearest whole and floored at 1, so the popup never
+; shows a fraction (e.g. an in-progress 0.1 super reads as 1).
+MaybeShowUpgradeHint(elapsedMs) {
+    global Unlocked, PremiumCount, IntervalMs, MainGui, SuperChance, MythicChance
+    if (Unlocked || PremiumCount <= 0)      ; everything already unlocked -> nothing to sell
+        return
+    restocks := 1 + (elapsedMs // IntervalMs)
+    superExp := restocks * CountSeedsByRarity("Super") * SuperChance
+
+    if (CountLockedSeedsByRarity("Mythic") > 0) {
+        ; Mythic tier: mythics are common enough that this fires on a real session.
+        mythicExp := restocks * CountSeedsByRarity("Mythic") * MythicChance
+        if (mythicExp < 1)                  ; too short to have averaged a mythic -> stay quiet
+            return
+        try MainGui.Restore()               ; un-minimize so the hint is actually seen
+        Post("hint|" HintCount(mythicExp) "|" HintCount(superExp))
+        return
+    }
+
+    ; Super-only tier (no mythic locked yet): original long-session behavior.
+    if (superExp < 1)                       ; too short to have averaged a super seed
+        return
+    try MainGui.Restore()
+    Post("hint|0|" HintCount(superExp))
+}
+
+; Round an expected count for display: nearest whole, never below 1, so a small
+; fraction still reads as "1" rather than 0 or a decimal.
+HintCount(expected) {
+    n := Round(expected)
+    return n < 1 ? 1 : n
 }
 
 ; Current seed names, in list order.
@@ -522,7 +606,9 @@ ComputeFreeNames() {
     freeWorst := (baseCount - BaseLock) - DailyLock * days   ; worst seeds still free
     if (freeWorst < 0)
         freeWorst := 0
-    ; Never free so many that the day-0 baseline (BaseLock best seeds) isn't locked.
+    ; Never free more than the list holds. With BaseLock 0 this is the whole list,
+    ; so day 0 (days = 0) leaves every install-era seed free; the cap only bites
+    ; once BaseLock is raised to keep a day-0 baseline locked.
     maxFree := Seeds.Length - Min(BaseLock, Seeds.Length)
     if (freeWorst > maxFree)
         freeWorst := maxFree
@@ -632,7 +718,7 @@ OpenHelpPage() {
 }
 
 ; Verify a pasted code. On a confirmed active subscription: save it and unlock
-; the last 5 seeds live. Otherwise tell the page what went wrong.
+; the locked premium seeds live. Otherwise tell the page what went wrong.
 ActivateCode(code) {
     global TokenFile, Unlocked
     code := Trim(code)
@@ -1092,6 +1178,16 @@ HtmlTemplate() {
         font-size:13px;outline:none;font-family:inherit}
   #codeInput:focus{border-color:#16a34a}
   .lmsg{font-size:12px;color:#888;margin-top:10px;min-height:15px;line-height:1.4}
+  /* Post-run upsell hint: what the locked premium seeds would have earned */
+  .hintwrap{display:flex;flex-direction:column;gap:2px;margin:6px 0 10px}
+  .hintbig{font-size:27px;font-weight:800;line-height:1.2;text-align:center}
+  .hintbig.sp{background:linear-gradient(90deg,#ff2d55,#ff8a00,#ffe600,#34c759,#00c7ff,#8b5cff,#ff2d55);
+        background-size:200% auto;-webkit-background-clip:text;background-clip:text;
+        -webkit-text-fill-color:transparent;color:transparent;animation:rainbow 3s linear infinite}
+  .hintbig.my{color:#a855f7;text-shadow:0 0 7px rgba(168,85,247,.6),0 0 14px rgba(150,70,255,.4);
+        animation:glowpulse 2.2s ease-in-out infinite}
+  .hintDismiss{display:block;text-align:center;margin-top:8px;font-size:12px;color:#999;cursor:pointer}
+  .hintDismiss:hover{color:#555;text-decoration:underline}
   [hidden]{display:none !important}
 </style>
 </head>
@@ -1110,7 +1206,7 @@ HtmlTemplate() {
     <div id='list' class='list'></div>
     <div id='premiumBar' class='pbar' onclick='openAccess()'>
       <span class='plock'>&#128274;</span>
-      <span id='pbarText'>Last 5 seeds are locked</span>
+      <span id='pbarText'>Best seeds are locked</span>
       <span class='pget'>Get access &rarr;</span>
     </div>
   </div>
@@ -1143,7 +1239,7 @@ HtmlTemplate() {
     <div class='modal'>
       <div class='mh'>
         <span class='mlock'>&#128274;</span>
-        <h2 id='modalTitle'>Unlock the last 5 seeds</h2>
+        <h2 id='modalTitle'>Unlock the best seeds</h2>
         <button class='mx' onclick='closeAccess()'>&times;</button>
       </div>
       <p class='mdesc'>Premium seeds and the Gears macro need Garden Macro Pro. Subscribe once, then paste your code to unlock them here.</p>
@@ -1158,6 +1254,24 @@ HtmlTemplate() {
         <button class='btn green' onclick='activate()'>Unlock</button>
       </div>
       <div id='licenseMsg' class='lmsg'></div>
+    </div>
+  </div>
+
+  <div id='hintOverlay' class='overlay' hidden>
+    <div class='modal'>
+      <div class='mh'>
+        <span class='mlock'>&#11088;</span>
+        <h2 id='hintTitle'>You left rare seeds on the table</h2>
+        <button class='mx' onclick='closeHint()'>&times;</button>
+      </div>
+      <p class='mdesc'>If you had upgraded, this session would have bought you on average</p>
+      <div class='hintwrap'>
+        <div id='hintMythic' class='hintbig my'><span id='hintMythicNum'>0</span> <span id='hintMythicNoun'>mythic seeds</span></div>
+        <div id='hintSuper' class='hintbig sp'><span id='hintSuperNum'>0</span> <span id='hintSuperNoun'>super seeds</span></div>
+      </div>
+      <p class='mdesc'>These are among the rarest seeds in the game and stay locked on the free plan. Upgrade and the macro grabs them for you on every restock.</p>
+      <button class='btn green block' onclick='closeHint(); openAccess();'>Unlock the best seeds &rarr;</button>
+      <a class='hintDismiss' onclick='closeHint()'>Maybe later</a>
     </div>
   </div>
 
@@ -1220,7 +1334,10 @@ HtmlTemplate() {
     var t = document.getElementById('pbarText');
     if (t) t.textContent = lockText();
     var h = document.getElementById('modalTitle');
-    if (h) h.textContent = (PREMIUM >= SEEDS.length) ? 'Unlock all seeds'
+    /* PREMIUM can be 0 on day one (whole list free) -- the modal is then only
+       reachable via the always-Pro Gears lock, so keep the title generic. */
+    if (h) h.textContent = (PREMIUM <= 0)           ? 'Unlock Garden Macro Pro'
+                         : (PREMIUM >= SEEDS.length) ? 'Unlock all seeds'
                                                      : 'Unlock the last ' + PREMIUM + ' seeds';
     var bar = document.getElementById('premiumBar');
     if (bar) bar.hidden = unlocked || PREMIUM <= 0;
@@ -1297,6 +1414,29 @@ HtmlTemplate() {
     setTimeout(function(){ inp.focus(); }, 30);
   }
   function closeAccess(){ document.getElementById('overlay').hidden = true; }
+
+  /* Post-run upsell: AHK sends "hint|<mythic>|<super>" with the average seed
+     counts it estimated for the run. A 0 mythic means "no mythic locked yet" ->
+     super-only popup; otherwise both lines show. Values are already >= 1. */
+  function showHint(m, s){
+    m = parseInt(m, 10) || 0;
+    s = parseInt(s, 10) || 0;
+    var mEl = document.getElementById('hintMythic');
+    if (m > 0){
+      document.getElementById('hintMythicNum').textContent = m;
+      document.getElementById('hintMythicNoun').textContent = 'mythic seed' + (m === 1 ? '' : 's');
+      mEl.hidden = false;
+    } else {
+      mEl.hidden = true;
+    }
+    document.getElementById('hintSuperNum').textContent = s;
+    document.getElementById('hintSuperNoun').textContent = 'super seed' + (s === 1 ? '' : 's');
+    document.getElementById('hintSuper').hidden = (s <= 0);
+    document.getElementById('hintTitle').textContent =
+      (m > 0) ? 'You left rare seeds on the table' : 'You left super seeds on the table';
+    document.getElementById('hintOverlay').hidden = false;
+  }
+  function closeHint(){ document.getElementById('hintOverlay').hidden = true; }
   function setLicenseMsg(t){ document.getElementById('licenseMsg').textContent = t; }
   function activate(){
     var code = document.getElementById('codeInput').value.trim();
@@ -1328,6 +1468,7 @@ HtmlTemplate() {
     else if (type === 'unlock') unlockPremium();
     else if (type === 'licensemsg') setLicenseMsg(rest);
     else if (type === 'access') openAccess();   /* tried to Start a Pro-locked tab */
+    else if (type === 'hint') { var hp = rest.split('|'); showHint(hp[0], hp[1]); }  /* post-run upsell */
   });
 
   /* Ask AHK to shrink the window to end right at the Start/Stop row. */
