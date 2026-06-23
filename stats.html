@@ -84,10 +84,18 @@
     <div class="foot" id="foot">Loading…</div>
 
     <div class="sessions">
+      <h2>Promo codes</h2>
+      <table>
+        <thead><tr><th>Code</th><th>Installs</th></tr></thead>
+        <tbody id="promo-body"><tr><td colspan="2" class="muted">Loading…</td></tr></tbody>
+      </table>
+    </div>
+
+    <div class="sessions">
       <h2>Recent sessions</h2>
       <table>
-        <thead><tr><th>Device</th><th>Started</th><th>Length</th><th>Pings</th><th>Version</th></tr></thead>
-        <tbody id="sess-body"><tr><td colspan="5" class="muted">Loading…</td></tr></tbody>
+        <thead><tr><th>Device</th><th>Started</th><th>Length</th><th>Pings</th><th>Version</th><th>Promo</th></tr></thead>
+        <tbody id="sess-body"><tr><td colspan="6" class="muted">Loading…</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -114,7 +122,7 @@
   function renderSessions(list) {
     const body = $("sess-body");
     if (!list || !list.length) {
-      body.innerHTML = '<tr><td colspan="5" class="muted">No sessions yet.</td></tr>';
+      body.innerHTML = '<tr><td colspan="6" class="muted">No sessions yet.</td></tr>';
       return;
     }
     body.innerHTML = list.map((s) => {
@@ -126,8 +134,23 @@
         '<td class="len">' + esc(len) + "</td>" +
         "<td>" + (s.pings || 0) + "</td>" +
         '<td class="mono">' + (s.version ? esc(s.version) : "—") + "</td>" +
+        '<td class="mono">' + (s.promo ? esc(s.promo) : "—") + "</td>" +
         "</tr>";
     }).join("");
+  }
+
+  function renderPromos(list) {
+    const body = $("promo-body");
+    if (!list || !list.length) {
+      body.innerHTML = '<tr><td colspan="2" class="muted">No promo codes entered yet.</td></tr>';
+      return;
+    }
+    body.innerHTML = list.map((p) =>
+      "<tr>" +
+        '<td class="mono">' + esc(p.code) + "</td>" +
+        "<td>" + (p.count || 0) + "</td>" +
+      "</tr>"
+    ).join("");
   }
 
   function show(dash) {
@@ -153,6 +176,7 @@
       $("v-total").textContent = d.total;
       $("v-sessions").textContent = d.sessionsToday ?? "—";
       $("v-avg").textContent = d.avgSession ? fmtDuration(d.avgSession) : "—";
+      renderPromos(d.promos);
       renderSessions(d.sessions);
       $("foot").textContent = "Updated " + new Date(d.at).toLocaleTimeString() +
         " · today/week boundaries are UTC · avg excludes single-ping launches";

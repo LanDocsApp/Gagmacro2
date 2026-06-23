@@ -7,8 +7,9 @@
 //   total         = all installs ever seen (every row)
 //   sessionsToday = sessions started since 00:00 UTC today
 //   avgSession    = mean session length in ms (last_ping - started_at), all time
+//   promos        = creator promo-code breakdown [{ code, count }] (installs per code)
 //   sessions      = most recent 50 sessions [{ device, started_at, last_ping,
-//                   durationMs, pings, version }]
+//                   durationMs, pings, version, promo }]
 //
 // Protected by the STATS_KEY env var (set in the Cloudflare dashboard). Without
 // a configured key the endpoint stays locked.
@@ -62,6 +63,25 @@ export async function onRequestGet({ request, env }) {
        FROM sessions ORDER BY started_at DESC LIMIT 50`
     ).all();
 
+    // Creator promo codes: installs-per-code breakdown + a device->code map to stitch
+    // onto recent sessions. Own try/catch so a missing `promo` column never 500s stats.
+    let promos = [];
+    const promoByDevice = {};
+    try {
+      const pr = await env.STATS.prepare(
+        `SELECT promo AS code, COUNT(*) AS n FROM devices
+         WHERE promo IS NOT NULL AND promo <> '' GROUP BY promo ORDER BY n DESC`
+      ).all();
+      promos = (pr?.results || []).map((r) => ({ code: String(r.code), count: r.n || 0 }));
+
+      const dp = await env.STATS.prepare(
+        `SELECT id, promo FROM devices WHERE promo IS NOT NULL AND promo <> ''`
+      ).all();
+      for (const r of dp?.results || []) promoByDevice[String(r.id)] = String(r.promo);
+    } catch {
+      // `promo` column not added yet -> no breakdown, no per-session promo.
+    }
+
     const sessions = (recent?.results || []).map((s) => ({
       device: String(s.device || "").slice(0, 8),
       started_at: s.started_at,
@@ -69,6 +89,7 @@ export async function onRequestGet({ request, env }) {
       durationMs: (s.last_ping || 0) - (s.started_at || 0),
       pings: s.pings || 0,
       version: s.version || "",
+      promo: promoByDevice[String(s.device || "")] || "",
     }));
 
     return json({
@@ -78,6 +99,7 @@ export async function onRequestGet({ request, env }) {
       total: row?.total || 0,
       sessionsToday: sess?.sessionsToday || 0,
       avgSession: Math.round(sess?.avgSession || 0),
+      promos,
       sessions,
       at: now,
     });

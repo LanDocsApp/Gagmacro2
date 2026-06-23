@@ -109,6 +109,30 @@ global DeviceFile   := A_AppData "\GardenMacro\device.txt"  ; random anon instal
 global DeviceId     := ""           ; set at startup (see GetOrCreateDeviceId)
 global HeartbeatReq := 0            ; keeps the async ping COM object alive in-flight
 
+; --- Loyalty discount: as a user accumulates macro runtime (added up across every
+;     session) they earn a 50%-off code for Pro at each hour-milestone in DiscountMiles
+;     -- so it shows at 5h, then again at 20h. Each milestone fires once, on the Stop
+;     that first crosses it, and takes priority over the post-run upsell hint. The
+;     cumulative runtime + how many milestones have been shown (DiscountStage) are
+;     persisted so it survives restarts and never repeats a milestone. Pro users never
+;     see it (nothing left to sell).
+global UsageFile     := A_AppData "\GardenMacro\usage.txt"  ; cumulative runtime + milestone stage
+global DiscountMiles := [5, 20]      ; ascending total-hours milestones; each shows the 50%-off code once
+global DiscountCode  := "promacro"   ; 50%-off code shown at each milestone
+global TotalRunMs    := 0            ; cumulative macro runtime in ms (loaded at startup)
+global DiscountStage := 0            ; how many DiscountMiles milestones have been shown so far
+
+; --- Creator promo codes: on the FIRST Start ever, the user is asked whether they
+;     have a promo code. A valid one (see PromoValid) is then shown in the window
+;     corner as a "use CODE at checkout for 10% off" reminder, reported to the stats
+;     dashboard (carried on the usage heartbeat's "promo" field -> gardenmacro.com/stats),
+;     and -- because the user already holds a discount code -- it suppresses the 5h
+;     loyalty 50%-off popup. "No, I don't" skips the prompt for good. Stored UPPER-cased.
+global PromoFile  := A_AppData "\GardenMacro\promo.txt"   ; "<asked 0|1>|<CODE>"
+global PromoValid := ["OVER", "ROOKIE", "JUKEM"]          ; the only codes we accept (matched case-insensitively)
+global PromoAsked := false        ; has the first-Start promo prompt been answered?
+global PromoCode  := ""           ; the accepted code (UPPER-cased), "" if none / skipped
+
 ; --- Seed list in the SAME top-to-bottom order as the in-game shop ---
 ;
 ;  ADDING A NEW SEED:  drop it in at the position that matches the in-game shop
@@ -187,6 +211,11 @@ global Gears := [
 FreeNames    := ComputeFreeNames()
 PremiumCount := CountLocked()
 
+; Restore the lifetime macro runtime + whether the loyalty discount has been shown,
+; and any promo code the user entered (shown in the corner; suppresses the 50%-off popup).
+LoadUsage()
+LoadPromo()
+
 BuildUi()
 
 ; Re-check any previously saved access code in the background so returning
@@ -207,7 +236,7 @@ SetTimer(StartHeartbeat, -1500)     ; first beat shortly after launch, then repe
 ;  UI  (WebView2 window + HTML/CSS/JS)
 ; ============================================================
 BuildUi() {
-    global MainGui, controller, wv, PremiumCount, Seeds, Gears
+    global MainGui, controller, wv, PremiumCount, Seeds, Gears, PromoCode
 
     dllPath := A_ScriptDir "\lib\WebView2Loader.dll"
     dataDir := A_AppData "\GardenMacro\WebView2"   ; writable user-data folder
@@ -243,6 +272,7 @@ BuildUi() {
     html := StrReplace(html, "__LOCKED__", BuildLockedJs())
     html := StrReplace(html, "__PREMIUM__", PremiumCount)
     html := StrReplace(html, "__VERSION__", VersionLabel())
+    html := StrReplace(html, "__PROMO__", PromoCode)   ; "" if none/skipped -> badge stays hidden
     wv.NavigateToString(html)
 }
 
@@ -339,6 +369,11 @@ OnWebMessage(sender, args) {
         case "activate":
             p := InStr(msg, "|")            ; rest-of-line: the pasted code
             ActivateCode(p ? SubStr(msg, p + 1) : "")
+        case "promoapply":
+            p := InStr(msg, "|")            ; rest-of-line: the entered promo code
+            ApplyPromo(p ? SubStr(msg, p + 1) : "")
+        case "promoskip":
+            SkipPromo()
         case "fit":
             if parts.Length >= 2 && IsInteger(parts[2])
                 FitWindowHeight(Integer(parts[2]))
@@ -379,10 +414,18 @@ F2:: StopMacro()
 StartMacro() {
     global LoopActive, Running, IntervalMs, FirstSel, LastSel, PassQty
     global SeedSel, GearSel, SelSet, Unlocked, MainGui, SessionStart
-    global UiActiveMode, ActiveMode, ActiveItems, Seeds, Gears
+    global UiActiveMode, ActiveMode, ActiveItems, Seeds, Gears, PromoAsked
 
     if LoopActive               ; loop already armed -> ignore
         return
+
+    ; First Start ever: ask whether they have a promo code before running. ApplyPromo /
+    ; SkipPromo set PromoAsked and then call StartMacro again, so the run continues.
+    ; Pro users are already paying/comped -> nothing to discount, so never prompt them.
+    if (!PromoAsked && !Unlocked) {
+        Post("promoask")
+        return
+    }
 
     ; Snapshot which tab/shop we're running plus its item list + selection.
     ActiveMode  := (UiActiveMode = "gears") ? "gears" : "seeds"
@@ -471,11 +514,16 @@ StopMacro() {
     UiState(false)
     UiStatus("Stopped.")
 
-    ; End of a real run -> maybe show the free user what the locked super seeds
-    ; would have earned them this session. Guarded so a Stop with no run does nothing.
+    ; End of a real run. Bank this session toward the lifetime total, then decide
+    ; what to show: a user who has just crossed a runtime milestone (5h, then 20h)
+    ; gets the 50%-off code; everyone else may get the "what the locked seeds would
+    ; have earned you" upsell. Guarded so a Stop with no run does nothing.
     if (SessionStart > 0) {
         elapsed := A_TickCount - SessionStart
         SessionStart := 0
+        AddRuntime(elapsed)                 ; add this run to the lifetime total + save
+        if MaybeShowLoyaltyDiscount()       ; crossed a 5h/20h milestone -> show 50%-off, skip the hint
+            return
         MaybeShowUpgradeHint(elapsed)
     }
 }
@@ -544,9 +592,11 @@ CountLockedSeedsByRarity(rarity) {
 ; Counts are rounded to the nearest whole and floored at 1, so the popup never
 ; shows a fraction (e.g. an in-progress 0.1 super reads as 1).
 MaybeShowUpgradeHint(elapsedMs) {
-    global Unlocked, PremiumCount, IntervalMs, MainGui, SuperChance, MythicChance
+    global Unlocked, PremiumCount, IntervalMs, MainGui, SuperChance, MythicChance, PromoCode
     if (Unlocked || PremiumCount <= 0)      ; everything already unlocked -> nothing to sell
         return
+    if (PromoCode != "")                    ; holds a creator 10% code -> never show a rival code
+        return                              ; (Stripe codes don't stack; protect the creator's code)
     restocks := 1 + (elapsedMs // IntervalMs)
     superExp := restocks * CountSeedsByRarity("Super") * SuperChance
 
@@ -572,6 +622,71 @@ MaybeShowUpgradeHint(elapsedMs) {
 HintCount(expected) {
     n := Round(expected)
     return n < 1 ? 1 : n
+}
+
+; ---- Loyalty discount (runtime milestones -> 50% off Pro) ----
+
+; Load the lifetime runtime + milestone stage saved across sessions. File format:
+; "<totalMs>|<stage>". Missing / unreadable -> zero usage, stage 0. Back-compat: the
+; old "shown" flag stored 0/1, which already maps to stage 0 / 1 (the first milestone).
+LoadUsage() {
+    global UsageFile, TotalRunMs, DiscountStage
+    if !FileExist(UsageFile)
+        return
+    raw := ""
+    try raw := Trim(FileRead(UsageFile, "UTF-8"), " `t`r`n" Chr(0xFEFF))
+    parts := StrSplit(raw, "|")
+    if (parts.Length >= 1 && IsInteger(parts[1]))
+        TotalRunMs := Integer(parts[1])
+    if (parts.Length >= 2 && IsInteger(parts[2]))
+        DiscountStage := Integer(parts[2])
+}
+
+; Persist the lifetime runtime + milestone stage (no BOM; create the folder if needed).
+SaveUsage() {
+    global UsageFile, TotalRunMs, DiscountStage
+    try {
+        SplitPath(UsageFile, , &dir)
+        if (dir != "" && !DirExist(dir))
+            DirCreate(dir)
+        f := FileOpen(UsageFile, "w", "UTF-8-RAW")
+        f.Write(TotalRunMs "|" DiscountStage)
+        f.Close()
+    }
+}
+
+; Add this run's elapsed ms to the lifetime total and persist it.
+AddRuntime(ms) {
+    global TotalRunMs
+    if (ms > 0)
+        TotalRunMs += ms
+    SaveUsage()
+}
+
+; After a run, if the lifetime total has reached a new DiscountMiles milestone (5h,
+; then 20h) that hasn't been shown yet, show the 50%-off code. Each milestone fires
+; once, is skipped for Pro users, and takes priority over the upsell hint. Returns
+; true if it showed the popup, so the caller can skip the hint.
+MaybeShowLoyaltyDiscount() {
+    global Unlocked, TotalRunMs, DiscountStage, DiscountMiles, DiscountCode, MainGui, PromoCode
+    if (Unlocked)                           ; already Pro -> nothing to sell
+        return false
+    if (PromoCode != "")                    ; already holds a 10%-off promo code -> don't pile on
+        return false
+    ; How many hour-milestones the lifetime total has now passed (DiscountMiles ascending).
+    hours   := TotalRunMs / 3600000.0
+    reached := 0
+    for h in DiscountMiles
+        if (hours >= h)
+            reached++
+    if (reached <= DiscountStage)           ; no new milestone crossed since last time -> stay quiet
+        return false
+    DiscountStage := reached
+    SaveUsage()
+    try MainGui.Restore()                   ; un-minimize so the offer is actually seen
+    ; Carry the milestone hours just crossed so the popup copy reads "over 5/20 hours".
+    Post("discount|" DiscountCode "|" DiscountMiles[reached])
+    return true
 }
 
 ; Current seed names, in list order.
@@ -738,6 +853,81 @@ ActivateCode(code) {
     }
 }
 
+; ============================================================
+;  Creator promo codes (first-Start prompt -> 10%-off corner badge)
+;  Asked once, on the first Start ever. A valid code is shown in the corner as a
+;  checkout reminder, reported to the stats dashboard, and suppresses the 5h popup.
+; ============================================================
+
+; True if `code` matches one of the accepted promo codes (case-insensitive).
+IsValidPromo(code) {
+    global PromoValid
+    code := Trim(code)
+    for c in PromoValid
+        if (c = code)                       ; AHK '=' is case-insensitive
+            return true
+    return false
+}
+
+; Apply a promo code entered in the first-Start prompt. Valid -> store it UPPER-cased,
+; report it to the dashboard, show the corner badge, then continue the Start the user
+; pressed. Invalid -> tell the page and leave the prompt open to retry or skip.
+ApplyPromo(code) {
+    global PromoAsked, PromoCode
+    code := Trim(code)
+    if (code = "") {
+        Post("promobad|Enter a code, or tap the 'No' button below.")
+        return
+    }
+    if !IsValidPromo(code) {
+        Post("promobad|That code isn't valid. Check the spelling, or tap 'No' below.")
+        return
+    }
+    PromoCode  := StrUpper(code)             ; corner badge shows it in caps
+    PromoAsked := true
+    SavePromo()
+    SendHeartbeat()                          ; report the code to gardenmacro.com/stats now
+    Post("promook|" PromoCode)               ; show corner badge + close the prompt
+    StartMacro()                             ; PromoAsked is set now -> the run proceeds
+}
+
+; "No, I don't" in the first-Start prompt: remember we asked (so it never shows again)
+; with no code, then continue the Start. The page closes its own prompt.
+SkipPromo() {
+    global PromoAsked, PromoCode
+    PromoAsked := true
+    PromoCode  := ""
+    SavePromo()
+    StartMacro()
+}
+
+; Load the saved promo state. File format: "<asked 0|1>|<CODE>". Missing -> not asked.
+LoadPromo() {
+    global PromoFile, PromoAsked, PromoCode
+    if !FileExist(PromoFile)
+        return
+    raw := ""
+    try raw := Trim(FileRead(PromoFile, "UTF-8"), " `t`r`n" Chr(0xFEFF))
+    parts := StrSplit(raw, "|")
+    if (parts.Length >= 1 && parts[1] = "1")
+        PromoAsked := true
+    if (parts.Length >= 2)
+        PromoCode := StrUpper(Trim(parts[2]))
+}
+
+; Persist the promo state (no BOM; create the folder if needed).
+SavePromo() {
+    global PromoFile, PromoAsked, PromoCode
+    try {
+        SplitPath(PromoFile, , &dir)
+        if (dir != "" && !DirExist(dir))
+            DirCreate(dir)
+        f := FileOpen(PromoFile, "w", "UTF-8-RAW")
+        f.Write((PromoAsked ? "1" : "0") "|" PromoCode)
+        f.Close()
+    }
+}
+
 ; ---- Backend verification + token storage (mirrors the launcher) ----
 
 ; POST { "token": <code> } and classify the outcome:
@@ -835,10 +1025,12 @@ StartHeartbeat() {
 ; so it returns instantly and can't stall the UI; we keep the COM object in a
 ; global so it isn't collected before the request finishes.
 SendHeartbeat() {
-    global PingUrl, DeviceId, AppVersion, HeartbeatReq
+    global PingUrl, DeviceId, AppVersion, HeartbeatReq, PromoCode
     if (DeviceId = "")
         return
-    body := '{"id":"' JsonEscape(DeviceId) '","v":"' JsonEscape(AppVersion) '"}'
+    ; Carry the entered promo code (if any) so the stats dashboard can attribute it.
+    promo := (PromoCode != "") ? ',"promo":"' JsonEscape(PromoCode) '"' : ""
+    body := '{"id":"' JsonEscape(DeviceId) '","v":"' JsonEscape(AppVersion) '"' promo '}'
     try {
         HeartbeatReq := ComObject("WinHttp.WinHttpRequest.5.1")
         HeartbeatReq.SetTimeouts(3000, 3000, 3000, 8000)
@@ -1188,10 +1380,25 @@ HtmlTemplate() {
         animation:glowpulse 2.2s ease-in-out infinite}
   .hintDismiss{display:block;text-align:center;margin-top:8px;font-size:12px;color:#999;cursor:pointer}
   .hintDismiss:hover{color:#555;text-decoration:underline}
+  /* Loyalty discount popup: the 50%-off code chip */
+  .off{color:#16a34a;font-weight:800}
+  .codebox{display:flex;align-items:center;gap:9px;margin:4px 0 14px}
+  .codeval{flex:1;text-align:center;color:#15803d;background:#ecfdf5;border:1.5px dashed #86efac;
+        border-radius:9px;padding:11px 12px;font-size:21px;font-weight:800;letter-spacing:2px;
+        text-transform:uppercase;font-family:'Consolas','JetBrains Mono',monospace;
+        -webkit-user-select:text;user-select:text}
+  /* Promo-code corner badge: "USE CODE OVER FOR 10% OFF" (only if a code was entered) */
+  .promobadge{position:fixed;top:13px;right:14px;z-index:40;cursor:pointer;
+        font-size:10.5px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;
+        color:#15803d;background:#ecfdf5;border:1px solid #bbf7d0;border-radius:999px;
+        padding:4px 10px;line-height:1.3;font-family:'Consolas','JetBrains Mono',monospace}
+  .promobadge:hover{background:#dcfce7;border-color:#86efac}
+  .promobadge b{font-weight:800}
   [hidden]{display:none !important}
 </style>
 </head>
 <body>
+  <div id='promoBadge' class='promobadge' hidden onclick='openAccess()'>Use code <b id='promoBadgeCode'></b> for 10% off</div>
   <h1>Garden Macro</h1>
   <div class='tabs'>
     <button id='tabSeeds' class='tab on' onclick='switchTab("seeds")'>Seeds</button>
@@ -1269,9 +1476,46 @@ HtmlTemplate() {
         <div id='hintMythic' class='hintbig my'><span id='hintMythicNum'>0</span> <span id='hintMythicNoun'>mythic seeds</span></div>
         <div id='hintSuper' class='hintbig sp'><span id='hintSuperNum'>0</span> <span id='hintSuperNoun'>super seeds</span></div>
       </div>
-      <p class='mdesc'>These are among the rarest seeds in the game and stay locked on the free plan. Upgrade and the macro grabs them for you on every restock.</p>
-      <button class='btn green block' onclick='closeHint(); openAccess();'>Unlock the best seeds &rarr;</button>
+      <p class='mdesc'>These are among the rarest seeds in the game and stay locked on the free plan. Upgrade and the macro grabs them for you on every restock &mdash; and here&#39;s <span class='off'>20% off</span> to get started:</p>
+      <div class='codebox'>
+        <span id='hintCode' class='codeval'>superseed</span>
+        <button class='btn' onclick='copyCode(this, "hintCode")'>Copy</button>
+      </div>
+      <button class='btn green block' onclick='closeHint(); openAccess();'>Unlock the best seeds &mdash; 20% off &rarr;</button>
       <a class='hintDismiss' onclick='closeHint()'>Maybe later</a>
+    </div>
+  </div>
+
+  <div id='discountOverlay' class='overlay' hidden>
+    <div class='modal'>
+      <div class='mh'>
+        <span class='mlock'>&#127881;</span>
+        <h2>You&#39;ve unlocked <span class='off'>50% off</span>!</h2>
+        <button class='mx' onclick='closeDiscount()'>&times;</button>
+      </div>
+      <p class='mdesc'>Thanks for running Garden Macro for over <span id='discountHours'>5</span> hours. Here&#39;s <b>50% off</b> Garden Macro Pro &mdash; enter this code at checkout:</p>
+      <div class='codebox'>
+        <span id='discountCode' class='codeval'>promacro</span>
+        <button class='btn' onclick='copyDiscount(this)'>Copy</button>
+      </div>
+      <button class='btn green block' onclick='closeDiscount(); openAccess();'>Get Pro &mdash; 50% off &rarr;</button>
+      <a class='hintDismiss' onclick='closeDiscount()'>Maybe later</a>
+    </div>
+  </div>
+
+  <div id='promoOverlay' class='overlay' hidden>
+    <div class='modal'>
+      <div class='mh'>
+        <span class='mlock'>&#127881;</span>
+        <h2>Have a promo code?</h2>
+      </div>
+      <p class='mdesc'>If a creator gave you a promo code, enter it here. You&#39;ll get <b>10% off</b> when you upgrade to Pro &mdash; just use the code at checkout.</p>
+      <div class='prow'>
+        <input id='promoInput' type='text' placeholder='Enter promo code' spellcheck='false' autocomplete='off'>
+        <button class='btn green' onclick='applyPromo()'>Apply</button>
+      </div>
+      <div id='promoMsg' class='lmsg'></div>
+      <button class='btn block' onclick='skipPromo()'>No, I don&#39;t</button>
     </div>
   </div>
 
@@ -1280,6 +1524,7 @@ HtmlTemplate() {
   var GEARS = __GEARS__;
   var LOCKED = __LOCKED__;            /* per-seed 0/1 lock flags, aligned to SEEDS */
   var PREMIUM = __PREMIUM__;          /* number of locked seeds (for the upsell copy) */
+  var PROMO = '__PROMO__';            /* entered promo code (UPPER), '' if none -> no corner badge */
   var unlocked = false;              /* premium (seeds) unlocked this session? */
   var seedSel = {};                  /* 1-based index -> true (seeds tab) */
   var gearSel = {};                  /* 1-based index -> true (gears tab) */
@@ -1437,6 +1682,62 @@ HtmlTemplate() {
     document.getElementById('hintOverlay').hidden = false;
   }
   function closeHint(){ document.getElementById('hintOverlay').hidden = true; }
+
+  /* Loyalty discount: AHK sends "discount|<code>" once the user has run the macro
+     for 5h total. Show the 50%-off code and let them copy it. */
+  function showDiscount(code, hours){
+    if (code) document.getElementById('discountCode').textContent = code;
+    if (hours) document.getElementById('discountHours').textContent = hours;
+    document.getElementById('discountOverlay').hidden = false;
+  }
+  function closeDiscount(){ document.getElementById('discountOverlay').hidden = true; }
+  /* Copy the promo code in element `id` to the clipboard, with a graceful
+     fallback for the non-secure NavigateToString origin, then flash "Copied". */
+  function copyCode(btn, id){
+    var el = document.getElementById(id), code = el.textContent;
+    var ok = false;
+    try { navigator.clipboard.writeText(code); ok = true; } catch(e){}
+    if (!ok){
+      try {
+        var r = document.createRange(); r.selectNode(el);
+        var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+        document.execCommand('copy'); sel.removeAllRanges();
+      } catch(e2){}
+    }
+    if (btn){ var t = btn.textContent; btn.textContent = 'Copied'; setTimeout(function(){ btn.textContent = t; }, 1400); }
+  }
+  function copyDiscount(btn){ copyCode(btn, 'discountCode'); }
+
+  /* Promo codes. AHK sends "promoask" on the first Start; the page shows the prompt.
+     Apply -> AHK validates and replies "promook|<CODE>" (badge + close) or
+     "promobad|<msg>" (stay open). Skip -> close + tell AHK to continue the Start. */
+  function applyPromoBadge(){
+    var b = document.getElementById('promoBadge');
+    if (PROMO){ document.getElementById('promoBadgeCode').textContent = PROMO; b.hidden = false; }
+    else b.hidden = true;
+  }
+  function openPromoAsk(){
+    document.getElementById('promoOverlay').hidden = false;
+    var inp = document.getElementById('promoInput');
+    setTimeout(function(){ inp.focus(); }, 30);
+  }
+  function setPromoMsg(t){ document.getElementById('promoMsg').textContent = t; }
+  function applyPromo(){
+    var code = document.getElementById('promoInput').value.trim();
+    if (!code){ setPromoMsg('Enter a code, or tap the No button below.'); return; }
+    setPromoMsg('Checking...');
+    send('promoapply|' + code);
+  }
+  function skipPromo(){
+    document.getElementById('promoOverlay').hidden = true;
+    send('promoskip');
+  }
+  function promoAccepted(code){
+    PROMO = code;
+    applyPromoBadge();
+    document.getElementById('promoOverlay').hidden = true;
+    setPromoMsg('');
+  }
   function setLicenseMsg(t){ document.getElementById('licenseMsg').textContent = t; }
   function activate(){
     var code = document.getElementById('codeInput').value.trim();
@@ -1469,6 +1770,10 @@ HtmlTemplate() {
     else if (type === 'licensemsg') setLicenseMsg(rest);
     else if (type === 'access') openAccess();   /* tried to Start a Pro-locked tab */
     else if (type === 'hint') { var hp = rest.split('|'); showHint(hp[0], hp[1]); }  /* post-run upsell */
+    else if (type === 'discount') { var dp = rest.split('|'); showDiscount(dp[0], dp[1]); }   /* loyalty 50%-off code + milestone hours */
+    else if (type === 'promoask') openPromoAsk();       /* first-Start promo prompt */
+    else if (type === 'promook') promoAccepted(rest);   /* valid code -> badge + close */
+    else if (type === 'promobad') setPromoMsg(rest);    /* invalid code -> keep prompt open */
   });
 
   /* Ask AHK to shrink the window to end right at the Start/Stop row. */
@@ -1483,6 +1788,7 @@ HtmlTemplate() {
   renderAll();
   applyLockUi();
   applyGearLock();
+  applyPromoBadge();
   pushSel('seeds');
   pushSel('gears');
   setRunning(false);
