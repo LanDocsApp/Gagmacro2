@@ -1152,7 +1152,7 @@ HtmlTemplate() {
         <li>Copy the access code it shows you.</li>
         <li>Paste it below and click Unlock.</li>
       </ol>
-      <button class='btn block' onclick='send("openaccess")'>Open sign-in page</button>
+      <button class='btn green block' onclick='send("openaccess")'>Open sign-in page to get access &rarr;</button>
       <div class='prow'>
         <input id='codeInput' type='text' placeholder='Paste your access code' spellcheck='false' autocomplete='off'>
         <button class='btn green' onclick='activate()'>Unlock</button>
