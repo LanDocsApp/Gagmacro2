@@ -55,7 +55,9 @@ export async function onRequestPost({ request, env }) {
       return_url: `${base}/api/success`,
     });
     return json({ url: portal.url });
-  } catch {
-    return json({ error: "portal_failed" }, 502);
+  } catch (e) {
+    // Surface Stripe's actual message so the macro can show why it failed
+    // (e.g. "default configuration has not been created" = portal not saved).
+    return json({ error: "portal_failed", detail: e && e.message }, 502);
   }
 }

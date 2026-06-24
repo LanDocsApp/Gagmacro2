@@ -909,16 +909,20 @@ GetPortalUrl(token) {
         req.SetRequestHeader("Content-Type", "application/json")
         req.Send(body)
         if (req.Status = 200)
-            return { url: ExtractJsonUrl(req.ResponseText), err: "" }
-        return { url: "", err: "HTTP " req.Status }
+            return { url: ExtractJsonField(req.ResponseText, "url"), err: "" }
+        ; Non-200: surface Stripe's reason if the backend included one.
+        detail := ExtractJsonField(req.ResponseText, "detail")
+        if (detail = "")
+            detail := ExtractJsonField(req.ResponseText, "error")
+        return { url: "", err: "HTTP " req.Status (detail != "" ? " - " detail : "") }
     } catch as e {
         return { url: "", err: e.Message }
     }
 }
 
-; Pull the "url" string value out of a small JSON object reply.
-ExtractJsonUrl(text) {
-    if RegExMatch(text, '"url"\s*:\s*"([^"]+)"', &m)
+; Pull a string field's value out of a small JSON object reply.
+ExtractJsonField(text, field) {
+    if RegExMatch(text, '"' field '"\s*:\s*"([^"]*)"', &m)
         return m[1]
     return ""
 }
