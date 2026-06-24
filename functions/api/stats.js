@@ -8,8 +8,9 @@
 //   sessionsToday = sessions started since 00:00 UTC today
 //   avgSession    = mean session length in ms (last_ping - started_at), all time
 //   promos        = creator promo-code breakdown [{ code, count }] (installs per code)
+//   sources       = acquisition-source breakdown [{ source, count }] (installs per channel)
 //   sessions      = most recent 50 sessions [{ device, started_at, last_ping,
-//                   durationMs, pings, version, promo }]
+//                   durationMs, pings, version, promo, src }]
 //
 // Protected by the STATS_KEY env var (set in the Cloudflare dashboard). Without
 // a configured key the endpoint stays locked.
@@ -82,6 +83,25 @@ export async function onRequestGet({ request, env }) {
       // `promo` column not added yet -> no breakdown, no per-session promo.
     }
 
+    // Acquisition source: installs-per-channel breakdown + a device->source map to
+    // stitch onto recent sessions. Own try/catch so a missing `src` column never 500s.
+    let sources = [];
+    const srcByDevice = {};
+    try {
+      const sr = await env.STATS.prepare(
+        `SELECT src AS source, COUNT(*) AS n FROM devices
+         WHERE src IS NOT NULL AND src <> '' GROUP BY src ORDER BY n DESC`
+      ).all();
+      sources = (sr?.results || []).map((r) => ({ source: String(r.source), count: r.n || 0 }));
+
+      const ds = await env.STATS.prepare(
+        `SELECT id, src FROM devices WHERE src IS NOT NULL AND src <> ''`
+      ).all();
+      for (const r of ds?.results || []) srcByDevice[String(r.id)] = String(r.src);
+    } catch {
+      // `src` column not added yet -> no breakdown, no per-session source.
+    }
+
     const sessions = (recent?.results || []).map((s) => ({
       device: String(s.device || "").slice(0, 8),
       started_at: s.started_at,
@@ -90,6 +110,7 @@ export async function onRequestGet({ request, env }) {
       pings: s.pings || 0,
       version: s.version || "",
       promo: promoByDevice[String(s.device || "")] || "",
+      src: srcByDevice[String(s.device || "")] || "",
     }));
 
     return json({
@@ -100,6 +121,7 @@ export async function onRequestGet({ request, env }) {
       sessionsToday: sess?.sessionsToday || 0,
       avgSession: Math.round(sess?.avgSession || 0),
       promos,
+      sources,
       sessions,
       at: now,
     });

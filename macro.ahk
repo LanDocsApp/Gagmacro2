@@ -103,6 +103,7 @@ global InstallFile  := A_AppData "\GardenMacro\install.txt"  ; first-run stamp +
 global AppVersion := "1.0.0"
 global BackendBase  := "https://gardenmacro.com"   ; subscription backend
 global VerifyUrl    := BackendBase "/api/desktop/verify"
+global PortalUrl    := BackendBase "/api/desktop/portal"   ; Stripe billing portal (manage/cancel)
 global PingUrl      := BackendBase "/api/ping"              ; anonymous usage stats
 global TokenFile    := A_AppData "\GardenMacro\token.txt"   ; saved paste-code
 global DeviceFile   := A_AppData "\GardenMacro\device.txt"  ; random anon install id
@@ -124,14 +125,45 @@ global DiscountStage := 0            ; how many DiscountMiles milestones have be
 
 ; --- Creator promo codes: on the FIRST Start ever, the user is asked whether they
 ;     have a promo code. A valid one (see PromoValid) is then shown in the window
-;     corner as a "use CODE at checkout for 10% off" reminder, reported to the stats
+;     corner as a "use CODE at checkout for N% off" reminder, reported to the stats
 ;     dashboard (carried on the usage heartbeat's "promo" field -> gardenmacro.com/stats),
 ;     and -- because the user already holds a discount code -- it suppresses the 5h
-;     loyalty 50%-off popup. "No, I don't" skips the prompt for good. Stored UPPER-cased.
+;     loyalty 50%-off popup. "Skip" dismisses the prompt for good. Stored UPPER-cased.
+;
+;     Each code carries its own discount percent (PromoValid maps CODE -> percent):
+;     most creator codes are 10%, but LION is a 20% code. The percent is data-driven
+;     -- it isn't persisted (it's re-derived from the code via PromoPercent), so the
+;     saved promo.txt format is unchanged and the badge copy follows the code.
 global PromoFile  := A_AppData "\GardenMacro\promo.txt"   ; "<asked 0|1>|<CODE>"
-global PromoValid := ["OVER", "ROOKIE", "JUKEM"]          ; the only codes we accept (matched case-insensitively)
-global PromoAsked := false        ; has the first-Start promo prompt been answered?
+global PromoValid := Map(                                 ; the only codes we accept (CODE -> % off; keys UPPER, looked up case-insensitively)
+    "OVER",   10,
+    "ROOKIE", 10,
+    "JUKEM",  10,
+    "LION",   20)
+global PromoAsked := false        ; has the first-launch promo prompt been answered?
 global PromoCode  := ""           ; the accepted code (UPPER-cased), "" if none / skipped
+global PromoPct   := 0            ; the accepted code's discount percent (0 if none / skipped)
+
+; --- Acquisition source: on the FIRST launch ever, BEFORE the creator-code prompt,
+;     the user is asked "where did you hear about the macro?" (Reddit / TikTok /
+;     YouTube / Google / AI / ...). The chosen channel is reported to the stats
+;     dashboard (carried on the usage heartbeat's "src" field -> gardenmacro.com/stats)
+;     so we can see which channels bring users. "Skip" dismisses it for good; stored
+;     lowercase. Answering OR skipping chains into the creator-code prompt (see
+;     ChooseSource / SkipSource -> ContinueToPromo). Pure attribution -- it never
+;     affects how the macro runs.
+global SourceFile  := A_AppData "\GardenMacro\source.txt"  ; "<asked 0|1>|<key>"
+global SourceValid := Map(                                 ; accepted channel keys (lowercase) -> display label
+    "reddit",  "Reddit",
+    "tiktok",  "TikTok",
+    "youtube", "YouTube",
+    "google",  "Google search",
+    "ai",      "AI (Claude, ChatGPT, Gemini)",
+    "discord", "Discord",
+    "friend",  "Friend",
+    "other",   "Other")
+global SourceAsked := false       ; has the first-launch acquisition-source prompt been answered?
+global Source      := ""          ; chosen channel key (e.g. "reddit"), "" if skipped
 
 ; --- Seed list in the SAME top-to-bottom order as the in-game shop ---
 ;
@@ -215,6 +247,7 @@ PremiumCount := CountLocked()
 ; and any promo code the user entered (shown in the corner; suppresses the 50%-off popup).
 LoadUsage()
 LoadPromo()
+LoadSource()
 
 BuildUi()
 
@@ -232,11 +265,19 @@ DeviceId := GetOrCreateDeviceId()
 ; last call wins) and we'd only ever ping once per launch.
 SetTimer(StartHeartbeat, -1500)     ; first beat shortly after launch, then repeat
 
+; First-launch onboarding, shown ONCE shortly after the window is up (and after the
+; saved-license check has had a chance to mark returning Pro users). Tied to app
+; launch, NOT to pressing Start -- a brand-new user sees it right away. Two prompts
+; run in sequence: first "where did you hear about the macro?" (attribution -> stats
+; dashboard), then the creator-code prompt. Answering/skipping the first chains into
+; the second (see ChooseSource / SkipSource -> ContinueToPromo).
+SetTimer(MaybeAskSource, -1800)
+
 ; ============================================================
 ;  UI  (WebView2 window + HTML/CSS/JS)
 ; ============================================================
 BuildUi() {
-    global MainGui, controller, wv, PremiumCount, Seeds, Gears, PromoCode
+    global MainGui, controller, wv, PremiumCount, Seeds, Gears, PromoCode, PromoPct
 
     dllPath := A_ScriptDir "\lib\WebView2Loader.dll"
     dataDir := A_AppData "\GardenMacro\WebView2"   ; writable user-data folder
@@ -273,6 +314,7 @@ BuildUi() {
     html := StrReplace(html, "__PREMIUM__", PremiumCount)
     html := StrReplace(html, "__VERSION__", VersionLabel())
     html := StrReplace(html, "__PROMO__", PromoCode)   ; "" if none/skipped -> badge stays hidden
+    html := StrReplace(html, "__PROMOPCT__", PromoPct) ; the code's discount percent (0 if none) -> badge "N% off"
     wv.NavigateToString(html)
 }
 
@@ -366,6 +408,8 @@ OnWebMessage(sender, args) {
             OpenAccessPage()
         case "openhelp":
             OpenHelpPage()
+        case "manage":
+            OpenManageSubscription()
         case "activate":
             p := InStr(msg, "|")            ; rest-of-line: the pasted code
             ActivateCode(p ? SubStr(msg, p + 1) : "")
@@ -374,6 +418,11 @@ OnWebMessage(sender, args) {
             ApplyPromo(p ? SubStr(msg, p + 1) : "")
         case "promoskip":
             SkipPromo()
+        case "source":
+            p := InStr(msg, "|")            ; rest-of-line: the chosen acquisition channel
+            ChooseSource(p ? SubStr(msg, p + 1) : "")
+        case "sourceskip":
+            SkipSource()
         case "fit":
             if parts.Length >= 2 && IsInteger(parts[2])
                 FitWindowHeight(Integer(parts[2]))
@@ -414,18 +463,10 @@ F2:: StopMacro()
 StartMacro() {
     global LoopActive, Running, IntervalMs, FirstSel, LastSel, PassQty
     global SeedSel, GearSel, SelSet, Unlocked, MainGui, SessionStart
-    global UiActiveMode, ActiveMode, ActiveItems, Seeds, Gears, PromoAsked
+    global UiActiveMode, ActiveMode, ActiveItems, Seeds, Gears
 
     if LoopActive               ; loop already armed -> ignore
         return
-
-    ; First Start ever: ask whether they have a promo code before running. ApplyPromo /
-    ; SkipPromo set PromoAsked and then call StartMacro again, so the run continues.
-    ; Pro users are already paying/comped -> nothing to discount, so never prompt them.
-    if (!PromoAsked && !Unlocked) {
-        Post("promoask")
-        return
-    }
 
     ; Snapshot which tab/shop we're running plus its item list + selection.
     ActiveMode  := (UiActiveMode = "gears") ? "gears" : "seeds"
@@ -595,7 +636,7 @@ MaybeShowUpgradeHint(elapsedMs) {
     global Unlocked, PremiumCount, IntervalMs, MainGui, SuperChance, MythicChance, PromoCode
     if (Unlocked || PremiumCount <= 0)      ; everything already unlocked -> nothing to sell
         return
-    if (PromoCode != "")                    ; holds a creator 10% code -> never show a rival code
+    if (PromoCode != "")                    ; holds a creator discount code -> never show a rival code
         return                              ; (Stripe codes don't stack; protect the creator's code)
     restocks := 1 + (elapsedMs // IntervalMs)
     superExp := restocks * CountSeedsByRarity("Super") * SuperChance
@@ -671,7 +712,7 @@ MaybeShowLoyaltyDiscount() {
     global Unlocked, TotalRunMs, DiscountStage, DiscountMiles, DiscountCode, MainGui, PromoCode
     if (Unlocked)                           ; already Pro -> nothing to sell
         return false
-    if (PromoCode != "")                    ; already holds a 10%-off promo code -> don't pile on
+    if (PromoCode != "")                    ; already holds a creator discount code -> don't pile on
         return false
     ; How many hour-milestones the lifetime total has now passed (DiscountMiles ascending).
     hours   := TotalRunMs / 3600000.0
@@ -832,6 +873,56 @@ OpenHelpPage() {
         try Run("explorer.exe " url)
 }
 
+; "Manage subscription" (Account tab, Pro only) -> open the Stripe billing portal
+; in the browser. POST the saved access code to the backend, which resolves the
+; user's Stripe customer and returns a one-time portal URL (update card, view
+; invoices, cancel). Minimize so the browser page is in full view.
+OpenManageSubscription() {
+    global TokenFile, MainGui
+    token := ReadToken(TokenFile)
+    if (token = "") {
+        ; No saved code on this machine -> fall back to the website sign-in page.
+        OpenAccessPage()
+        return
+    }
+    res := GetPortalUrl(token)
+    if (res.url != "") {
+        try
+            Run(res.url)
+        catch
+            try Run("explorer.exe " res.url)
+        try MainGui.Minimize()
+    } else {
+        Post("accountmsg|Couldn't open the billing page (" res.err "). Try again, or manage it on the website.")
+    }
+}
+
+; POST { "token": <code> } to the portal endpoint; on HTTP 200 pull the portal
+; URL out of the JSON reply. Mirrors VerifyToken's request style.
+GetPortalUrl(token) {
+    global PortalUrl
+    body := '{"token":"' JsonEscape(Trim(token)) '"}'
+    try {
+        req := ComObject("WinHttp.WinHttpRequest.5.1")
+        req.SetTimeouts(5000, 5000, 5000, 15000)    ; resolve, connect, send, receive (ms)
+        req.Open("POST", PortalUrl, false)
+        req.SetRequestHeader("Content-Type", "application/json")
+        req.Send(body)
+        if (req.Status = 200)
+            return { url: ExtractJsonUrl(req.ResponseText), err: "" }
+        return { url: "", err: "HTTP " req.Status }
+    } catch as e {
+        return { url: "", err: e.Message }
+    }
+}
+
+; Pull the "url" string value out of a small JSON object reply.
+ExtractJsonUrl(text) {
+    if RegExMatch(text, '"url"\s*:\s*"([^"]+)"', &m)
+        return m[1]
+    return ""
+}
+
 ; Verify a pasted code. On a confirmed active subscription: save it and unlock
 ; the locked premium seeds live. Otherwise tell the page what went wrong.
 ActivateCode(code) {
@@ -854,56 +945,73 @@ ActivateCode(code) {
 }
 
 ; ============================================================
-;  Creator promo codes (first-Start prompt -> 10%-off corner badge)
-;  Asked once, on the first Start ever. A valid code is shown in the corner as a
-;  checkout reminder, reported to the stats dashboard, and suppresses the 5h popup.
+;  Creator promo codes (first-LAUNCH prompt -> discount corner badge)
+;  Asked once, shortly after the app's first launch (see MaybeAskPromo) -- NOT on
+;  Start. A valid code is shown in the corner as a checkout reminder ("use CODE for
+;  N% off"), reported to the stats dashboard, and suppresses the 5h popup. The
+;  percent is per-code (PromoValid), e.g. LION = 20%.
 ; ============================================================
+
+; Show the first-launch "do you have a creator code?" prompt, once ever. Skipped if
+; it's already been answered (PromoAsked) or the user is Pro (nothing to discount).
+; Returns true if it actually opened the prompt, false if it suppressed it (already
+; asked, or Pro) -- so the onboarding chain knows whether a wall is now showing.
+MaybeAskPromo() {
+    global PromoAsked, Unlocked
+    if (PromoAsked || Unlocked)
+        return false
+    Post("promoask")
+    return true
+}
 
 ; True if `code` matches one of the accepted promo codes (case-insensitive).
 IsValidPromo(code) {
     global PromoValid
-    code := Trim(code)
-    for c in PromoValid
-        if (c = code)                       ; AHK '=' is case-insensitive
-            return true
-    return false
+    return PromoValid.Has(StrUpper(Trim(code)))   ; keys are stored UPPER -> normalize to match
 }
 
-; Apply a promo code entered in the first-Start prompt. Valid -> store it UPPER-cased,
-; report it to the dashboard, show the corner badge, then continue the Start the user
-; pressed. Invalid -> tell the page and leave the prompt open to retry or skip.
+; The discount percent for `code` (0 if it isn't an accepted code).
+PromoPercent(code) {
+    global PromoValid
+    code := StrUpper(Trim(code))
+    return PromoValid.Has(code) ? PromoValid[code] : 0
+}
+
+; Apply a promo code entered in the first-launch prompt. Valid -> store it UPPER-cased,
+; report it to the dashboard, show the corner badge, and close the prompt. Invalid ->
+; tell the page and leave the prompt open to retry or skip.
 ApplyPromo(code) {
-    global PromoAsked, PromoCode
+    global PromoAsked, PromoCode, PromoPct
     code := Trim(code)
     if (code = "") {
-        Post("promobad|Enter a code, or tap the 'No' button below.")
+        Post("promobad|Enter a code.")
         return
     }
     if !IsValidPromo(code) {
-        Post("promobad|That code isn't valid. Check the spelling, or tap 'No' below.")
+        Post("promobad|That code isn't valid.")
         return
     }
     PromoCode  := StrUpper(code)             ; corner badge shows it in caps
+    PromoPct   := PromoPercent(PromoCode)    ; per-code discount (e.g. LION -> 20)
     PromoAsked := true
     SavePromo()
     SendHeartbeat()                          ; report the code to gardenmacro.com/stats now
-    Post("promook|" PromoCode)               ; show corner badge + close the prompt
-    StartMacro()                             ; PromoAsked is set now -> the run proceeds
+    Post("promook|" PromoCode "|" PromoPct)  ; show corner badge ("N% off") + close the prompt
 }
 
-; "No, I don't" in the first-Start prompt: remember we asked (so it never shows again)
-; with no code, then continue the Start. The page closes its own prompt.
+; "Skip" in the first-launch prompt: remember we asked (so it never shows again) with
+; no code. The page closes its own prompt; nothing else happens (the macro is unaffected).
 SkipPromo() {
-    global PromoAsked, PromoCode
+    global PromoAsked, PromoCode, PromoPct
     PromoAsked := true
     PromoCode  := ""
+    PromoPct   := 0
     SavePromo()
-    StartMacro()
 }
 
 ; Load the saved promo state. File format: "<asked 0|1>|<CODE>". Missing -> not asked.
 LoadPromo() {
-    global PromoFile, PromoAsked, PromoCode
+    global PromoFile, PromoAsked, PromoCode, PromoPct
     if !FileExist(PromoFile)
         return
     raw := ""
@@ -913,6 +1021,7 @@ LoadPromo() {
         PromoAsked := true
     if (parts.Length >= 2)
         PromoCode := StrUpper(Trim(parts[2]))
+    PromoPct := PromoPercent(PromoCode)     ; percent isn't persisted -> re-derive from the saved code
 }
 
 ; Persist the promo state (no BOM; create the folder if needed).
@@ -924,6 +1033,89 @@ SavePromo() {
             DirCreate(dir)
         f := FileOpen(PromoFile, "w", "UTF-8-RAW")
         f.Write((PromoAsked ? "1" : "0") "|" PromoCode)
+        f.Close()
+    }
+}
+
+; ============================================================
+;  Acquisition source (first-LAUNCH prompt -> stats dashboard)
+;  Asked once, shortly after first launch and BEFORE the creator-code prompt: "Where
+;  did you hear about the macro?" The chosen channel (Reddit / TikTok / YouTube /
+;  Google / AI / ...) is reported to the stats dashboard (carried on the usage
+;  heartbeat's "src" field) so we can see which channels bring users. "Skip" dismisses
+;  it for good. Answering or skipping chains into the creator-code prompt. Pure
+;  attribution -- it never changes how the macro runs.
+; ============================================================
+
+; Show the first-launch "where did you hear about us?" prompt, once ever. If it has
+; already been answered, skip it and go straight to the creator-code prompt.
+MaybeAskSource() {
+    global SourceAsked
+    if SourceAsked {
+        ContinueToPromo()        ; already answered before -> chain to the promo prompt
+        return
+    }
+    Post("sourceask")
+}
+
+; The page reports the chosen channel as "source|<key>". Record + persist it, report
+; it to the stats dashboard now, then chain into the creator-code prompt. An unknown
+; key is folded into "other" so it's still counted.
+ChooseSource(key) {
+    global SourceAsked, Source, SourceValid
+    key := StrLower(Trim(key))
+    if !SourceValid.Has(key)
+        key := "other"
+    Source := key
+    SourceAsked := true
+    SaveSource()
+    SendHeartbeat()              ; report the channel to gardenmacro.com/stats now
+    ContinueToPromo()
+}
+
+; "Skip" the source prompt: remember we asked (so it never shows again) with no
+; channel, then chain into the creator-code prompt.
+SkipSource() {
+    global SourceAsked, Source
+    SourceAsked := true
+    Source := ""
+    SaveSource()
+    ContinueToPromo()
+}
+
+; Once the source question is settled, show the creator-code prompt if it still
+; applies; otherwise tell the page to close the onboarding wall and reveal the app.
+ContinueToPromo() {
+    ; The promo-suppression guard lives solely in MaybeAskPromo. If it opens the promo
+    ; wall, that wall replaces the source wall (openPromoAsk closes ours -> no flash);
+    ; if it suppresses the prompt (already asked / Pro), close our wall to reveal the app.
+    if !MaybeAskPromo()
+        Post("sourcedone")
+}
+
+; Load the saved source state. File format: "<asked 0|1>|<key>". Missing -> not asked.
+LoadSource() {
+    global SourceFile, SourceAsked, Source
+    if !FileExist(SourceFile)
+        return
+    raw := ""
+    try raw := Trim(FileRead(SourceFile, "UTF-8"), " `t`r`n" Chr(0xFEFF))
+    parts := StrSplit(raw, "|")
+    if (parts.Length >= 1 && parts[1] = "1")
+        SourceAsked := true
+    if (parts.Length >= 2)
+        Source := StrLower(Trim(parts[2]))
+}
+
+; Persist the source state (no BOM; create the folder if needed).
+SaveSource() {
+    global SourceFile, SourceAsked, Source
+    try {
+        SplitPath(SourceFile, , &dir)
+        if (dir != "" && !DirExist(dir))
+            DirCreate(dir)
+        f := FileOpen(SourceFile, "w", "UTF-8-RAW")
+        f.Write((SourceAsked ? "1" : "0") "|" Source)
         f.Close()
     }
 }
@@ -1025,12 +1217,14 @@ StartHeartbeat() {
 ; so it returns instantly and can't stall the UI; we keep the COM object in a
 ; global so it isn't collected before the request finishes.
 SendHeartbeat() {
-    global PingUrl, DeviceId, AppVersion, HeartbeatReq, PromoCode
+    global PingUrl, DeviceId, AppVersion, HeartbeatReq, PromoCode, Source
     if (DeviceId = "")
         return
-    ; Carry the entered promo code (if any) so the stats dashboard can attribute it.
+    ; Carry the entered promo code + acquisition source (if any) so the stats
+    ; dashboard can attribute the install.
     promo := (PromoCode != "") ? ',"promo":"' JsonEscape(PromoCode) '"' : ""
-    body := '{"id":"' JsonEscape(DeviceId) '","v":"' JsonEscape(AppVersion) '"' promo '}'
+    src   := (Source != "")    ? ',"src":"'   JsonEscape(Source)    '"' : ""
+    body := '{"id":"' JsonEscape(DeviceId) '","v":"' JsonEscape(AppVersion) '"' promo src '}'
     try {
         HeartbeatReq := ComObject("WinHttp.WinHttpRequest.5.1")
         HeartbeatReq.SetTimeouts(3000, 3000, 3000, 8000)
@@ -1274,6 +1468,12 @@ HtmlTemplate() {
         font-size:12px;color:#8a6d1a;line-height:1.45}
   .note .ni{font-size:13px;line-height:1.2;flex-shrink:0}
   .note b{color:#6f5512}
+  /* Subtle, persistent setup reminder (placeholder until a real onboarding/tutorial).
+     Styled like the muted premium bar so it never fights the minimalist UI. */
+  .setupnote{display:flex;align-items:center;gap:8px;padding:8px 11px;
+        background:#fafafa;border-radius:8px;font-size:11.5px;color:#777;line-height:1.4}
+  .setupnote .sni{font-size:13px;opacity:.65;flex-shrink:0}
+  .setupnote b{color:#555;font-weight:600}
   /* Gears = Pro feature: the menu opens but is grayed out behind a lock */
   .prowrap{position:relative}
   .prodim{opacity:.5;filter:grayscale(100%);pointer-events:none;user-select:none}
@@ -1365,10 +1565,36 @@ HtmlTemplate() {
   .btn.block{width:100%;margin-bottom:10px}
   .btn.green{background:#16a34a;color:#fff;border-color:#16a34a}
   .btn.green:hover{background:#15803d;border-color:#15803d}
+  /* Creator-code wall: a solid full-window panel (not a floating modal popup) shown
+     once on first launch. Covers the whole app window until the user confirms / skips. */
+  .wall{position:fixed;inset:0;background:#fff;z-index:60;display:flex;
+        align-items:center;justify-content:center;padding:24px;
+        opacity:1;transition:opacity .36s ease}
+  .wallinner{width:100%;max-width:320px;text-align:center;
+        transition:opacity .36s ease,transform .36s ease}
+  /* Onboarding transitions: walls cross-dissolve, their content fades + rises. */
+  .wall.entering{opacity:0}
+  .wall.entering .wallinner{opacity:0;transform:translateY(14px)}
+  .wall.leaving{opacity:0}
+  .wall.leaving .wallinner{opacity:0;transform:translateY(-10px)}
+  .wall h2{font-size:22px;font-weight:800;margin:0 0 18px;color:#111}
+  /* Welcome screen: the warm "you're in" finale after onboarding. */
+  .welcome h2{margin:0;font-size:26px}
+  .welcomeSeed{font-size:46px;line-height:1;margin-bottom:8px}
+  .wall #promoInput{width:100%;text-align:center;font-size:16px;letter-spacing:1px;
+        text-transform:uppercase;margin-bottom:4px}
+  .wall .lmsg{text-align:center;margin:6px 0 12px}
+  .wall .btn.block{width:100%}
+  /* Source wall: "where did you hear about us?" -> a 2-col grid of channel buttons. */
+  .srcgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0 0 14px}
+  .srcgrid .btn{width:100%;margin:0}
+  .srcgrid .wide{grid-column:1 / -1}
+  .wall .skip{display:inline-block;font-size:13px;color:#999;cursor:pointer}
+  .wall .skip:hover{color:#555;text-decoration:underline}
   .prow{display:flex;gap:8px}
-  #codeInput{flex:1;background:#fff;border:1px solid #d8d8d8;border-radius:7px;padding:8px 10px;
+  #codeInput,#promoInput{flex:1;background:#fff;border:1px solid #d8d8d8;border-radius:7px;padding:8px 10px;
         font-size:13px;outline:none;font-family:inherit}
-  #codeInput:focus{border-color:#16a34a}
+  #codeInput:focus,#promoInput:focus{border-color:#16a34a}
   .lmsg{font-size:12px;color:#888;margin-top:10px;min-height:15px;line-height:1.4}
   /* Post-run upsell hint: what the locked premium seeds would have earned */
   .hintwrap{display:flex;flex-direction:column;gap:2px;margin:6px 0 10px}
@@ -1387,22 +1613,28 @@ HtmlTemplate() {
         border-radius:9px;padding:11px 12px;font-size:21px;font-weight:800;letter-spacing:2px;
         text-transform:uppercase;font-family:'Consolas','JetBrains Mono',monospace;
         -webkit-user-select:text;user-select:text}
-  /* Promo-code corner badge: "USE CODE OVER FOR 10% OFF" (only if a code was entered) */
+  /* Promo-code corner badge: "USE CODE LION FOR 20% OFF" (only if a code was entered) */
   .promobadge{position:fixed;top:13px;right:14px;z-index:40;cursor:pointer;
         font-size:10.5px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;
         color:#15803d;background:#ecfdf5;border:1px solid #bbf7d0;border-radius:999px;
         padding:4px 10px;line-height:1.3;font-family:'Consolas','JetBrains Mono',monospace}
   .promobadge:hover{background:#dcfce7;border-color:#86efac}
   .promobadge b{font-weight:800}
+  /* Account tab: subscription management (Pro only) */
+  .acard{padding:2px 0}
+  .astatus{display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:600;color:#15803d;margin:2px 0 6px}
+  .adot{width:8px;height:8px;border-radius:50%;background:#16a34a;box-shadow:0 0 0 3px rgba(22,163,74,.15);flex-shrink:0}
+  .adesc{font-size:12.5px;color:#777;margin:0 0 12px;line-height:1.5}
   [hidden]{display:none !important}
 </style>
 </head>
 <body>
-  <div id='promoBadge' class='promobadge' hidden onclick='openAccess()'>Use code <b id='promoBadgeCode'></b> for 10% off</div>
+  <div id='promoBadge' class='promobadge' hidden onclick='openAccess()'>Use code <b id='promoBadgeCode'></b> for <b id='promoBadgePct'></b>% off</div>
   <h1>Garden Macro</h1>
   <div class='tabs'>
     <button id='tabSeeds' class='tab on' onclick='switchTab("seeds")'>Seeds</button>
     <button id='tabGears' class='tab'    onclick='switchTab("gears")'>Gears</button>
+    <button id='tabAccount' class='tab' hidden onclick='switchTab("account")'>Account</button>
   </div>
   <div class='sub'>
     <span id='count'>0 selected</span>
@@ -1436,7 +1668,21 @@ HtmlTemplate() {
     </div>
   </div>
 
-  <div class='footer'>
+  <div id='accountPane' hidden>
+    <div class='acard'>
+      <div class='astatus'><span class='adot'></span> Garden Macro Pro is active</div>
+      <p class='adesc'>Manage your subscription on Stripe &mdash; update your payment method, view past invoices, or cancel anytime.</p>
+      <button class='btn green block' onclick='manageSub()'>Manage subscription &rarr;</button>
+      <div id='accountMsg' class='lmsg'></div>
+    </div>
+  </div>
+
+  <div id='setupNote' class='setupnote'>
+    <span class='sni'>&#9881;</span>
+    <span>Turn on <b>UI Navigation</b> in Roblox settings for the macro to work.</span>
+  </div>
+
+  <div id='footer' class='footer'>
     <button id='startBtn' class='btn primary' onclick='send("start")'>Start <span class='hk'>F1</span></button>
     <button id='stopBtn'  class='btn'         onclick='send("stop")'>Stop <span class='hk'>F2</span></button>
     <span class='ver'>v__VERSION__</span>
@@ -1503,19 +1749,37 @@ HtmlTemplate() {
     </div>
   </div>
 
-  <div id='promoOverlay' class='overlay' hidden>
-    <div class='modal'>
-      <div class='mh'>
-        <span class='mlock'>&#127881;</span>
-        <h2>Have a promo code?</h2>
+  <div id='sourceOverlay' class='wall' hidden>
+    <div class='wallinner'>
+      <h2>Where did you hear about the macro?</h2>
+      <div class='srcgrid'>
+        <button class='btn' onclick='chooseSource("reddit")'>Reddit</button>
+        <button class='btn' onclick='chooseSource("tiktok")'>TikTok</button>
+        <button class='btn' onclick='chooseSource("youtube")'>YouTube</button>
+        <button class='btn' onclick='chooseSource("google")'>Google search</button>
+        <button class='btn wide' onclick='chooseSource("ai")'>AI (Claude, ChatGPT, Gemini)</button>
+        <button class='btn' onclick='chooseSource("discord")'>Discord</button>
+        <button class='btn' onclick='chooseSource("friend")'>Friend</button>
+        <button class='btn wide' onclick='chooseSource("other")'>Other</button>
       </div>
-      <p class='mdesc'>If a creator gave you a promo code, enter it here. You&#39;ll get <b>10% off</b> when you upgrade to Pro &mdash; just use the code at checkout.</p>
-      <div class='prow'>
-        <input id='promoInput' type='text' placeholder='Enter promo code' spellcheck='false' autocomplete='off'>
-        <button class='btn green' onclick='applyPromo()'>Apply</button>
-      </div>
+      <a class='skip' onclick='skipSource()'>Skip</a>
+    </div>
+  </div>
+
+  <div id='promoOverlay' class='wall' hidden>
+    <div class='wallinner'>
+      <h2>Do you have a creator code?</h2>
+      <input id='promoInput' type='text' placeholder='Enter code' spellcheck='false' autocomplete='off' onkeydown='if(event.key==="Enter")applyPromo()'>
       <div id='promoMsg' class='lmsg'></div>
-      <button class='btn block' onclick='skipPromo()'>No, I don&#39;t</button>
+      <button class='btn green block' onclick='applyPromo()'>Confirm</button>
+      <button class='btn block' onclick='skipPromo()'>Skip</button>
+    </div>
+  </div>
+
+  <div id='welcomeOverlay' class='wall' hidden>
+    <div class='wallinner welcome'>
+      <div class='welcomeSeed'>&#127793;</div>
+      <h2>Welcome!</h2>
     </div>
   </div>
 
@@ -1525,10 +1789,12 @@ HtmlTemplate() {
   var LOCKED = __LOCKED__;            /* per-seed 0/1 lock flags, aligned to SEEDS */
   var PREMIUM = __PREMIUM__;          /* number of locked seeds (for the upsell copy) */
   var PROMO = '__PROMO__';            /* entered promo code (UPPER), '' if none -> no corner badge */
+  var PROMO_PCT = __PROMOPCT__;       /* that code's discount percent (0 if none) -> badge "N% off" */
   var unlocked = false;              /* premium (seeds) unlocked this session? */
   var seedSel = {};                  /* 1-based index -> true (seeds tab) */
   var gearSel = {};                  /* 1-based index -> true (gears tab) */
   var activeTab = 'seeds';           /* which tab the footer Start applies to */
+  var sawWall = false;               /* did onboarding actually show a wall? -> welcome finale */
   var wv = window.chrome.webview;
 
   function send(s){ wv.postMessage(s); }
@@ -1645,10 +1911,16 @@ HtmlTemplate() {
     activeTab = tab;
     document.getElementById('seedsPane').hidden = (tab !== 'seeds');
     document.getElementById('gearsPane').hidden = (tab !== 'gears');
+    document.getElementById('accountPane').hidden = (tab !== 'account');
     document.getElementById('tabSeeds').classList.toggle('on', tab === 'seeds');
     document.getElementById('tabGears').classList.toggle('on', tab === 'gears');
-    updateCount();
-    send('tab|' + tab);               /* so F1 starts whichever tab is showing */
+    document.getElementById('tabAccount').classList.toggle('on', tab === 'account');
+    /* The selection bar + Start/Stop drive the seed/gear lists, not Account. */
+    var acct = (tab === 'account');
+    document.querySelector('.sub').hidden = acct;
+    document.getElementById('setupNote').hidden = acct;
+    document.getElementById('footer').hidden = acct;
+    if (!acct){ updateCount(); send('tab|' + tab); }   /* so F1 starts whichever list tab is showing */
     requestAnimationFrame(function(){ requestAnimationFrame(fitWindow); });
   }
 
@@ -1708,35 +1980,89 @@ HtmlTemplate() {
   }
   function copyDiscount(btn){ copyCode(btn, 'discountCode'); }
 
-  /* Promo codes. AHK sends "promoask" on the first Start; the page shows the prompt.
-     Apply -> AHK validates and replies "promook|<CODE>" (badge + close) or
-     "promobad|<msg>" (stay open). Skip -> close + tell AHK to continue the Start. */
+  /* Promo codes. AHK sends "promoask" shortly after first launch; the page shows the
+     prompt. Apply (or Enter) -> AHK validates and replies "promook|<CODE>|<PCT>" (badge
+     + close) or "promobad|<msg>" (stay open). Skip -> close + tell AHK we skipped. */
   function applyPromoBadge(){
     var b = document.getElementById('promoBadge');
-    if (PROMO){ document.getElementById('promoBadgeCode').textContent = PROMO; b.hidden = false; }
-    else b.hidden = true;
+    if (PROMO){
+      document.getElementById('promoBadgeCode').textContent = PROMO;
+      document.getElementById('promoBadgePct').textContent = PROMO_PCT;
+      b.hidden = false;
+    } else b.hidden = true;
   }
+  /* Source ("where did you hear about us?") wall. AHK sends "sourceask" on first
+     launch, BEFORE the promo prompt. Picking a channel (or Skip) -> AHK records +
+     reports it, then opens the promo wall, or sends "sourcedone" if there is nothing
+     more to ask. The overlay stays up until AHK replies, so there is no flash. */
+  /* --- Onboarding wall transitions (source -> promo -> welcome) ---
+     Walls share a solid white background, so we cross-dissolve: the next wall fades in
+     OVER the current one (no app flash), then the old one is dropped. Content fades and
+     rises via the .entering/.leaving classes. WALL_FADE must match the CSS .36s. */
+  var WALL_FADE = 360;
+  function enterWall(id, after){
+    var el = document.getElementById(id);
+    el.hidden = false;
+    el.classList.remove('leaving');
+    el.classList.add('entering');                        /* start hidden (opacity 0, content low) */
+    requestAnimationFrame(function(){ requestAnimationFrame(function(){
+      el.classList.remove('entering');                   /* -> triggers the fade + rise in */
+      if (after) setTimeout(after, WALL_FADE);
+    }); });
+  }
+  function exitWall(id, after){
+    var el = document.getElementById(id);
+    el.classList.remove('entering');
+    el.classList.add('leaving');                         /* fade the whole wall out -> reveal app */
+    setTimeout(function(){
+      el.hidden = true;
+      el.classList.remove('leaving');
+      if (after) after();
+    }, WALL_FADE);
+  }
+  /* Bring `toId` up over `fromId`, then drop `fromId` once it's fully covered. */
+  function crossWall(fromId, toId, after){
+    enterWall(toId, function(){
+      var f = document.getElementById(fromId);
+      if (f){ f.hidden = true; f.classList.remove('entering','leaving'); }
+      if (after) after();
+    });
+  }
+  /* End of onboarding: dissolve the final wall into the welcome screen, hold, fade to app. */
+  function goWelcome(fromId){
+    crossWall(fromId, 'welcomeOverlay', function(){
+      setTimeout(function(){ exitWall('welcomeOverlay'); }, 1800);
+    });
+  }
+
+  function openSourceAsk(){ sawWall = true; enterWall('sourceOverlay'); }
+  function closeSource(){ document.getElementById('sourceOverlay').hidden = true; }
+  function chooseSource(key){ send('source|' + key); }
+  function skipSource(){ send('sourceskip'); }
+
   function openPromoAsk(){
-    document.getElementById('promoOverlay').hidden = false;
-    var inp = document.getElementById('promoInput');
-    setTimeout(function(){ inp.focus(); }, 30);
+    sawWall = true;
+    crossWall('sourceOverlay', 'promoOverlay', function(){   /* dissolve source -> promo */
+      document.getElementById('promoInput').focus();
+    });
   }
   function setPromoMsg(t){ document.getElementById('promoMsg').textContent = t; }
   function applyPromo(){
     var code = document.getElementById('promoInput').value.trim();
-    if (!code){ setPromoMsg('Enter a code, or tap the No button below.'); return; }
+    if (!code){ return; }                 /* empty -> do nothing (they can type or Skip) */
     setPromoMsg('Checking...');
     send('promoapply|' + code);
   }
   function skipPromo(){
-    document.getElementById('promoOverlay').hidden = true;
     send('promoskip');
+    goWelcome('promoOverlay');                 /* skipped -> welcome finale */
   }
-  function promoAccepted(code){
+  function promoAccepted(code, pct){
     PROMO = code;
+    PROMO_PCT = pct;
     applyPromoBadge();
-    document.getElementById('promoOverlay').hidden = true;
     setPromoMsg('');
+    goWelcome('promoOverlay');                 /* valid code -> welcome finale */
   }
   function setLicenseMsg(t){ document.getElementById('licenseMsg').textContent = t; }
   function activate(){
@@ -1751,9 +2077,17 @@ HtmlTemplate() {
     var bar = document.getElementById('premiumBar');
     if (bar) bar.hidden = true;          /* access granted -> no upsell bar needed */
     applyGearLock();                     /* Pro -> the Gears tab is now usable */
+    document.getElementById('tabAccount').hidden = false;  /* Pro -> show the Account tab */
     renderAll();
     pushSel('seeds');
     requestAnimationFrame(function(){ requestAnimationFrame(fitWindow); });
+  }
+  /* Account tab (Pro only): open the Stripe billing portal to manage / cancel. */
+  function setAccountMsg(t){ var e = document.getElementById('accountMsg'); if (e) e.textContent = t; }
+  function manageSub(){
+    setAccountMsg('Opening Stripe in your browser...');
+    send('manage');
+    setTimeout(function(){ setAccountMsg(''); }, 6000);   /* self-clear; AHK overwrites on error */
   }
   function setRunning(on){
     document.getElementById('startBtn').disabled = on;
@@ -1768,19 +2102,25 @@ HtmlTemplate() {
     else if (type === 'state') setRunning(rest === '1');
     else if (type === 'unlock') unlockPremium();
     else if (type === 'licensemsg') setLicenseMsg(rest);
+    else if (type === 'accountmsg') setAccountMsg(rest);
     else if (type === 'access') openAccess();   /* tried to Start a Pro-locked tab */
     else if (type === 'hint') { var hp = rest.split('|'); showHint(hp[0], hp[1]); }  /* post-run upsell */
     else if (type === 'discount') { var dp = rest.split('|'); showDiscount(dp[0], dp[1]); }   /* loyalty 50%-off code + milestone hours */
-    else if (type === 'promoask') openPromoAsk();       /* first-Start promo prompt */
-    else if (type === 'promook') promoAccepted(rest);   /* valid code -> badge + close */
+    else if (type === 'sourceask') openSourceAsk();     /* first-launch acquisition prompt (before promo) */
+    else if (type === 'sourcedone') { if (sawWall) goWelcome('sourceOverlay'); else closeSource(); }  /* settled: welcome if a wall showed, else just close */
+    else if (type === 'promoask') openPromoAsk();       /* first-launch promo prompt */
+    else if (type === 'promook') { var pp = rest.split('|'); promoAccepted(pp[0], pp[1]); }  /* valid code -> badge + close */
     else if (type === 'promobad') setPromoMsg(rest);    /* invalid code -> keep prompt open */
   });
 
   /* Ask AHK to shrink the window to end right at the Start/Stop row. */
   function fitWindow(){
-    var f = document.querySelector('.footer');
-    if (!f) return;
-    var cssH = f.getBoundingClientRect().bottom + 16;   /* + body bottom padding */
+    /* Measure to the footer normally; on the Account tab the footer is hidden,
+       so measure to the account card instead. */
+    var f = document.getElementById('footer');
+    var ref = (f && !f.hidden) ? f : document.querySelector('#accountPane .acard');
+    if (!ref) return;
+    var cssH = ref.getBoundingClientRect().bottom + 16;   /* + body bottom padding */
     send('fit|' + Math.ceil(cssH * (window.devicePixelRatio || 1)));
   }
 

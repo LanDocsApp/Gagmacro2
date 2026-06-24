@@ -21,6 +21,7 @@ functions/
     success.js               GET  -> confirm checkout, write KV, show paste-code
     webhook.js               POST -> verify Stripe sig, sync KV
     desktop/verify.js        POST -> { token } -> { active: true|false }
+    desktop/portal.js        POST -> { token } -> { url } (Stripe billing portal: manage/cancel)
 index.html      marketing landing
 signin.html     sign in with Google / get your code
 wrangler.toml   Pages config + SUBS KV binding
@@ -84,6 +85,21 @@ saves the code to `%AppData%\GardenMacro\token.txt` and unlocks the last 5
 seeds live; on the next launch it re-verifies in the background (and trusts the
 saved code when offline). `/api/desktop/verify` self-heals from Stripe if KV is
 cold or stale, so it stays correct even if a webhook is missed.
+
+## Manage / cancel subscription (Account tab)
+
+Once a user is Pro, the macro shows an **Account** tab with a **Manage
+subscription** button. It POSTs the saved paste-code to `/api/desktop/portal`,
+which verifies the token, resolves the Stripe customer (self-healing the link
+from Stripe like `verify` does), and returns a one-time **Stripe Billing Portal**
+URL. The macro opens it in the browser, where the user can update their card,
+download invoices, or **cancel** — the self-serve cancel path that prevents bank
+chargebacks. Cancellations flow back through `/api/webhook`, so KV (and the
+macro's unlock state on next launch) stay in sync automatically.
+
+> One-time setup: enable the portal in the Stripe dashboard at **Settings →
+> Billing → Customer portal** (allow cancellation, invoice history, and
+> payment-method updates), or `createBillingPortalSession` will error.
 
 ## Local dev
 

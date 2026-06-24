@@ -43,6 +43,13 @@ export function createCheckoutSession(env, params) {
   return stripe(env, "POST", "/v1/checkout/sessions", params);
 }
 
+// Stripe-hosted billing portal: lets a customer update their payment method,
+// view/download invoices, or cancel. Requires the portal to be enabled once in
+// the Stripe dashboard (Settings -> Billing -> Customer portal).
+export function createBillingPortalSession(env, params) {
+  return stripe(env, "POST", "/v1/billing_portal/sessions", params);
+}
+
 export function getCheckoutSession(env, id) {
   // Expand subscription so we can read its status directly.
   return stripe(env, "GET", `/v1/checkout/sessions/${encodeURIComponent(id)}`, {

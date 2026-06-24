@@ -92,10 +92,18 @@
     </div>
 
     <div class="sessions">
+      <h2>Where they heard about us</h2>
+      <table>
+        <thead><tr><th>Source</th><th>Installs</th></tr></thead>
+        <tbody id="source-body"><tr><td colspan="2" class="muted">Loading…</td></tr></tbody>
+      </table>
+    </div>
+
+    <div class="sessions">
       <h2>Recent sessions</h2>
       <table>
-        <thead><tr><th>Device</th><th>Started</th><th>Length</th><th>Pings</th><th>Version</th><th>Promo</th></tr></thead>
-        <tbody id="sess-body"><tr><td colspan="6" class="muted">Loading…</td></tr></tbody>
+        <thead><tr><th>Device</th><th>Started</th><th>Length</th><th>Pings</th><th>Version</th><th>Promo</th><th>Source</th></tr></thead>
+        <tbody id="sess-body"><tr><td colspan="7" class="muted">Loading…</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -119,10 +127,18 @@
   const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
+  // Friendly labels for the acquisition-source keys the macro sends.
+  const SOURCE_LABELS = {
+    reddit: "Reddit", tiktok: "TikTok", youtube: "YouTube",
+    google: "Google search", ai: "AI (Claude/ChatGPT/Gemini)",
+    discord: "Discord", friend: "Friend", other: "Other",
+  };
+  const srcLabel = (s) => SOURCE_LABELS[s] || s;
+
   function renderSessions(list) {
     const body = $("sess-body");
     if (!list || !list.length) {
-      body.innerHTML = '<tr><td colspan="6" class="muted">No sessions yet.</td></tr>';
+      body.innerHTML = '<tr><td colspan="7" class="muted">No sessions yet.</td></tr>';
       return;
     }
     body.innerHTML = list.map((s) => {
@@ -135,8 +151,23 @@
         "<td>" + (s.pings || 0) + "</td>" +
         '<td class="mono">' + (s.version ? esc(s.version) : "—") + "</td>" +
         '<td class="mono">' + (s.promo ? esc(s.promo) : "—") + "</td>" +
+        "<td>" + (s.src ? esc(srcLabel(s.src)) : "—") + "</td>" +
         "</tr>";
     }).join("");
+  }
+
+  function renderSources(list) {
+    const body = $("source-body");
+    if (!list || !list.length) {
+      body.innerHTML = '<tr><td colspan="2" class="muted">No sources reported yet.</td></tr>';
+      return;
+    }
+    body.innerHTML = list.map((p) =>
+      "<tr>" +
+        "<td>" + esc(srcLabel(p.source)) + "</td>" +
+        "<td>" + (p.count || 0) + "</td>" +
+      "</tr>"
+    ).join("");
   }
 
   function renderPromos(list) {
@@ -177,6 +208,7 @@
       $("v-sessions").textContent = d.sessionsToday ?? "—";
       $("v-avg").textContent = d.avgSession ? fmtDuration(d.avgSession) : "—";
       renderPromos(d.promos);
+      renderSources(d.sources);
       renderSessions(d.sessions);
       $("foot").textContent = "Updated " + new Date(d.at).toLocaleTimeString() +
         " · today/week boundaries are UTC · avg excludes single-ping launches";

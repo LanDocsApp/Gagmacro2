@@ -1,10 +1,12 @@
 // POST /api/ping — anonymous usage heartbeat from the macro.
 //
-// Body: { "id": "<random device id>", "v": "<app version>", "promo": "<code?>" }
+// Body: { "id": "<random device id>", "v": "<app version>", "promo": "<code?>",
+//         "src": "<acquisition source?>" }
 // Upserts one row per install into the STATS D1 `devices` table (no PII — just a
 // random id the macro generates once and stores locally) and stitches pings into
-// `sessions` rows. If the macro reports a creator promo code, it's stamped onto the
-// install (sticky) for the /stats breakdown. Powers /api/stats.
+// `sessions` rows. If the macro reports a creator promo code or an acquisition source
+// ("where did you hear about us?"), each is stamped onto the install (sticky) for the
+// /stats breakdown. Powers /api/stats.
 //
 // Fire-and-forget from the client: always returns 200 quickly, never errors out
 // loud, so a stats hiccup can never affect the macro.
@@ -21,12 +23,16 @@ export async function onRequestPost({ request, env, waitUntil }) {
   let id = "";
   let version = "";
   let promo = "";
+  let src = "";
   try {
     const body = await request.json();
     id = String((body && body.id) || "").trim().slice(0, 64);
     version = String((body && body.v) || "").trim().slice(0, 32);
     promo = String((body && body.promo) || "").trim().slice(0, 32).toUpperCase();
     if (promo && !/^[A-Z0-9 _-]{1,32}$/.test(promo)) promo = "";
+    // Acquisition source: lowercase channel key (reddit / tiktok / ai / ...).
+    src = String((body && body.src) || "").trim().slice(0, 24).toLowerCase();
+    if (src && !/^[a-z0-9_-]{1,24}$/.test(src)) src = "";
   } catch {
     id = "";
   }
@@ -62,6 +68,18 @@ export async function onRequestPost({ request, env, waitUntil }) {
             .run();
         } catch {
           // `promo` column not added yet -> ignore (see migrations/0001_add_promo.sql).
+        }
+      }
+
+      // Stamp the acquisition source onto the install (sticky; only when reported).
+      // Its own try/catch so a missing `src` column can never break core stats.
+      if (src) {
+        try {
+          await env.STATS.prepare(`UPDATE devices SET src = ?2 WHERE id = ?1`)
+            .bind(id, src)
+            .run();
+        } catch {
+          // `src` column not added yet -> ignore (see migrations/0002_add_src.sql).
         }
       }
 
