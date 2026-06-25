@@ -53,7 +53,11 @@ async function refreshByGoogleSub(env, googleSub) {
     await setSubStatus(env, customerId, { status, googleId: googleSub });
     return isActiveStatus(status);
   } catch {
-    return false;
+    // Couldn't reach Stripe -> status UNDETERMINED, not "no subscription". Signal
+    // null (like refreshByCustomer) so callers don't treat a transient Stripe outage
+    // as a confirmed cancellation and lock out a paying user. A genuine "no sub"
+    // still returns false above (subs.length === 0 / no customer).
+    return null;
   }
 }
 
@@ -70,7 +74,9 @@ export async function resolveActive(env, googleSub) {
     // Stale or missing -> refresh from Stripe, fall back to stale cache on error.
     const live = await refreshByCustomer(env, customerId, googleSub);
     if (live !== null) return live;
-    return cached ? isActiveStatus(cached.status) : false;
+    // Stripe unreachable AND no cache to fall back on -> status UNDETERMINED (null),
+    // not "no subscription". Callers must not treat this as a confirmed cancellation.
+    return cached ? isActiveStatus(cached.status) : null;
   }
 
   // No customer link yet -> search Stripe by the google_id metadata.

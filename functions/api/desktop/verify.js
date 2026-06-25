@@ -29,11 +29,21 @@ export async function onRequestPost({ request, env }) {
     return json({ active: false }, 401);
   }
 
-  let active = false;
+  let active;
   try {
     active = await resolveActive(env, payload.sub);
   } catch {
-    active = false;
+    active = null; // KV/infra error -> status undetermined (not a confirmed cancellation)
+  }
+
+  // Undetermined (Stripe/KV unreachable): do NOT answer a definitive "not subscribed".
+  // A 200 {active:false} makes the macro treat this as a cancellation and previously
+  // could delete the saved code, locking out a paying user over a transient blip.
+  // Return 503 so the macro classifies it as "error" and keeps trusting the saved
+  // code (its offline-trust path), exactly like a real outage. A genuine, confirmed
+  // "no active subscription" still returns 200 {active:false} below and revokes access.
+  if (active === null || active === undefined) {
+    return json({ active: false, error: "unavailable" }, 503);
   }
   return json({ active });
 }

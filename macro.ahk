@@ -843,10 +843,15 @@ CheckSavedLicense() {
         Unlocked := true
         Post("unlock|1")
     } else if (res.status = "inactive") {
-        try FileDelete(TokenFile)           ; cancelled / expired -> stay locked
+        ; Server is CERTAIN there's no active subscription -> stay locked this session.
+        ; We deliberately do NOT delete the saved code. If this "inactive" were ever a
+        ; transient backend false-negative, deleting would permanently lock out a paying
+        ; user; instead the next launch re-verifies and unlocks again. A genuinely
+        ; cancelled code just keeps returning inactive (and re-unlocks automatically if
+        ; the user resubscribes, since it's tied to their account, not a one-time grant).
     } else {
-        ; Offline / server unreachable: trust the saved code for this session,
-        ; like the launcher does, so paying users aren't locked out offline.
+        ; Offline / server unreachable / status undetermined: trust the saved code for
+        ; this session, like the launcher does, so paying users aren't locked out.
         Unlocked := true
         Post("unlock|1")
     }
