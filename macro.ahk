@@ -109,6 +109,7 @@ global TokenFile    := A_AppData "\GardenMacro\token.txt"   ; saved paste-code
 global DeviceFile   := A_AppData "\GardenMacro\device.txt"  ; random anon install id
 global DeviceId     := ""           ; set at startup (see GetOrCreateDeviceId)
 global HeartbeatReq := 0            ; keeps the async ping COM object alive in-flight
+global EventReq     := 0            ; keeps the async funnel-event ping alive in-flight
 
 ; --- Loyalty discount: as a user accumulates macro runtime (added up across every
 ;     session) they earn a 50%-off code for Pro at each hour-milestone in DiscountMiles
@@ -855,6 +856,8 @@ CheckSavedLicense() {
 ; Minimize the macro window so the browser sign-in page is in full view.
 OpenAccessPage() {
     global BackendBase, MainGui
+    ; Count this as a funnel step: an install that clicked through to the pay page.
+    SendEvent("get_access")
     url := BackendBase "/signin.html"
     try
         Run(url)
@@ -1235,6 +1238,24 @@ SendHeartbeat() {
         HeartbeatReq.Open("POST", PingUrl, true)      ; true = async, don't block
         HeartbeatReq.SetRequestHeader("Content-Type", "application/json")
         HeartbeatReq.Send(body)
+    }
+}
+
+; Fire a one-off funnel-event ping (a heartbeat tagged with "ev"), e.g. when the
+; user clicks "Get access". Lets the stats dashboard count distinct installs that
+; reached the sign-in page. Same fire-and-forget style as SendHeartbeat: async,
+; never waited on, kept alive in a global so it isn't collected mid-flight.
+SendEvent(ev) {
+    global PingUrl, DeviceId, AppVersion, EventReq
+    if (DeviceId = "" || ev = "")
+        return
+    body := '{"id":"' JsonEscape(DeviceId) '","v":"' JsonEscape(AppVersion) '","ev":"' JsonEscape(ev) '"}'
+    try {
+        EventReq := ComObject("WinHttp.WinHttpRequest.5.1")
+        EventReq.SetTimeouts(3000, 3000, 3000, 8000)
+        EventReq.Open("POST", PingUrl, true)          ; true = async, don't block
+        EventReq.SetRequestHeader("Content-Type", "application/json")
+        EventReq.Send(body)
     }
 }
 

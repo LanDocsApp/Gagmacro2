@@ -4,6 +4,7 @@
 import { createCheckoutSession } from "../_lib/stripe.js";
 import { getCustomerId, getSubStatus, isActiveStatus } from "../_lib/kv.js";
 import { baseUrl, readSession, redirect } from "../_lib/http.js";
+import { logEvent } from "../_lib/events.js";
 
 async function handle({ request, env }) {
   const base = baseUrl(request, env);
@@ -41,6 +42,9 @@ async function handle({ request, env }) {
   } catch (e) {
     return redirect(`${base}/signin.html?error=checkout`);
   }
+  // Funnel: a signed-in, not-yet-subscribed user is being sent to the pay page.
+  // Best-effort and never blocks the redirect.
+  await logEvent(env, "checkout", { meta: { sub: session.sub } });
   return redirect(checkout.url);
 }
 

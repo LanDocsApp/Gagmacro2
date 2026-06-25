@@ -12,6 +12,7 @@
   :root {
     --bg: #f7f8fa; --card: #ffffff; --line: #e6e8eb;
     --ink: #0f172a; --muted: #64748b; --green: #16a34a; --green-soft: #dcfce7;
+    --blue: #2563eb; --blue-soft: #dbeafe; --amber: #d97706; --red: #dc2626;
   }
   * { box-sizing: border-box; }
   body {
@@ -19,11 +20,13 @@
     color: var(--ink); -webkit-font-smoothing: antialiased; padding: 40px 20px;
   }
   .wrap { max-width: 760px; margin: 0 auto; }
-  header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 28px; }
+  header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
   h1 { font-size: 20px; font-weight: 700; margin: 0; }
   .sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
   .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
   @media (min-width: 620px) { .grid { grid-template-columns: repeat(4, 1fr); } }
+  .grid.three { grid-template-columns: repeat(2, 1fr); }
+  @media (min-width: 620px) { .grid.three { grid-template-columns: repeat(3, 1fr); } }
   .card {
     background: var(--card); border: 1px solid var(--line); border-radius: 14px;
     padding: 20px 18px;
@@ -31,9 +34,61 @@
   .card .label { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
   .card .value { font-family: "JetBrains Mono", monospace; font-size: 34px; font-weight: 600; margin-top: 8px; }
   .card.live .value { color: var(--green); }
+  .card .delta { font-size: 12px; font-weight: 600; margin-top: 6px; font-family: "JetBrains Mono", monospace; }
+  .delta.up { color: var(--green); } .delta.down { color: var(--red); } .delta.flat { color: var(--muted); }
   .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--green); margin-right: 6px; animation: pulse 1.6s infinite; vertical-align: middle; }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
   .foot { margin-top: 22px; color: var(--muted); font-size: 12px; }
+
+  /* Tabs */
+  .tabs { display: inline-flex; gap: 4px; background: var(--card); border: 1px solid var(--line); border-radius: 11px; padding: 4px; margin-bottom: 24px; }
+  .tabbtn { border: 0; background: transparent; color: var(--muted); font: 600 13px Inter, sans-serif; padding: 8px 16px; border-radius: 8px; cursor: pointer; }
+  .tabbtn.active { background: var(--ink); color: #fff; }
+  .panel[hidden] { display: none; }
+
+  /* Section card (funnel, chart) */
+  .section { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px 18px; margin-top: 16px; }
+  .section h2 { font-size: 14px; font-weight: 600; margin: 0 0 4px; }
+  .section .hint { color: var(--muted); font-size: 12px; margin: 0 0 16px; }
+
+  /* Funnel */
+  .funnel { display: grid; gap: 10px; }
+  .fstep { display: grid; grid-template-columns: 116px 1fr auto; align-items: center; gap: 12px; }
+  .fstep .fname { font-size: 13px; font-weight: 600; }
+  .fstep .ftrack { background: #f1f5f9; border-radius: 8px; height: 30px; overflow: hidden; }
+  .fstep .ffill { height: 100%; border-radius: 8px; display: flex; align-items: center; padding-left: 10px; color: #fff; font: 600 13px "JetBrains Mono", monospace; min-width: 2px; transition: width .4s ease; }
+  .fstep.s0 .ffill { background: var(--ink); }
+  .fstep.s1 .ffill { background: var(--blue); }
+  .fstep.s2 .ffill { background: #7c3aed; }
+  .fstep.s3 .ffill { background: var(--green); }
+  .fstep .fpct { font: 600 12px "JetBrains Mono", monospace; color: var(--muted); white-space: nowrap; min-width: 64px; text-align: right; }
+  .fnote { margin-top: 14px; font-size: 12px; color: var(--muted); }
+  .fnote b { color: var(--ink); font-family: "JetBrains Mono", monospace; }
+
+  /* Trend chart */
+  .legend { display: flex; gap: 16px; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: middle; }
+  .chart svg { width: 100%; height: auto; display: block; }
+
+  /* Two-up columns */
+  .cols { display: grid; grid-template-columns: 1fr; gap: 16px; margin-top: 16px; }
+  @media (min-width: 620px) { .cols { grid-template-columns: 1fr 1fr; } }
+
+  /* Horizontal bars (versions) */
+  .vrow { display: grid; grid-template-columns: 1fr; gap: 4px; margin-bottom: 12px; }
+  .vrow:last-child { margin-bottom: 0; }
+  .vhead { display: flex; justify-content: space-between; font-size: 12px; }
+  .vhead .vname { font-family: "JetBrains Mono", monospace; font-weight: 600; }
+  .vhead .vmeta { color: var(--muted); font-family: "JetBrains Mono", monospace; }
+  .vtrack { background: #f1f5f9; border-radius: 6px; height: 8px; overflow: hidden; }
+  .vfill { height: 100%; background: var(--green); border-radius: 6px; }
+
+  /* Retention rows */
+  .rrow { display: flex; justify-content: space-between; align-items: baseline; padding: 11px 0; border-bottom: 1px solid var(--line); }
+  .rrow:last-child { border-bottom: 0; }
+  .rrow .rk { font-size: 13px; } .rrow .rk small { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
+  .rrow .rv { font: 600 18px "JetBrains Mono", monospace; }
+
   .sessions { margin-top: 30px; }
   .sessions h2 { font-size: 14px; font-weight: 600; margin: 0 0 12px; }
   .sessions table {
@@ -73,38 +128,91 @@
       </div>
       <button class="signout" id="signout">Sign out</button>
     </header>
-    <div class="grid">
-      <div class="card live"><div class="label"><span class="dot"></span>Live now</div><div class="value" id="v-live">—</div></div>
-      <div class="card"><div class="label">Today</div><div class="value" id="v-today">—</div></div>
-      <div class="card"><div class="label">This week</div><div class="value" id="v-week">—</div></div>
-      <div class="card"><div class="label">Total installs</div><div class="value" id="v-total">—</div></div>
-      <div class="card"><div class="label">Sessions today</div><div class="value" id="v-sessions">—</div></div>
-      <div class="card"><div class="label">Avg session</div><div class="value" id="v-avg">—</div></div>
-    </div>
-    <div class="foot" id="foot">Loading…</div>
 
-    <div class="sessions">
-      <h2>Promo codes</h2>
-      <table>
-        <thead><tr><th>Code</th><th>Installs</th></tr></thead>
-        <tbody id="promo-body"><tr><td colspan="2" class="muted">Loading…</td></tr></tbody>
-      </table>
+    <div class="tabs">
+      <button class="tabbtn active" id="tab-btn-new" data-tab="new">New stats</button>
+      <button class="tabbtn" id="tab-btn-legacy" data-tab="legacy">Legacy</button>
     </div>
 
-    <div class="sessions">
-      <h2>Where they heard about us</h2>
-      <table>
-        <thead><tr><th>Source</th><th>Installs</th></tr></thead>
-        <tbody id="source-body"><tr><td colspan="2" class="muted">Loading…</td></tr></tbody>
-      </table>
+    <!-- ============ NEW STATS TAB ============ -->
+    <div id="tab-new" class="panel">
+      <div class="grid three">
+        <div class="card live"><div class="label"><span class="dot"></span>Live now</div><div class="value" id="n-live">—</div></div>
+        <div class="card"><div class="label">Active today</div><div class="value" id="n-today">—</div><div class="delta flat" id="n-today-d">vs yesterday</div></div>
+        <div class="card"><div class="label">New installs today</div><div class="value" id="n-new">—</div><div class="delta flat" id="n-new-d">vs yesterday</div></div>
+        <div class="card"><div class="label">Total installs</div><div class="value" id="n-total">—</div></div>
+        <div class="card"><div class="label">Pro subscribers</div><div class="value" id="n-subs">—</div></div>
+        <div class="card"><div class="label">Hours automated</div><div class="value" id="n-hours">—</div></div>
+      </div>
+
+      <div class="section">
+        <h2>Conversion funnel</h2>
+        <p class="hint">From install to paid. “Get access” counts distinct installs that clicked through to the sign-in page; checkout & subscribed are web steps (all-time).</p>
+        <div class="funnel" id="funnel"><div class="muted">Loading…</div></div>
+        <div class="fnote" id="fnote"></div>
+      </div>
+
+      <div class="section">
+        <h2>Last 30 days</h2>
+        <p class="hint">New installs per day and how many distinct devices were active. UTC days.</p>
+        <div class="legend">
+          <span><i style="background:var(--green)"></i>New installs</span>
+          <span><i style="background:var(--blue)"></i>Active devices</span>
+        </div>
+        <div class="chart" id="chart"><div class="muted">Loading…</div></div>
+      </div>
+
+      <div class="cols">
+        <div class="section" style="margin-top:0">
+          <h2>Version adoption</h2>
+          <p class="hint">Current install count per app version.</p>
+          <div id="versions"><div class="muted">Loading…</div></div>
+        </div>
+        <div class="section" style="margin-top:0">
+          <h2>Retention</h2>
+          <p class="hint">How sticky installs are.</p>
+          <div id="retention"><div class="muted">Loading…</div></div>
+        </div>
+      </div>
+
+      <div class="foot" id="n-foot">Loading…</div>
     </div>
 
-    <div class="sessions">
-      <h2>Recent sessions</h2>
-      <table>
-        <thead><tr><th>Device</th><th>Started</th><th>Length</th><th>Pings</th><th>Version</th><th>Promo</th><th>Source</th></tr></thead>
-        <tbody id="sess-body"><tr><td colspan="7" class="muted">Loading…</td></tr></tbody>
-      </table>
+    <!-- ============ LEGACY TAB ============ -->
+    <div id="tab-legacy" class="panel" hidden>
+      <div class="grid">
+        <div class="card live"><div class="label"><span class="dot"></span>Live now</div><div class="value" id="v-live">—</div></div>
+        <div class="card"><div class="label">Today</div><div class="value" id="v-today">—</div></div>
+        <div class="card"><div class="label">This week</div><div class="value" id="v-week">—</div></div>
+        <div class="card"><div class="label">Total installs</div><div class="value" id="v-total">—</div></div>
+        <div class="card"><div class="label">Sessions today</div><div class="value" id="v-sessions">—</div></div>
+        <div class="card"><div class="label">Avg session</div><div class="value" id="v-avg">—</div></div>
+      </div>
+      <div class="foot" id="foot">Loading…</div>
+
+      <div class="sessions">
+        <h2>Promo codes</h2>
+        <table>
+          <thead><tr><th>Code</th><th>Installs</th></tr></thead>
+          <tbody id="promo-body"><tr><td colspan="2" class="muted">Loading…</td></tr></tbody>
+        </table>
+      </div>
+
+      <div class="sessions">
+        <h2>Where they heard about us</h2>
+        <table>
+          <thead><tr><th>Source</th><th>Installs</th></tr></thead>
+          <tbody id="source-body"><tr><td colspan="2" class="muted">Loading…</td></tr></tbody>
+        </table>
+      </div>
+
+      <div class="sessions">
+        <h2>Recent sessions</h2>
+        <table>
+          <thead><tr><th>Device</th><th>Started</th><th>Length</th><th>Pings</th><th>Version</th><th>Promo</th><th>Source</th></tr></thead>
+          <tbody id="sess-body"><tr><td colspan="7" class="muted">Loading…</td></tr></tbody>
+        </table>
+      </div>
     </div>
   </div>
 </div>
@@ -112,7 +220,11 @@
 <script>
   const $ = (id) => document.getElementById(id);
   const KEY_STORE = "gm_stats_key";
+  const TAB_STORE = "gm_stats_tab";
   let timer = null;
+
+  const nf = (n) => (n == null ? "—" : Number(n).toLocaleString("en-US"));
+  const pct = (num, den) => (den > 0 ? Math.round((num / den) * 1000) / 10 : 0);
 
   // ms -> "1h 4m" / "9m 30s" / "45s"
   function fmtDuration(ms) {
@@ -135,6 +247,132 @@
   };
   const srcLabel = (s) => SOURCE_LABELS[s] || s;
 
+  // ---- Tabs ----
+  function setTab(tab) {
+    const isNew = tab !== "legacy";
+    $("tab-new").hidden = !isNew;
+    $("tab-legacy").hidden = isNew;
+    $("tab-btn-new").classList.toggle("active", isNew);
+    $("tab-btn-legacy").classList.toggle("active", !isNew);
+    localStorage.setItem(TAB_STORE, isNew ? "new" : "legacy");
+  }
+  document.querySelectorAll(".tabbtn").forEach((b) =>
+    (b.onclick = () => setTab(b.dataset.tab)));
+
+  // ---- New-stats renderers ----
+  function setDelta(el, cur, prev) {
+    const d = (cur || 0) - (prev || 0);
+    el.className = "delta " + (d > 0 ? "up" : d < 0 ? "down" : "flat");
+    const arrow = d > 0 ? "▲" : d < 0 ? "▼" : "·";
+    el.textContent = arrow + " " + (d === 0 ? "0" : (d > 0 ? "+" : "") + d) + " vs yesterday";
+  }
+
+  function renderFunnel(f) {
+    f = f || {};
+    const steps = [
+      { name: "Installs", n: f.installs || 0, cls: "s0" },
+      { name: "Get access", n: f.getAccess || 0, cls: "s1" },
+      { name: "Checkout", n: f.checkout || 0, cls: "s2" },
+      { name: "Subscribed", n: f.subscribe || 0, cls: "s3" },
+    ];
+    const max = Math.max(1, steps[0].n);
+    $("funnel").innerHTML = steps.map((s, i) => {
+      const w = Math.max(2, Math.round((s.n / max) * 100));
+      const rate = i === 0 ? "" : pct(s.n, steps[i - 1].n) + "% of prev";
+      return (
+        '<div class="fstep ' + s.cls + '">' +
+          '<div class="fname">' + s.name + "</div>" +
+          '<div class="ftrack"><div class="ffill" style="width:' + w + '%">' + nf(s.n) + "</div></div>" +
+          '<div class="fpct">' + rate + "</div>" +
+        "</div>"
+      );
+    }).join("");
+    const overall = pct(f.subscribe || 0, f.installs || 0);
+    const getAccessRate = pct(f.getAccess || 0, f.installs || 0);
+    $("fnote").innerHTML =
+      "Install → subscribed: <b>" + overall + "%</b> · " +
+      "installs that clicked Get access: <b>" + getAccessRate + "%</b>";
+  }
+
+  // Inline SVG: green bars = new installs, blue line = active devices.
+  function renderTrend(daily) {
+    const box = $("chart");
+    if (!daily || !daily.length) { box.innerHTML = '<div class="muted">No data yet.</div>'; return; }
+    const W = 720, H = 200, padL = 34, padR = 10, padT = 12, padB = 26;
+    const iw = W - padL - padR, ih = H - padT - padB;
+    const maxInstalls = Math.max(1, ...daily.map((d) => d.installs));
+    const maxActive = Math.max(1, ...daily.map((d) => d.active));
+    const maxY = Math.max(maxInstalls, maxActive);
+    const x = (i) => padL + (iw / daily.length) * (i + 0.5);
+    const yI = (v) => padT + ih - (v / maxY) * ih;
+    const bw = Math.max(2, (iw / daily.length) * 0.6);
+
+    let bars = "", line = "", dots = "";
+    daily.forEach((d, i) => {
+      const bx = x(i) - bw / 2, by = yI(d.installs);
+      bars += '<rect x="' + bx.toFixed(1) + '" y="' + by.toFixed(1) +
+        '" width="' + bw.toFixed(1) + '" height="' + (padT + ih - by).toFixed(1) +
+        '" rx="2" fill="var(--green)" opacity="0.85"><title>' +
+        esc(d.day) + " · " + d.installs + " new · " + d.active + " active</title></rect>";
+    });
+    const pts = daily.map((d, i) => x(i).toFixed(1) + "," + yI(d.active).toFixed(1)).join(" ");
+    line = '<polyline points="' + pts + '" fill="none" stroke="var(--blue)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>';
+    daily.forEach((d, i) => {
+      dots += '<circle cx="' + x(i).toFixed(1) + '" cy="' + yI(d.active).toFixed(1) + '" r="2.2" fill="var(--blue)"/>';
+    });
+
+    // y gridlines (0, mid, max) + x labels (first / mid / last)
+    let grid = "";
+    [0, 0.5, 1].forEach((t) => {
+      const yy = padT + ih - t * ih, val = Math.round(maxY * t);
+      grid += '<line x1="' + padL + '" y1="' + yy.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + yy.toFixed(1) +
+        '" stroke="var(--line)" stroke-width="1"/>' +
+        '<text x="' + (padL - 6) + '" y="' + (yy + 3).toFixed(1) + '" text-anchor="end" font-size="10" fill="var(--muted)">' + val + "</text>";
+    });
+    let xlab = "";
+    [0, Math.floor(daily.length / 2), daily.length - 1].forEach((i) => {
+      const md = daily[i].day.slice(5); // MM-DD
+      xlab += '<text x="' + x(i).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle" font-size="10" fill="var(--muted)">' + md + "</text>";
+    });
+
+    box.innerHTML =
+      '<svg viewBox="0 0 ' + W + " " + H + '" preserveAspectRatio="xMidYMid meet" font-family="JetBrains Mono, monospace">' +
+      grid + bars + line + dots + xlab + "</svg>";
+  }
+
+  function renderVersions(list) {
+    const box = $("versions");
+    if (!list || !list.length) { box.innerHTML = '<div class="muted">No versions reported.</div>'; return; }
+    const total = list.reduce((a, v) => a + (v.count || 0), 0) || 1;
+    const max = Math.max(1, ...list.map((v) => v.count));
+    box.innerHTML = list.map((v) => {
+      const w = Math.round((v.count / max) * 100);
+      const share = pct(v.count, total);
+      return (
+        '<div class="vrow">' +
+          '<div class="vhead"><span class="vname">v' + esc(v.version) + '</span>' +
+            '<span class="vmeta">' + nf(v.count) + " · " + share + "%</span></div>" +
+          '<div class="vtrack"><div class="vfill" style="width:' + w + '%"></div></div>' +
+        "</div>"
+      );
+    }).join("");
+  }
+
+  function renderRetention(r) {
+    r = r || {};
+    const total = r.total || 0;
+    const rows = [
+      { k: "Returning", s: "used across more than one day", v: nf(r.returning) + " · " + pct(r.returning, total) + "%" },
+      { k: "Active last 7 days", s: "pinged within the week", v: nf(r.active7) + " · " + pct(r.active7, total) + "%" },
+      { k: "Churned", s: "no ping in 7+ days", v: nf(r.churned) + " · " + pct(r.churned, total) + "%" },
+    ];
+    $("retention").innerHTML = rows.map((row) =>
+      '<div class="rrow"><div class="rk">' + row.k + "<small>" + row.s + "</small></div>" +
+      '<div class="rv">' + row.v + "</div></div>"
+    ).join("");
+  }
+
+  // ---- Legacy renderers ----
   function renderSessions(list) {
     const body = $("sess-body");
     if (!list || !list.length) {
@@ -201,6 +439,27 @@
       }
       const d = await r.json();
       show(true);
+
+      // --- New stats tab ---
+      const daily = d.daily || [];
+      const today = daily[daily.length - 1] || { installs: 0, active: 0 };
+      const yest = daily[daily.length - 2] || { installs: 0, active: 0 };
+      $("n-live").textContent = nf(d.live);
+      $("n-today").textContent = nf(today.active);
+      $("n-new").textContent = nf(today.installs);
+      $("n-total").textContent = nf(d.total);
+      $("n-subs").textContent = nf(d.funnel ? d.funnel.subscribe : 0);
+      $("n-hours").textContent = d.totalHours != null ? nf(d.totalHours) : "—";
+      setDelta($("n-today-d"), today.active, yest.active);
+      setDelta($("n-new-d"), today.installs, yest.installs);
+      renderFunnel(d.funnel);
+      renderTrend(daily);
+      renderVersions(d.versions);
+      renderRetention(d.retention);
+      $("n-foot").textContent = "Updated " + new Date(d.at).toLocaleTimeString() +
+        " · funnel & trend use UTC days · checkout/subscribe are all-time web events";
+
+      // --- Legacy tab ---
       $("v-live").textContent = d.live;
       $("v-today").textContent = d.today;
       $("v-week").textContent = d.week;
@@ -214,6 +473,7 @@
         " · today/week boundaries are UTC · avg excludes single-ping launches";
     } catch (e) {
       $("foot").textContent = "Couldn't reach the server. Retrying…";
+      $("n-foot").textContent = "Couldn't reach the server. Retrying…";
     }
   }
 
@@ -227,6 +487,7 @@
   $("key").addEventListener("keydown", (e) => { if (e.key === "Enter") $("enter").click(); });
   $("signout").onclick = () => { localStorage.removeItem(KEY_STORE); show(false); };
 
+  setTab(localStorage.getItem(TAB_STORE) || "new");
   load();
   timer = setInterval(load, 15000);
 </script>

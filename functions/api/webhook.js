@@ -4,6 +4,7 @@
 import { verifyStripeWebhook } from "../_lib/crypto.js";
 import { getSubscription } from "../_lib/stripe.js";
 import { linkUser, setSubStatus, getSubStatus } from "../_lib/kv.js";
+import { logEvent } from "../_lib/events.js";
 
 export async function onRequestPost({ request, env }) {
   const sig = request.headers.get("stripe-signature") || "";
@@ -38,6 +39,11 @@ export async function onRequestPost({ request, env }) {
             }
           }
           await setSubStatus(env, customerId, { status, googleId });
+          // Funnel: a checkout completed and was paid -> a real conversion.
+          // Best-effort; never affects the 200/500 we return to Stripe.
+          if (obj.payment_status === "paid") {
+            await logEvent(env, "subscribe", { meta: { customerId } });
+          }
         }
         break;
       }

@@ -1,17 +1,24 @@
 // POST /api/ping — anonymous usage heartbeat from the macro.
 //
 // Body: { "id": "<random device id>", "v": "<app version>", "promo": "<code?>",
-//         "src": "<acquisition source?>" }
+//         "src": "<acquisition source?>", "ev": "<funnel event?>" }
 // Upserts one row per install into the STATS D1 `devices` table (no PII — just a
 // random id the macro generates once and stores locally) and stitches pings into
 // `sessions` rows. If the macro reports a creator promo code or an acquisition source
 // ("where did you hear about us?"), each is stamped onto the install (sticky) for the
-// /stats breakdown. Powers /api/stats.
+// /stats breakdown. If the macro reports a funnel event (currently just "get_access"
+// when the user clicks the Get-access button), it's logged to the `events` table for
+// the conversion funnel on the "New stats" tab. Powers /api/stats.
 //
 // Fire-and-forget from the client: always returns 200 quickly, never errors out
 // loud, so a stats hiccup can never affect the macro.
 
 import { json } from "../_lib/http.js";
+import { logEvent } from "../_lib/events.js";
+
+// Funnel events the heartbeat is allowed to report (keeps logEvent's allowlist in
+// sync at the parse boundary). Today only the "Get access" click.
+const PING_EVENTS = new Set(["get_access"]);
 
 // A session is "still going" as long as pings keep arriving within this window.
 // Pings fire every 60s; allowing ~2 missed beats means a flaky network or a brief
@@ -24,6 +31,7 @@ export async function onRequestPost({ request, env, waitUntil }) {
   let version = "";
   let promo = "";
   let src = "";
+  let ev = "";
   try {
     const body = await request.json();
     id = String((body && body.id) || "").trim().slice(0, 64);
@@ -33,6 +41,9 @@ export async function onRequestPost({ request, env, waitUntil }) {
     // Acquisition source: lowercase channel key (reddit / tiktok / ai / ...).
     src = String((body && body.src) || "").trim().slice(0, 24).toLowerCase();
     if (src && !/^[a-z0-9_-]{1,24}$/.test(src)) src = "";
+    // Funnel event: a one-off signal the macro tags onto a heartbeat (not periodic).
+    ev = String((body && body.ev) || "").trim().toLowerCase();
+    if (!PING_EVENTS.has(ev)) ev = "";
   } catch {
     id = "";
   }
@@ -81,6 +92,12 @@ export async function onRequestPost({ request, env, waitUntil }) {
         } catch {
           // `src` column not added yet -> ignore (see migrations/0002_add_src.sql).
         }
+      }
+
+      // Funnel event (e.g. "Get access" clicked). Best-effort; logEvent swallows a
+      // missing `events` table so this can never break the heartbeat.
+      if (ev) {
+        await logEvent(env, ev, { deviceId: id, ts: now, meta: version ? { v: version } : null });
       }
 
       if (dev && dev.is_new) {

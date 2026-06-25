@@ -1,6 +1,6 @@
 // GET /api/stats?key=<STATS_KEY> — usage counts for the dashboard.
 //
-// Returns { live, today, week, total, sessionsToday, avgSession, sessions, at }:
+// Returns { live, today, week, total, sessionsToday, avgSession, sessions, at, ... }:
 //   live          = distinct installs active in the last 2 minutes
 //   today         = distinct installs active since 00:00 UTC today
 //   week          = distinct installs active in the last 7 days
@@ -12,10 +12,33 @@
 //   sessions      = most recent 50 sessions [{ device, started_at, last_ping,
 //                   durationMs, pings, version, promo, src }]
 //
+// "New stats" tab additions (each computed defensively in its own try/catch so a
+// missing column/table or odd data can never 500 the core dashboard):
+//   funnel        = { installs, getAccess, checkout, subscribe } — the conversion
+//                   funnel. installs = total; getAccess = distinct devices that
+//                   clicked "Get access"; checkout = pay-page hits; subscribe = paid.
+//   daily         = last 30 UTC days [{ day, installs, active }] for the trend chart
+//   versions      = current install count per app version [{ version, count }]
+//   retention     = { total, returning, active7, churned } (returning = used across
+//                   more than one day; churned = no ping in 7+ days)
+//   totalHours    = lifetime sum of all session durations, in hours
+//
 // Protected by the STATS_KEY env var (set in the Cloudflare dashboard). Without
 // a configured key the endpoint stays locked.
 
 import { json } from "../_lib/http.js";
+
+// Build an array of the last `n` UTC day strings (YYYY-MM-DD), oldest first.
+function lastUtcDays(now, n) {
+  const days = [];
+  const d = new Date(now);
+  d.setUTCHours(0, 0, 0, 0);
+  for (let i = n - 1; i >= 0; i--) {
+    const x = new Date(d.getTime() - i * 86400000);
+    days.push(x.toISOString().slice(0, 10));
+  }
+  return days;
+}
 
 export async function onRequestGet({ request, env }) {
   const url = new URL(request.url);
@@ -113,6 +136,98 @@ export async function onRequestGet({ request, env }) {
       src: srcByDevice[String(s.device || "")] || "",
     }));
 
+    // ---- "New stats" tab data. Each block is self-contained: a failure here
+    // leaves a sensible empty default and never blocks the legacy dashboard. ----
+
+    // Conversion funnel. The `events` table may not exist yet (see migration 0003),
+    // so its own try/catch returns zeros until it's created.
+    let funnel = { installs: row?.total || 0, getAccess: 0, checkout: 0, subscribe: 0 };
+    try {
+      const f = await env.STATS.prepare(
+        `SELECT
+           COUNT(DISTINCT CASE WHEN name = 'get_access' THEN device_id END) AS get_access,
+           SUM(CASE WHEN name = 'checkout'  THEN 1 ELSE 0 END)              AS checkout,
+           SUM(CASE WHEN name = 'subscribe' THEN 1 ELSE 0 END)             AS subscribe
+         FROM events`
+      ).first();
+      funnel.getAccess = f?.get_access || 0;
+      funnel.checkout = f?.checkout || 0;
+      funnel.subscribe = f?.subscribe || 0;
+    } catch {
+      // `events` table not created yet -> funnel shows installs only.
+    }
+
+    // 30-day daily trend: new installs (devices.first_seen) + active devices
+    // (distinct device per day by session start). Merged onto a zero-filled
+    // calendar so gaps render as 0 rather than disappearing.
+    let daily = [];
+    try {
+      const cutoff30 = now - 30 * 86400000;
+      const ins = await env.STATS.prepare(
+        `SELECT date(first_seen / 1000, 'unixepoch') AS day, COUNT(*) AS n
+         FROM devices WHERE first_seen >= ?1 GROUP BY day`
+      ).bind(cutoff30).all();
+      const act = await env.STATS.prepare(
+        `SELECT date(started_at / 1000, 'unixepoch') AS day, COUNT(DISTINCT device_id) AS n
+         FROM sessions WHERE started_at >= ?1 GROUP BY day`
+      ).bind(cutoff30).all();
+      const insBy = {}, actBy = {};
+      for (const r of ins?.results || []) insBy[r.day] = r.n || 0;
+      for (const r of act?.results || []) actBy[r.day] = r.n || 0;
+      daily = lastUtcDays(now, 30).map((day) => ({
+        day, installs: insBy[day] || 0, active: actBy[day] || 0,
+      }));
+    } catch {
+      daily = [];
+    }
+
+    // Version adoption: current install count per app version.
+    let versions = [];
+    try {
+      const vr = await env.STATS.prepare(
+        `SELECT version, COUNT(*) AS n FROM devices
+         WHERE version IS NOT NULL AND version <> '' GROUP BY version ORDER BY n DESC`
+      ).all();
+      versions = (vr?.results || []).map((r) => ({ version: String(r.version), count: r.n || 0 }));
+    } catch {
+      versions = [];
+    }
+
+    // Retention snapshot. returning = used across more than one day (last_seen at
+    // least 24h after first_seen); active7 = pinged in the last 7d; churned =
+    // installed but silent for 7+ days.
+    let retention = { total: row?.total || 0, returning: 0, active7: 0, churned: 0 };
+    try {
+      const rt = await env.STATS.prepare(
+        `SELECT
+           COUNT(*)                                                          AS total,
+           SUM(CASE WHEN last_seen - first_seen >= 86400000 THEN 1 ELSE 0 END) AS returning,
+           SUM(CASE WHEN last_seen > ?1 THEN 1 ELSE 0 END)                    AS active7,
+           SUM(CASE WHEN last_seen <= ?1 THEN 1 ELSE 0 END)                   AS churned
+         FROM devices`
+      ).bind(weekCutoff).first();
+      retention = {
+        total: rt?.total || 0,
+        returning: rt?.returning || 0,
+        active7: rt?.active7 || 0,
+        churned: rt?.churned || 0,
+      };
+    } catch {
+      // keep defaults
+    }
+
+    // Lifetime hours automated across every session.
+    let totalHours = 0;
+    try {
+      const h = await env.STATS.prepare(
+        `SELECT SUM(CASE WHEN last_ping > started_at THEN last_ping - started_at ELSE 0 END) AS ms
+         FROM sessions`
+      ).first();
+      totalHours = Math.round(((h?.ms || 0) / 3600000) * 10) / 10;
+    } catch {
+      totalHours = 0;
+    }
+
     return json({
       live: row?.live || 0,
       today: row?.today || 0,
@@ -123,6 +238,11 @@ export async function onRequestGet({ request, env }) {
       promos,
       sources,
       sessions,
+      funnel,
+      daily,
+      versions,
+      retention,
+      totalHours,
       at: now,
     });
   } catch (e) {
