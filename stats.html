@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="robots" content="noindex, nofollow" />
-<title>Garden Macro — usage</title>
+<title>Garden Macro stats</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet" />
@@ -12,102 +12,117 @@
   :root {
     --bg: #f7f8fa; --card: #ffffff; --line: #e6e8eb;
     --ink: #0f172a; --muted: #64748b; --green: #16a34a; --green-soft: #dcfce7;
-    --blue: #2563eb; --blue-soft: #dbeafe; --amber: #d97706; --red: #dc2626;
+    --blue: #2563eb; --purple: #7c3aed; --amber: #d97706; --red: #dc2626; --red-soft: #fee2e2;
   }
   * { box-sizing: border-box; }
   body {
     margin: 0; font-family: Inter, system-ui, sans-serif; background: var(--bg);
     color: var(--ink); -webkit-font-smoothing: antialiased; padding: 40px 20px;
   }
-  .wrap { max-width: 760px; margin: 0 auto; }
-  header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+  .wrap { max-width: 820px; margin: 0 auto; }
+  header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
   h1 { font-size: 20px; font-weight: 700; margin: 0; }
   .sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
-  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
-  @media (min-width: 620px) { .grid { grid-template-columns: repeat(4, 1fr); } }
-  .grid.three { grid-template-columns: repeat(2, 1fr); }
-  @media (min-width: 620px) { .grid.three { grid-template-columns: repeat(3, 1fr); } }
-  .card {
-    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
-    padding: 20px 18px;
-  }
+
+  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+  @media (min-width: 640px) { .grid { grid-template-columns: repeat(3, 1fr); } }
+  .grid.four { grid-template-columns: repeat(2, 1fr); }
+  @media (min-width: 640px) { .grid.four { grid-template-columns: repeat(4, 1fr); } }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px 16px; }
   .card .label { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
-  .card .value { font-family: "JetBrains Mono", monospace; font-size: 34px; font-weight: 600; margin-top: 8px; }
+  .card .value { font-family: "JetBrains Mono", monospace; font-size: 30px; font-weight: 600; margin-top: 8px; word-break: break-word; }
   .card.live .value { color: var(--green); }
-  .card .delta { font-size: 12px; font-weight: 600; margin-top: 6px; font-family: "JetBrains Mono", monospace; }
+  .card .delta, .card .vsub { font-size: 12px; font-weight: 600; margin-top: 6px; font-family: "JetBrains Mono", monospace; }
+  .card .vsub { color: var(--muted); font-weight: 500; }
   .delta.up { color: var(--green); } .delta.down { color: var(--red); } .delta.flat { color: var(--muted); }
   .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--green); margin-right: 6px; animation: pulse 1.6s infinite; vertical-align: middle; }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
-  .foot { margin-top: 22px; color: var(--muted); font-size: 12px; }
 
-  /* Tabs */
-  .tabs { display: inline-flex; gap: 4px; background: var(--card); border: 1px solid var(--line); border-radius: 11px; padding: 4px; margin-bottom: 24px; }
-  .tabbtn { border: 0; background: transparent; color: var(--muted); font: 600 13px Inter, sans-serif; padding: 8px 16px; border-radius: 8px; cursor: pointer; }
+  .tabs { display: flex; flex-wrap: wrap; gap: 4px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 4px; margin-bottom: 20px; }
+  .tabbtn { border: 0; background: transparent; color: var(--muted); font: 600 13px Inter, sans-serif; padding: 8px 14px; border-radius: 8px; cursor: pointer; }
+  .tabbtn:hover { color: var(--ink); }
   .tabbtn.active { background: var(--ink); color: #fff; }
   .panel[hidden] { display: none; }
 
-  /* Section card (funnel, chart) */
-  .section { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px 18px; margin-top: 16px; }
+  .section { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px 16px; margin-top: 16px; }
   .section h2 { font-size: 14px; font-weight: 600; margin: 0 0 4px; }
-  .section .hint { color: var(--muted); font-size: 12px; margin: 0 0 16px; }
+  .section .hint { color: var(--muted); font-size: 12px; margin: 0 0 14px; }
+  .cols { display: grid; grid-template-columns: 1fr; gap: 16px; margin-top: 16px; }
+  @media (min-width: 640px) { .cols { grid-template-columns: 1fr 1fr; } }
 
   /* Funnel */
   .funnel { display: grid; gap: 10px; }
-  .fstep { display: grid; grid-template-columns: 116px 1fr auto; align-items: center; gap: 12px; }
+  .fstep { display: grid; grid-template-columns: 110px 1fr auto; align-items: center; gap: 12px; }
   .fstep .fname { font-size: 13px; font-weight: 600; }
   .fstep .ftrack { background: #f1f5f9; border-radius: 8px; height: 30px; overflow: hidden; }
   .fstep .ffill { height: 100%; border-radius: 8px; display: flex; align-items: center; padding-left: 10px; color: #fff; font: 600 13px "JetBrains Mono", monospace; min-width: 2px; transition: width .4s ease; }
   .fstep.s0 .ffill { background: var(--ink); }
   .fstep.s1 .ffill { background: var(--blue); }
-  .fstep.s2 .ffill { background: #7c3aed; }
+  .fstep.s2 .ffill { background: var(--purple); }
   .fstep.s3 .ffill { background: var(--green); }
-  .fstep .fpct { font: 600 12px "JetBrains Mono", monospace; color: var(--muted); white-space: nowrap; min-width: 64px; text-align: right; }
-  .fnote { margin-top: 14px; font-size: 12px; color: var(--muted); }
+  .fstep .fpct { font: 600 12px "JetBrains Mono", monospace; color: var(--muted); white-space: nowrap; min-width: 70px; text-align: right; }
+  .leak { margin-top: 14px; padding: 12px 14px; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 10px; font-size: 13px; }
+  .leak b { color: var(--amber); }
+  .fnote { margin-top: 12px; font-size: 12px; color: var(--muted); }
   .fnote b { color: var(--ink); font-family: "JetBrains Mono", monospace; }
 
-  /* Trend chart */
+  /* Charts */
   .legend { display: flex; gap: 16px; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
   .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: middle; }
   .chart svg { width: 100%; height: auto; display: block; }
 
-  /* Two-up columns */
-  .cols { display: grid; grid-template-columns: 1fr; gap: 16px; margin-top: 16px; }
-  @media (min-width: 620px) { .cols { grid-template-columns: 1fr 1fr; } }
+  /* Horizontal bars (versions, distributions) */
+  .hrow { margin-bottom: 12px; }
+  .hrow:last-child { margin-bottom: 0; }
+  .hhead { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; margin-bottom: 4px; }
+  .hhead .hname { font-weight: 600; }
+  .hhead .hname.mono { font-family: "JetBrains Mono", monospace; }
+  .hhead .hmeta { color: var(--muted); font-family: "JetBrains Mono", monospace; }
+  .htrack { background: #f1f5f9; border-radius: 6px; height: 9px; overflow: hidden; }
+  .hfill { height: 100%; border-radius: 6px; background: var(--green); }
+  .badge { display: inline-block; font: 600 10px Inter, sans-serif; color: #fff; background: var(--green); border-radius: 5px; padding: 1px 6px; margin-left: 6px; vertical-align: middle; }
 
-  /* Horizontal bars (versions) */
-  .vrow { display: grid; grid-template-columns: 1fr; gap: 4px; margin-bottom: 12px; }
-  .vrow:last-child { margin-bottom: 0; }
-  .vhead { display: flex; justify-content: space-between; font-size: 12px; }
-  .vhead .vname { font-family: "JetBrains Mono", monospace; font-weight: 600; }
-  .vhead .vmeta { color: var(--muted); font-family: "JetBrains Mono", monospace; }
-  .vtrack { background: #f1f5f9; border-radius: 6px; height: 8px; overflow: hidden; }
-  .vfill { height: 100%; background: var(--green); border-radius: 6px; }
-
-  /* Retention rows */
+  /* Stat rows (retention, drop-off, health panel) */
   .rrow { display: flex; justify-content: space-between; align-items: baseline; padding: 11px 0; border-bottom: 1px solid var(--line); }
   .rrow:last-child { border-bottom: 0; }
   .rrow .rk { font-size: 13px; } .rrow .rk small { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
-  .rrow .rv { font: 600 18px "JetBrains Mono", monospace; }
+  .rrow .rv { font: 600 16px "JetBrains Mono", monospace; }
 
-  .sessions { margin-top: 30px; }
-  .sessions h2 { font-size: 14px; font-weight: 600; margin: 0 0 12px; }
-  .sessions table {
-    width: 100%; border-collapse: collapse;
-    background: var(--card); border: 1px solid var(--line); border-radius: 14px; overflow: hidden;
-  }
-  .sessions th, .sessions td { text-align: left; padding: 11px 14px; font-size: 13px; border-bottom: 1px solid var(--line); }
-  .sessions th { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
-  .sessions tr:last-child td { border-bottom: 0; }
-  .sessions td.mono, .sessions td.len { font-family: "JetBrains Mono", monospace; }
+  /* Tables */
+  table.tbl { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  table.tbl th, table.tbl td { text-align: left; padding: 10px 13px; font-size: 13px; border-bottom: 1px solid var(--line); }
+  table.tbl th { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  table.tbl th.sortable { cursor: pointer; user-select: none; }
+  table.tbl th.sortable:hover { color: var(--ink); }
+  table.tbl tr:last-child td { border-bottom: 0; }
+  table.tbl td.mono, table.tbl th.num, table.tbl td.num { font-family: "JetBrains Mono", monospace; }
+  table.tbl td.num, table.tbl th.num { text-align: right; }
+  table.tbl tr.live td { background: var(--green-soft); }
+  table.tbl tr.flag td { background: #fff7ed; }
+  table.tbl tr.flag2 td { background: var(--red-soft); }
   .muted { color: var(--muted); }
+
+  /* Heatmap */
+  .heat { border-collapse: collapse; width: 100%; table-layout: fixed; }
+  .heat th { font: 500 10px "JetBrains Mono", monospace; color: var(--muted); padding: 2px; text-align: center; }
+  .heat th.day { text-align: right; padding-right: 6px; width: 34px; }
+  .heat td { height: 16px; border: 1px solid #fff; border-radius: 2px; }
+  .heatwrap { overflow-x: auto; }
+
+  /* Toolbar */
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 14px 0; }
+  .toolbar input, .toolbar select { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 13px; font-family: inherit; background: var(--card); }
+  .toolbar input { flex: 1; min-width: 160px; }
+  .btn { background: var(--green); color: #fff; border: 0; border-radius: 8px; padding: 8px 14px; font-weight: 600; font-size: 13px; cursor: pointer; font-family: inherit; }
+  .arrow { color: var(--ink); margin-left: 3px; }
+
+  .foot { margin-top: 20px; color: var(--muted); font-size: 12px; }
+
   .gate { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 28px; max-width: 420px; margin: 60px auto; }
   .gate input { width: 100%; padding: 11px 12px; border: 1px solid var(--line); border-radius: 9px; font-size: 14px; margin: 14px 0; font-family: "JetBrains Mono", monospace; }
-  .gate button, .signout {
-    background: var(--green); color: #fff; border: 0; border-radius: 9px; padding: 11px 16px;
-    font-weight: 600; font-size: 14px; cursor: pointer; font-family: inherit;
-  }
-  .signout { background: transparent; color: var(--muted); padding: 6px 10px; font-size: 12px; border: 1px solid var(--line); }
-  .err { color: #dc2626; font-size: 13px; min-height: 18px; }
+  .gate button { background: var(--green); color: #fff; border: 0; border-radius: 9px; padding: 11px 16px; font-weight: 600; font-size: 14px; cursor: pointer; font-family: inherit; }
+  .signout { background: transparent; color: var(--muted); padding: 6px 10px; font-size: 12px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; font-family: inherit; }
+  .err { color: var(--red); font-size: 13px; min-height: 18px; }
 </style>
 </head>
 <body>
@@ -123,95 +138,188 @@
   <div id="dash" hidden>
     <header>
       <div>
-        <h1>Garden Macro — usage</h1>
-        <div class="sub">Anonymous installs. Auto-refreshes every 15s.</div>
+        <h1>Garden Macro stats</h1>
+        <div class="sub">Anonymous installs. Auto-refreshes every 30s.</div>
       </div>
       <button class="signout" id="signout">Sign out</button>
     </header>
 
-    <div class="tabs">
-      <button class="tabbtn active" id="tab-btn-new" data-tab="new">New stats</button>
-      <button class="tabbtn" id="tab-btn-legacy" data-tab="legacy">Legacy</button>
+    <div class="tabs" id="tabs">
+      <button class="tabbtn active" data-tab="overview">Overview</button>
+      <button class="tabbtn" data-tab="funnel">Funnel</button>
+      <button class="tabbtn" data-tab="acquisition">Acquisition</button>
+      <button class="tabbtn" data-tab="retention">Retention</button>
+      <button class="tabbtn" data-tab="health">Health</button>
+      <button class="tabbtn" data-tab="sessions">Sessions</button>
     </div>
 
-    <!-- ============ NEW STATS TAB ============ -->
-    <div id="tab-new" class="panel">
-      <div class="grid three">
-        <div class="card live"><div class="label"><span class="dot"></span>Live now</div><div class="value" id="n-live">—</div></div>
-        <div class="card"><div class="label">Active today</div><div class="value" id="n-today">—</div><div class="delta flat" id="n-today-d">vs yesterday</div></div>
-        <div class="card"><div class="label">New installs today</div><div class="value" id="n-new">—</div><div class="delta flat" id="n-new-d">vs yesterday</div></div>
-        <div class="card"><div class="label">Total installs</div><div class="value" id="n-total">—</div></div>
-        <div class="card"><div class="label">Pro subscribers</div><div class="value" id="n-subs">—</div></div>
-        <div class="card"><div class="label">Hours automated</div><div class="value" id="n-hours">—</div></div>
+    <!-- OVERVIEW -->
+    <div id="tab-overview" class="panel">
+      <div class="grid">
+        <div class="card live"><div class="label"><span class="dot"></span>Live now</div><div class="value" id="o-live">-</div></div>
+        <div class="card"><div class="label">Active today</div><div class="value" id="o-today">-</div><div class="delta flat" id="o-today-d"></div></div>
+        <div class="card"><div class="label">New installs today</div><div class="value" id="o-new">-</div><div class="delta flat" id="o-new-d"></div></div>
+        <div class="card"><div class="label">Total installs</div><div class="value" id="o-total">-</div></div>
+        <div class="card"><div class="label">Pro subscribers</div><div class="value" id="o-subs">-</div></div>
+        <div class="card"><div class="label">Hours automated</div><div class="value" id="o-hours">-</div></div>
       </div>
-
-      <div class="section">
-        <h2>Conversion funnel</h2>
-        <p class="hint">From install to paid. “Get access” counts distinct installs that clicked through to the sign-in page; checkout & subscribed are web steps (all-time).</p>
-        <div class="funnel" id="funnel"><div class="muted">Loading…</div></div>
-        <div class="fnote" id="fnote"></div>
-      </div>
-
       <div class="section">
         <h2>Last 30 days</h2>
         <p class="hint">New installs per day and how many distinct devices were active. UTC days.</p>
-        <div class="legend">
-          <span><i style="background:var(--green)"></i>New installs</span>
-          <span><i style="background:var(--blue)"></i>Active devices</span>
-        </div>
-        <div class="chart" id="chart"><div class="muted">Loading…</div></div>
+        <div class="legend"><span><i style="background:var(--green)"></i>New installs</span><span><i style="background:var(--blue)"></i>Active devices</span></div>
+        <div class="chart" id="o-chart"><div class="muted">Loading...</div></div>
       </div>
-
-      <div class="cols">
-        <div class="section" style="margin-top:0">
-          <h2>Version adoption</h2>
-          <p class="hint">Current install count per app version.</p>
-          <div id="versions"><div class="muted">Loading…</div></div>
-        </div>
-        <div class="section" style="margin-top:0">
-          <h2>Retention</h2>
-          <p class="hint">How sticky installs are.</p>
-          <div id="retention"><div class="muted">Loading…</div></div>
-        </div>
+      <div class="section">
+        <h2>Conversion at a glance</h2>
+        <p class="hint">Install to paid. Full breakdown on the Funnel tab.</p>
+        <div class="grid four" id="o-funnel"></div>
+        <div class="fnote" id="o-funnote"></div>
       </div>
-
-      <div class="foot" id="n-foot">Loading…</div>
+      <div class="foot" id="o-foot">Loading...</div>
     </div>
 
-    <!-- ============ LEGACY TAB ============ -->
-    <div id="tab-legacy" class="panel" hidden>
+    <!-- FUNNEL -->
+    <div id="tab-funnel" class="panel" hidden>
+      <div class="grid four">
+        <div class="card"><div class="label">Total installs</div><div class="value" id="f-installs">-</div></div>
+        <div class="card"><div class="label">Get access clicks</div><div class="value" id="f-access">-</div></div>
+        <div class="card"><div class="label">Checkout hits</div><div class="value" id="f-checkout">-</div></div>
+        <div class="card"><div class="label">Subscribed</div><div class="value" id="f-subs">-</div></div>
+      </div>
+      <div class="section">
+        <h2>Conversion funnel</h2>
+        <p class="hint">From install to paid. Get access counts distinct installs that clicked through to the sign-in page. Checkout and subscribed are all-time web steps (cannot be tied to a specific install).</p>
+        <div class="funnel" id="f-funnel"><div class="muted">Loading...</div></div>
+        <div class="leak" id="f-leak" hidden></div>
+        <div class="fnote" id="f-note"></div>
+      </div>
+      <div class="section">
+        <h2>Get access clicks over time</h2>
+        <p class="hint">Daily click volume, last 30 days, UTC. Shows whether buying intent is trending.</p>
+        <div class="chart" id="f-chart"><div class="muted">Loading...</div></div>
+      </div>
+      <div class="cols">
+        <div class="section" style="margin-top:0">
+          <h2>Drop-off by step</h2>
+          <p class="hint">Conversion between each step.</p>
+          <div id="f-drop"></div>
+        </div>
+        <div class="section" style="margin-top:0">
+          <h2>Intent health</h2>
+          <p class="hint">Get access click signals.</p>
+          <div id="f-health"></div>
+        </div>
+      </div>
+      <div class="foot" id="f-foot"></div>
+    </div>
+
+    <!-- ACQUISITION -->
+    <div id="tab-acquisition" class="panel" hidden>
+      <div class="section" style="margin-top:0">
+        <h2>Source performance</h2>
+        <p class="hint">Where installs came from, and how engaged each channel is. CTR = share that clicked Get access. Returning = share that came back on a later day.</p>
+        <table class="tbl">
+          <thead><tr><th>Source</th><th class="num">Installs</th><th class="num">Get access CTR</th><th class="num">Returning</th></tr></thead>
+          <tbody id="a-src"><tr><td colspan="4" class="muted">Loading...</td></tr></tbody>
+        </table>
+      </div>
+      <div class="section">
+        <h2>Promo code performance</h2>
+        <p class="hint">Engagement by creator promo code.</p>
+        <table class="tbl">
+          <thead><tr><th>Code</th><th class="num">Installs</th><th class="num">Get access CTR</th><th class="num">Returning</th></tr></thead>
+          <tbody id="a-promo"><tr><td colspan="4" class="muted">Loading...</td></tr></tbody>
+        </table>
+      </div>
+      <div class="foot" id="a-foot"></div>
+    </div>
+
+    <!-- RETENTION -->
+    <div id="tab-retention" class="panel" hidden>
+      <div class="grid four">
+        <div class="card"><div class="label">One and done</div><div class="value" id="r-once">-</div><div class="vsub" id="r-once-s"></div></div>
+        <div class="card"><div class="label">Returning</div><div class="value" id="r-ret">-</div><div class="vsub" id="r-ret-s"></div></div>
+        <div class="card"><div class="label">Silent 7d+</div><div class="value" id="r-l7">-</div><div class="vsub" id="r-l7-s"></div></div>
+        <div class="card"><div class="label">Silent 30d+</div><div class="value" id="r-l30">-</div><div class="vsub" id="r-l30-s"></div></div>
+      </div>
+      <div class="cols">
+        <div class="section" style="margin-top:0">
+          <h2>Time since last seen</h2>
+          <p class="hint">How long ago each install last pinged.</p>
+          <div id="r-dist"></div>
+        </div>
+        <div class="section" style="margin-top:0">
+          <h2>How often they open it</h2>
+          <p class="hint">Number of distinct sessions per install.</p>
+          <div id="r-freq"></div>
+        </div>
+      </div>
+      <div class="section">
+        <h2>Weekly cohort retention</h2>
+        <p class="hint">Installs grouped by the week they first appeared, and how many are still active (pinged in the last 7 days). Tells you if newer cohorts stick better.</p>
+        <table class="tbl">
+          <thead><tr><th>Install week</th><th class="num">Installs</th><th class="num">Still active</th><th class="num">Retention</th></tr></thead>
+          <tbody id="r-cohort"><tr><td colspan="4" class="muted">Loading...</td></tr></tbody>
+        </table>
+      </div>
+      <div class="foot" id="r-foot">One and done = installed over 24h ago and never came back a later day. Returning = used across more than one day.</div>
+    </div>
+
+    <!-- HEALTH -->
+    <div id="tab-health" class="panel" hidden>
       <div class="grid">
-        <div class="card live"><div class="label"><span class="dot"></span>Live now</div><div class="value" id="v-live">—</div></div>
-        <div class="card"><div class="label">Today</div><div class="value" id="v-today">—</div></div>
-        <div class="card"><div class="label">This week</div><div class="value" id="v-week">—</div></div>
-        <div class="card"><div class="label">Total installs</div><div class="value" id="v-total">—</div></div>
-        <div class="card"><div class="label">Sessions today</div><div class="value" id="v-sessions">—</div></div>
-        <div class="card"><div class="label">Avg session</div><div class="value" id="v-avg">—</div></div>
+        <div class="card"><div class="label">Latest version</div><div class="value" id="h-latest">-</div><div class="vsub" id="h-latest-s"></div></div>
+        <div class="card"><div class="label">Single-ping sessions</div><div class="value" id="h-short">-</div><div class="vsub">launches that closed at once</div></div>
+        <div class="card"><div class="label">Avg session</div><div class="value" id="h-avg">-</div><div class="vsub">excludes single-ping launches</div></div>
       </div>
-      <div class="foot" id="foot">Loading…</div>
-
-      <div class="sessions">
-        <h2>Promo codes</h2>
-        <table>
-          <thead><tr><th>Code</th><th>Installs</th></tr></thead>
-          <tbody id="promo-body"><tr><td colspan="2" class="muted">Loading…</td></tr></tbody>
+      <div class="section">
+        <h2>Version adoption</h2>
+        <p class="hint">Current install count per app version. The launcher auto-updates, so old versions should drain fast.</p>
+        <div id="h-versions"><div class="muted">Loading...</div></div>
+      </div>
+      <div class="section">
+        <h2>Activity heatmap</h2>
+        <p class="hint">When sessions start, by day of week and hour. UTC. Darker means more sessions.</p>
+        <div class="heatwrap"><div id="h-heat"><div class="muted">Loading...</div></div></div>
+      </div>
+      <div class="section">
+        <h2>Session length distribution</h2>
+        <p class="hint">How long sessions last. Very short sessions (under 1 minute) are the red flag that the macro is not working for someone.</p>
+        <div id="h-lengths"></div>
+      </div>
+      <div class="section">
+        <h2>Breakage detector: short-session rate by version</h2>
+        <p class="hint">Share of each version's sessions that ended in a single ping. A version with a high rate probably broke something. Rows over 25% are flagged.</p>
+        <table class="tbl">
+          <thead><tr><th>Version</th><th class="num">Sessions</th><th class="num">Single-ping</th><th class="num">Rate</th></tr></thead>
+          <tbody id="h-bug"><tr><td colspan="4" class="muted">Loading...</td></tr></tbody>
         </table>
       </div>
+      <div class="foot" id="h-foot"></div>
+    </div>
 
-      <div class="sessions">
-        <h2>Where they heard about us</h2>
-        <table>
-          <thead><tr><th>Source</th><th>Installs</th></tr></thead>
-          <tbody id="source-body"><tr><td colspan="2" class="muted">Loading…</td></tr></tbody>
-        </table>
-      </div>
-
-      <div class="sessions">
+    <!-- SESSIONS -->
+    <div id="tab-sessions" class="panel" hidden>
+      <div class="section" style="margin-top:0">
         <h2>Recent sessions</h2>
-        <table>
-          <thead><tr><th>Device</th><th>Started</th><th>Length</th><th>Pings</th><th>Version</th><th>Promo</th><th>Source</th></tr></thead>
-          <tbody id="sess-body"><tr><td colspan="7" class="muted">Loading…</td></tr></tbody>
+        <p class="hint">Latest 100 sessions. Live ones (last ping under 3 min) are highlighted. Click a column to sort. UTC timestamps.</p>
+        <div class="toolbar">
+          <input id="s-search" type="text" placeholder="Filter by device id..." autocomplete="off" />
+          <button class="btn" id="s-csv">Export CSV</button>
+        </div>
+        <table class="tbl">
+          <thead><tr>
+            <th class="sortable" data-k="device">Device</th>
+            <th class="sortable" data-k="started_at">Started</th>
+            <th class="sortable num" data-k="durationMs">Length</th>
+            <th class="sortable num" data-k="pings">Pings</th>
+            <th class="sortable" data-k="version">Version</th>
+            <th class="sortable" data-k="promo">Promo</th>
+            <th class="sortable" data-k="src">Source</th>
+          </tr></thead>
+          <tbody id="s-body"><tr><td colspan="7" class="muted">Loading...</td></tr></tbody>
         </table>
+        <div class="foot" id="s-foot"></div>
       </div>
     </div>
   </div>
@@ -222,24 +330,15 @@
   const KEY_STORE = "gm_stats_key";
   const TAB_STORE = "gm_stats_tab";
   let timer = null;
+  let lastData = null;
 
-  const nf = (n) => (n == null ? "—" : Number(n).toLocaleString("en-US"));
-  const pct = (num, den) => (den > 0 ? Math.round((num / den) * 1000) / 10 : 0);
-
-  // ms -> "1h 4m" / "9m 30s" / "45s"
-  function fmtDuration(ms) {
-    const s = Math.round((ms || 0) / 1000);
-    if (s < 60) return s + "s";
-    const m = Math.floor(s / 60), rs = s % 60;
-    if (m < 60) return m + "m" + (rs ? " " + rs + "s" : "");
-    const h = Math.floor(m / 60), rm = m % 60;
-    return h + "h" + (rm ? " " + rm + "m" : "");
-  }
-
+  const nf = (n) => (n == null ? "-" : Number(n).toLocaleString("en-US"));
+  const pct = (num, den) => (den > 0 && num != null ? Math.round((num / den) * 1000) / 10 : 0);
   const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
-  // Friendly labels for the acquisition-source keys the macro sends.
+  const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
   const SOURCE_LABELS = {
     reddit: "Reddit", tiktok: "TikTok", youtube: "YouTube",
     google: "Google search", ai: "AI (Claude/ChatGPT/Gemini)",
@@ -247,19 +346,28 @@
   };
   const srcLabel = (s) => SOURCE_LABELS[s] || s;
 
-  // ---- Tabs ----
-  function setTab(tab) {
-    const isNew = tab !== "legacy";
-    $("tab-new").hidden = !isNew;
-    $("tab-legacy").hidden = isNew;
-    $("tab-btn-new").classList.toggle("active", isNew);
-    $("tab-btn-legacy").classList.toggle("active", !isNew);
-    localStorage.setItem(TAB_STORE, isNew ? "new" : "legacy");
+  function fmtDuration(ms) {
+    const s = Math.round((ms || 0) / 1000);
+    if (s < 60) return s + "s";
+    const m = Math.floor(s / 60), rs = s % 60;
+    if (m < 60) return m + "m" + (rs ? " " + rs + "s" : "");
+    const h = Math.floor(m / 60), rm = m % 60;
+    if (h < 24) return h + "h" + (rm ? " " + rm + "m" : "");
+    const d = Math.floor(h / 24), rh = h % 24;
+    return d + "d" + (rh ? " " + rh + "h" : "");
   }
-  document.querySelectorAll(".tabbtn").forEach((b) =>
-    (b.onclick = () => setTab(b.dataset.tab)));
 
-  // ---- New-stats renderers ----
+  // Numeric semantic-ish version compare: 1.0.10 > 1.0.9 > 1.0.
+  function cmpVersion(a, b) {
+    const pa = String(a).split(/[^0-9]+/).filter((x) => x !== "").map(Number);
+    const pb = String(b).split(/[^0-9]+/).filter((x) => x !== "").map(Number);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+      const x = pa[i] || 0, y = pb[i] || 0;
+      if (x !== y) return x - y;
+    }
+    return 0;
+  }
+
   function setDelta(el, cur, prev) {
     const d = (cur || 0) - (prev || 0);
     el.className = "delta " + (d > 0 ? "up" : d < 0 ? "down" : "flat");
@@ -267,8 +375,100 @@
     el.textContent = arrow + " " + (d === 0 ? "0" : (d > 0 ? "+" : "") + d) + " vs yesterday";
   }
 
-  function renderFunnel(f) {
-    f = f || {};
+  // Generic horizontal bars. rows: [{name, mono, meta, value, max, color, badge}]
+  function hbars(rows) {
+    if (!rows || !rows.length) return '<div class="muted">No data yet.</div>';
+    return rows.map((r) => {
+      const w = r.max > 0 ? Math.max(2, Math.round((r.value / r.max) * 100)) : 2;
+      return (
+        '<div class="hrow">' +
+          '<div class="hhead"><span class="hname' + (r.mono ? " mono" : "") + '">' + esc(r.name) +
+            (r.badge ? '<span class="badge">' + esc(r.badge) + "</span>" : "") + "</span>" +
+            '<span class="hmeta">' + esc(r.meta) + "</span></div>" +
+          '<div class="htrack"><div class="hfill" style="width:' + w + "%;background:" + (r.color || "var(--green)") + '"></div></div>' +
+        "</div>"
+      );
+    }).join("");
+  }
+
+  // 30-day chart: bars for one key + optional line for another.
+  function dayChart(boxId, daily, barKey, barColor, lineKey, lineColor) {
+    const box = $(boxId);
+    if (!daily || !daily.length) { box.innerHTML = '<div class="muted">No data yet.</div>'; return; }
+    const W = 760, H = 200, padL = 34, padR = 10, padT = 12, padB = 26;
+    const iw = W - padL - padR, ih = H - padT - padB;
+    const maxBar = Math.max(1, ...daily.map((d) => d[barKey] || 0));
+    const maxLine = lineKey ? Math.max(1, ...daily.map((d) => d[lineKey] || 0)) : 0;
+    const maxY = Math.max(maxBar, maxLine);
+    const x = (i) => padL + (iw / daily.length) * (i + 0.5);
+    const y = (v) => padT + ih - (v / maxY) * ih;
+    const bw = Math.max(2, (iw / daily.length) * 0.62);
+
+    let bars = "";
+    daily.forEach((d, i) => {
+      const v = d[barKey] || 0, by = y(v), bx = x(i) - bw / 2;
+      const tip = esc(d.day) + ": " + v + " " + barKey + (lineKey ? ", " + (d[lineKey] || 0) + " " + lineKey : "");
+      bars += '<rect x="' + bx.toFixed(1) + '" y="' + by.toFixed(1) + '" width="' + bw.toFixed(1) +
+        '" height="' + (padT + ih - by).toFixed(1) + '" rx="2" fill="' + barColor + '" opacity="0.85"><title>' + tip + "</title></rect>";
+    });
+    let line = "", dots = "";
+    if (lineKey) {
+      const pts = daily.map((d, i) => x(i).toFixed(1) + "," + y(d[lineKey] || 0).toFixed(1)).join(" ");
+      line = '<polyline points="' + pts + '" fill="none" stroke="' + lineColor + '" stroke-width="2" stroke-linejoin="round"/>';
+      daily.forEach((d, i) => { dots += '<circle cx="' + x(i).toFixed(1) + '" cy="' + y(d[lineKey] || 0).toFixed(1) + '" r="2" fill="' + lineColor + '"/>'; });
+    }
+    let grid = "";
+    [0, 0.5, 1].forEach((t) => {
+      const yy = padT + ih - t * ih, val = Math.round(maxY * t);
+      grid += '<line x1="' + padL + '" y1="' + yy.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + yy.toFixed(1) + '" stroke="var(--line)"/>' +
+        '<text x="' + (padL - 6) + '" y="' + (yy + 3).toFixed(1) + '" text-anchor="end" font-size="10" fill="var(--muted)">' + val + "</text>";
+    });
+    let xlab = "";
+    [0, Math.floor(daily.length / 2), daily.length - 1].forEach((i) => {
+      const lbl = daily[i] && daily[i].day ? daily[i].day.slice(5) : "";
+      xlab += '<text x="' + x(i).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle" font-size="10" fill="var(--muted)">' + lbl + "</text>";
+    });
+    box.innerHTML = '<svg viewBox="0 0 ' + W + " " + H + '" preserveAspectRatio="xMidYMid meet" font-family="JetBrains Mono, monospace">' +
+      grid + bars + line + dots + xlab + "</svg>";
+  }
+
+  // ---------- Tabs ----------
+  function setTab(tab) {
+    document.querySelectorAll(".panel").forEach((p) => (p.hidden = p.id !== "tab-" + tab));
+    document.querySelectorAll(".tabbtn").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
+    localStorage.setItem(TAB_STORE, tab);
+  }
+  document.querySelectorAll(".tabbtn").forEach((b) => (b.onclick = () => setTab(b.dataset.tab)));
+
+  // ---------- Renderers ----------
+  function renderOverview(d) {
+    const daily = d.daily || [];
+    const today = daily[daily.length - 1] || { installs: 0, active: 0 };
+    const yest = daily[daily.length - 2] || { installs: 0, active: 0 };
+    $("o-live").textContent = nf(d.live);
+    $("o-today").textContent = nf(today.active);
+    $("o-new").textContent = nf(today.installs);
+    $("o-total").textContent = nf(d.total);
+    $("o-subs").textContent = nf(d.funnel ? d.funnel.subscribe : 0);
+    $("o-hours").textContent = d.totalHours != null ? nf(d.totalHours) : "-";
+    setDelta($("o-today-d"), today.active, yest.active);
+    setDelta($("o-new-d"), today.installs, yest.installs);
+    dayChart("o-chart", daily, "installs", "var(--green)", "active", "var(--blue)");
+    const f = d.funnel || {};
+    $("o-funnel").innerHTML = [
+      ["Installs", f.installs], ["Get access", f.getAccess], ["Checkout", f.checkout], ["Subscribed", f.subscribe],
+    ].map(([k, v]) => '<div class="card"><div class="label">' + k + '</div><div class="value">' + nf(v || 0) + "</div></div>").join("");
+    $("o-funnote").innerHTML = "Install to subscribed: <b>" + pct(f.subscribe, f.installs) + "%</b> &middot; clicked Get access: <b>" + pct(f.getAccess, f.installs) + "%</b>";
+    $("o-foot").textContent = "Updated " + new Date(d.at).toLocaleTimeString();
+  }
+
+  function renderFunnelTab(d) {
+    const f = d.funnel || {};
+    $("f-installs").textContent = nf(f.installs);
+    $("f-access").textContent = nf(f.getAccess);
+    $("f-checkout").textContent = nf(f.checkout);
+    $("f-subs").textContent = nf(f.subscribe);
+
     const steps = [
       { name: "Installs", n: f.installs || 0, cls: "s0" },
       { name: "Get access", n: f.getAccess || 0, cls: "s1" },
@@ -276,220 +476,236 @@
       { name: "Subscribed", n: f.subscribe || 0, cls: "s3" },
     ];
     const max = Math.max(1, steps[0].n);
-    $("funnel").innerHTML = steps.map((s, i) => {
+    $("f-funnel").innerHTML = steps.map((s, i) => {
       const w = Math.max(2, Math.round((s.n / max) * 100));
-      const rate = i === 0 ? "" : pct(s.n, steps[i - 1].n) + "% of prev";
-      return (
-        '<div class="fstep ' + s.cls + '">' +
-          '<div class="fname">' + s.name + "</div>" +
-          '<div class="ftrack"><div class="ffill" style="width:' + w + '%">' + nf(s.n) + "</div></div>" +
-          '<div class="fpct">' + rate + "</div>" +
-        "</div>"
-      );
+      const rate = i === 0 ? "" : (steps[i - 1].n > 0 ? pct(s.n, steps[i - 1].n) + "% of prev" : "no data");
+      return '<div class="fstep ' + s.cls + '"><div class="fname">' + s.name + "</div>" +
+        '<div class="ftrack"><div class="ffill" style="width:' + w + '%">' + nf(s.n) + "</div></div>" +
+        '<div class="fpct">' + rate + "</div></div>";
     }).join("");
-    const overall = pct(f.subscribe || 0, f.installs || 0);
-    const getAccessRate = pct(f.getAccess || 0, f.installs || 0);
-    $("fnote").innerHTML =
-      "Install → subscribed: <b>" + overall + "%</b> · " +
-      "installs that clicked Get access: <b>" + getAccessRate + "%</b>";
+
+    // Biggest drop-off
+    const pairs = [["Installs", "Get access", f.installs, f.getAccess], ["Get access", "Checkout", f.getAccess, f.checkout], ["Checkout", "Subscribed", f.checkout, f.subscribe]];
+    let worst = null;
+    for (const [from, to, a, b] of pairs) if (a > 0) { const conv = b / a; if (!worst || conv < worst.conv) worst = { from, to, conv }; }
+    if (worst) {
+      $("f-leak").hidden = false;
+      $("f-leak").innerHTML = "Biggest drop-off: <b>" + Math.round((1 - worst.conv) * 100) + "%</b> of " + worst.from + " never reach " + worst.to + ".";
+    } else $("f-leak").hidden = true;
+    $("f-note").innerHTML = "Install to subscribed: <b>" + pct(f.subscribe, f.installs) + "%</b>";
+
+    dayChart("f-chart", d.daily || [], "getAccess", "var(--green)", null, null);
+
+    // Drop-off rows
+    $("f-drop").innerHTML = pairs.map(([from, to, a, b]) =>
+      '<div class="rrow"><div class="rk">' + from + " to " + to + "<small>" + nf(Math.max(0, (a || 0) - (b || 0))) + " lost</small></div>" +
+      '<div class="rv">' + (a > 0 ? pct(b, a) + "%" : "-") + "</div></div>").join("");
+
+    // Intent health
+    const daily = d.daily || [];
+    const total30 = daily.reduce((s, x) => s + (x.getAccess || 0), 0);
+    const last7 = daily.slice(-7).reduce((s, x) => s + (x.getAccess || 0), 0);
+    const prev7 = daily.slice(-14, -7).reduce((s, x) => s + (x.getAccess || 0), 0);
+    const trend = last7 === prev7 ? "flat" : last7 > prev7 ? "growing" : "declining";
+    $("f-health").innerHTML =
+      '<div class="rrow"><div class="rk">Get access rate<small>of all installs</small></div><div class="rv">' + pct(f.getAccess, f.installs) + "%</div></div>" +
+      '<div class="rrow"><div class="rk">Avg clicks / day<small>last 30 days</small></div><div class="rv">' + (Math.round((total30 / 30) * 10) / 10) + "</div></div>" +
+      '<div class="rrow"><div class="rk">7-day trend<small>last 7 vs previous 7</small></div><div class="rv">' + last7 + " / " + prev7 + " (" + trend + ")</div></div>";
+    $("f-foot").textContent = "Updated " + new Date(d.at).toLocaleTimeString() + " UTC days. Checkout and subscribed are all-time web events.";
   }
 
-  // Inline SVG: green bars = new installs, blue line = active devices.
-  function renderTrend(daily) {
-    const box = $("chart");
-    if (!daily || !daily.length) { box.innerHTML = '<div class="muted">No data yet.</div>'; return; }
-    const W = 720, H = 200, padL = 34, padR = 10, padT = 12, padB = 26;
-    const iw = W - padL - padR, ih = H - padT - padB;
-    const maxInstalls = Math.max(1, ...daily.map((d) => d.installs));
-    const maxActive = Math.max(1, ...daily.map((d) => d.active));
-    const maxY = Math.max(maxInstalls, maxActive);
-    const x = (i) => padL + (iw / daily.length) * (i + 0.5);
-    const yI = (v) => padT + ih - (v / maxY) * ih;
-    const bw = Math.max(2, (iw / daily.length) * 0.6);
-
-    let bars = "", line = "", dots = "";
-    daily.forEach((d, i) => {
-      const bx = x(i) - bw / 2, by = yI(d.installs);
-      bars += '<rect x="' + bx.toFixed(1) + '" y="' + by.toFixed(1) +
-        '" width="' + bw.toFixed(1) + '" height="' + (padT + ih - by).toFixed(1) +
-        '" rx="2" fill="var(--green)" opacity="0.85"><title>' +
-        esc(d.day) + " · " + d.installs + " new · " + d.active + " active</title></rect>";
-    });
-    const pts = daily.map((d, i) => x(i).toFixed(1) + "," + yI(d.active).toFixed(1)).join(" ");
-    line = '<polyline points="' + pts + '" fill="none" stroke="var(--blue)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>';
-    daily.forEach((d, i) => {
-      dots += '<circle cx="' + x(i).toFixed(1) + '" cy="' + yI(d.active).toFixed(1) + '" r="2.2" fill="var(--blue)"/>';
-    });
-
-    // y gridlines (0, mid, max) + x labels (first / mid / last)
-    let grid = "";
-    [0, 0.5, 1].forEach((t) => {
-      const yy = padT + ih - t * ih, val = Math.round(maxY * t);
-      grid += '<line x1="' + padL + '" y1="' + yy.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + yy.toFixed(1) +
-        '" stroke="var(--line)" stroke-width="1"/>' +
-        '<text x="' + (padL - 6) + '" y="' + (yy + 3).toFixed(1) + '" text-anchor="end" font-size="10" fill="var(--muted)">' + val + "</text>";
-    });
-    let xlab = "";
-    [0, Math.floor(daily.length / 2), daily.length - 1].forEach((i) => {
-      const md = daily[i].day.slice(5); // MM-DD
-      xlab += '<text x="' + x(i).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle" font-size="10" fill="var(--muted)">' + md + "</text>";
-    });
-
-    box.innerHTML =
-      '<svg viewBox="0 0 ' + W + " " + H + '" preserveAspectRatio="xMidYMid meet" font-family="JetBrains Mono, monospace">' +
-      grid + bars + line + dots + xlab + "</svg>";
-  }
-
-  function renderVersions(list) {
-    const box = $("versions");
-    if (!list || !list.length) { box.innerHTML = '<div class="muted">No versions reported.</div>'; return; }
-    const total = list.reduce((a, v) => a + (v.count || 0), 0) || 1;
-    const max = Math.max(1, ...list.map((v) => v.count));
-    box.innerHTML = list.map((v) => {
-      const w = Math.round((v.count / max) * 100);
-      const share = pct(v.count, total);
-      return (
-        '<div class="vrow">' +
-          '<div class="vhead"><span class="vname">v' + esc(v.version) + '</span>' +
-            '<span class="vmeta">' + nf(v.count) + " · " + share + "%</span></div>" +
-          '<div class="vtrack"><div class="vfill" style="width:' + w + '%"></div></div>' +
-        "</div>"
-      );
+  function acqRows(list, isPromo) {
+    if (!list || !list.length) return '<tr><td colspan="4" class="muted">No data yet.</td></tr>';
+    return list.map((r) => {
+      const name = isPromo ? r.code : srcLabel(r.source);
+      return "<tr><td" + (isPromo ? ' class="mono"' : "") + ">" + esc(name) + "</td>" +
+        '<td class="num">' + nf(r.installs) + "</td>" +
+        '<td class="num">' + pct(r.getAccess, r.installs) + "%</td>" +
+        '<td class="num">' + pct(r.returning, r.installs) + "%</td></tr>";
     }).join("");
   }
+  function renderAcquisition(d) {
+    $("a-src").innerHTML = acqRows(d.acqSources, false);
+    $("a-promo").innerHTML = acqRows(d.acqPromos, true);
+    $("a-foot").textContent = "Updated " + new Date(d.at).toLocaleTimeString() + ". CTR and returning are computed from anonymous installs.";
+  }
 
-  function renderRetention(r) {
-    r = r || {};
-    const total = r.total || 0;
-    const rows = [
-      { k: "Returning", s: "used across more than one day", v: nf(r.returning) + " · " + pct(r.returning, total) + "%" },
-      { k: "Active last 7 days", s: "pinged within the week", v: nf(r.active7) + " · " + pct(r.active7, total) + "%" },
-      { k: "Churned", s: "no ping in 7+ days", v: nf(r.churned) + " · " + pct(r.churned, total) + "%" },
+  function renderRetention(d) {
+    const r = d.retention || {}, total = r.total || 0;
+    $("r-once").textContent = nf(r.oneAndDone); $("r-once-s").textContent = pct(r.oneAndDone, total) + "% of installs";
+    $("r-ret").textContent = nf(r.returning); $("r-ret-s").textContent = pct(r.returning, total) + "% of installs";
+    $("r-l7").textContent = nf(r.lapsed7d); $("r-l7-s").textContent = pct(r.lapsed7d, total) + "% of installs";
+    $("r-l30").textContent = nf(r.lapsed30d); $("r-l30-s").textContent = pct(r.lapsed30d, total) + "% of installs";
+
+    const dist = r.dist || {};
+    const drows = [
+      { name: "Under 1 day", value: dist.d1 || 0, color: "var(--green)" },
+      { name: "1 to 7 days", value: dist.d1_7 || 0, color: "var(--blue)" },
+      { name: "7 to 30 days", value: dist.d7_30 || 0, color: "var(--amber)" },
+      { name: "30+ days", value: dist.d30 || 0, color: "var(--red)" },
     ];
-    $("retention").innerHTML = rows.map((row) =>
-      '<div class="rrow"><div class="rk">' + row.k + "<small>" + row.s + "</small></div>" +
-      '<div class="rv">' + row.v + "</div></div>"
-    ).join("");
+    const dmax = Math.max(1, ...drows.map((x) => x.value));
+    $("r-dist").innerHTML = hbars(drows.map((x) => ({ name: x.name, value: x.value, max: dmax, color: x.color, meta: nf(x.value) + " (" + pct(x.value, total) + "%)" })));
+
+    const fr = d.sessionFreq || [];
+    const ftotal = fr.reduce((s, x) => s + (x.n || 0), 0);
+    const fmax = Math.max(1, ...fr.map((x) => x.n || 0));
+    const flabel = { "1": "Opened once", "2-5": "Opened 2 to 5 times", "6+": "Opened 6+ times" };
+    $("r-freq").innerHTML = fr.length ? hbars(fr.map((x) => ({ name: flabel[x.bucket] || x.bucket, value: x.n || 0, max: fmax, color: "var(--purple)", meta: nf(x.n) + " (" + pct(x.n, ftotal) + "%)" }))) : '<div class="muted">No sessions yet.</div>';
+
+    const co = d.cohorts || [];
+    $("r-cohort").innerHTML = co.length ? co.map((c) => {
+      const ret = pct(c.active, c.size);
+      const color = ret >= 50 ? "var(--green)" : ret >= 20 ? "var(--amber)" : "var(--red)";
+      return "<tr><td class=\"mono\">" + esc(c.week) + "</td><td class=\"num\">" + nf(c.size) + "</td><td class=\"num\">" + nf(c.active) +
+        '</td><td class="num" style="color:' + color + '">' + ret + "%</td></tr>";
+    }).join("") : '<tr><td colspan="4" class="muted">No cohorts yet.</td></tr>';
   }
 
-  // ---- Legacy renderers ----
-  function renderSessions(list) {
-    const body = $("sess-body");
-    if (!list || !list.length) {
-      body.innerHTML = '<tr><td colspan="7" class="muted">No sessions yet.</td></tr>';
-      return;
+  function renderHealth(d) {
+    const versions = d.versions || [];
+    const vtotal = versions.reduce((s, v) => s + (v.count || 0), 0);
+    let latest = "";
+    for (const v of versions) if (!latest || cmpVersion(v.version, latest) > 0) latest = v.version;
+    const latestCount = (versions.find((v) => v.version === latest) || {}).count || 0;
+    $("h-latest").textContent = latest ? "v" + latest : "-";
+    $("h-latest-s").textContent = latest ? pct(latestCount, vtotal) + "% of installs on it" : "";
+
+    const sl = d.sessionLengths || [];
+    const sltotal = sl.reduce((s, x) => s + (x.n || 0), 0);
+    const shortN = (sl.find((x) => x.bucket === "<1m") || {}).n || 0;
+    $("h-short").textContent = pct(shortN, sltotal) + "%";
+    $("h-avg").textContent = d.avgSession ? fmtDuration(d.avgSession) : "-";
+
+    const vmax = Math.max(1, ...versions.map((v) => v.count || 0));
+    $("h-versions").innerHTML = hbars(versions.map((v) => ({
+      name: "v" + v.version, mono: true, value: v.count || 0, max: vmax,
+      meta: nf(v.count) + " (" + pct(v.count, vtotal) + "%)",
+      badge: v.version === latest ? "LATEST" : "",
+      color: v.version === latest ? "var(--green)" : "var(--muted)",
+    })));
+
+    renderHeatmap(d.heatmap || []);
+
+    const lcolors = { "<1m": "var(--red)", "1-5m": "var(--amber)", "5-15m": "#ca8a04", "15-60m": "var(--green)", "1-3h": "var(--green)", "3h+": "var(--green)" };
+    const lmax = Math.max(1, ...sl.map((x) => x.n || 0));
+    $("h-lengths").innerHTML = sl.length ? hbars(sl.map((x) => ({ name: x.bucket, mono: true, value: x.n || 0, max: lmax, color: lcolors[x.bucket] || "var(--green)", meta: nf(x.n) + " (" + pct(x.n, sltotal) + "%)" }))) : '<div class="muted">No sessions yet.</div>';
+
+    const bug = (d.shortByVersion || []).map((x) => ({ ...x, rate: pct(x.short, x.total) })).sort((a, b) => b.rate - a.rate);
+    $("h-bug").innerHTML = bug.length ? bug.map((x) => {
+      const cls = x.rate >= 50 ? " class=\"flag2\"" : x.rate >= 25 ? " class=\"flag\"" : "";
+      return "<tr" + cls + "><td class=\"mono\">v" + esc(x.version) + "</td><td class=\"num\">" + nf(x.total) + "</td><td class=\"num\">" + nf(x.short) + "</td><td class=\"num\">" + x.rate + "%</td></tr>";
+    }).join("") : '<tr><td colspan="4" class="muted">No versioned sessions yet.</td></tr>';
+    $("h-foot").textContent = "Updated " + new Date(d.at).toLocaleTimeString() + ". Heatmap and distributions are all-time, UTC.";
+  }
+
+  function renderHeatmap(list) {
+    const box = $("h-heat");
+    if (!list || !list.length) { box.innerHTML = '<div class="muted">No session data yet.</div>'; return; }
+    const grid = Array.from({ length: 7 }, () => new Array(24).fill(0));
+    let max = 0;
+    for (const c of list) { if (c.dow >= 0 && c.dow < 7 && c.hour >= 0 && c.hour < 24) { grid[c.dow][c.hour] = c.n; if (c.n > max) max = c.n; } }
+    let html = '<table class="heat"><tr><th class="day"></th>';
+    for (let h = 0; h < 24; h++) html += "<th>" + (h % 2 === 0 ? h : "") + "</th>";
+    html += "</tr>";
+    for (let dw = 0; dw < 7; dw++) {
+      html += '<tr><th class="day">' + DOW[dw] + "</th>";
+      for (let h = 0; h < 24; h++) {
+        const n = grid[dw][h];
+        const intensity = max > 0 ? n / max : 0;
+        const bg = n > 0 ? "rgba(22,163,74," + (0.12 + 0.88 * intensity).toFixed(3) + ")" : "#f1f5f9";
+        html += '<td style="background:' + bg + '" title="' + DOW[dw] + " " + h + ":00 UTC: " + n + ' sessions"></td>';
+      }
+      html += "</tr>";
     }
-    body.innerHTML = list.map((s) => {
-      const live = Date.now() - s.last_ping < 3 * 60 * 1000;
-      const len = fmtDuration(s.durationMs) + (live ? " ·live" : "");
-      return "<tr>" +
-        '<td class="mono">' + esc(s.device) + "</td>" +
+    box.innerHTML = html + "</table>";
+  }
+
+  // ---------- Sessions tab (sort + filter + csv) ----------
+  let sSort = { k: "started_at", dir: -1 };
+  function renderSessions() {
+    const body = $("s-body");
+    let rows = (lastData && lastData.sessions) || [];
+    const q = ($("s-search").value || "").trim().toLowerCase();
+    if (q) rows = rows.filter((s) => String(s.device || "").toLowerCase().includes(q));
+    rows = rows.slice().sort((a, b) => {
+      let x = a[sSort.k], y = b[sSort.k];
+      if (sSort.k === "device" || sSort.k === "version" || sSort.k === "promo" || sSort.k === "src") {
+        x = String(x || ""); y = String(y || ""); return x.localeCompare(y) * sSort.dir;
+      }
+      return ((x || 0) - (y || 0)) * sSort.dir;
+    });
+    if (!rows.length) { body.innerHTML = '<tr><td colspan="7" class="muted">' + (q ? "No sessions match that filter." : "No sessions yet.") + "</td></tr>"; }
+    else body.innerHTML = rows.map((s) => {
+      const live = s.last_ping && Date.now() - s.last_ping < 3 * 60 * 1000;
+      return "<tr" + (live ? ' class="live"' : "") + "><td class=\"mono\">" + esc(s.device) + "</td>" +
         "<td>" + new Date(s.started_at).toLocaleString() + "</td>" +
-        '<td class="len">' + esc(len) + "</td>" +
-        "<td>" + (s.pings || 0) + "</td>" +
-        '<td class="mono">' + (s.version ? esc(s.version) : "—") + "</td>" +
-        '<td class="mono">' + (s.promo ? esc(s.promo) : "—") + "</td>" +
-        "<td>" + (s.src ? esc(srcLabel(s.src)) : "—") + "</td>" +
-        "</tr>";
+        '<td class="num">' + esc(fmtDuration(s.durationMs)) + (live ? " live" : "") + "</td>" +
+        '<td class="num">' + (s.pings || 0) + "</td>" +
+        '<td class="mono">' + (s.version ? esc(s.version) : "-") + "</td>" +
+        '<td class="mono">' + (s.promo ? esc(s.promo) : "-") + "</td>" +
+        "<td>" + (s.src ? esc(srcLabel(s.src)) : "-") + "</td></tr>";
     }).join("");
+    // sort arrows
+    document.querySelectorAll("#tab-sessions th.sortable").forEach((th) => {
+      const base = th.textContent.replace(/[▲▼].*$/, "").trim();
+      th.innerHTML = base + (th.dataset.k === sSort.k ? '<span class="arrow">' + (sSort.dir < 0 ? "▼" : "▲") + "</span>" : "");
+    });
+    if (lastData) $("s-foot").textContent = "Showing " + rows.length + " of " + nf(lastData.sessionsCount || rows.length) + " sessions. Updated " + new Date(lastData.at).toLocaleTimeString() + ".";
   }
+  document.querySelectorAll("#tab-sessions th.sortable").forEach((th) => (th.onclick = () => {
+    const k = th.dataset.k;
+    if (sSort.k === k) sSort.dir *= -1; else { sSort.k = k; sSort.dir = (k === "device" || k === "version" || k === "promo" || k === "src") ? 1 : -1; }
+    renderSessions();
+  }));
+  $("s-search").addEventListener("input", renderSessions);
+  $("s-csv").onclick = () => {
+    let rows = (lastData && lastData.sessions) || [];
+    const q = ($("s-search").value || "").trim().toLowerCase();
+    if (q) rows = rows.filter((s) => String(s.device || "").toLowerCase().includes(q));
+    const head = ["Device", "Started (UTC)", "DurationMs", "Pings", "Version", "Promo", "Source"];
+    const cell = (v) => { const s = String(v == null ? "" : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    const lines = [head.join(",")].concat(rows.map((s) => [
+      s.device, new Date(s.started_at).toISOString(), s.durationMs, s.pings, s.version, s.promo, srcLabel(s.src),
+    ].map(cell).join(",")));
+    const blob = new Blob([lines.join("\r\n")], { type: "text/csv" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "sessions.csv";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
 
-  function renderSources(list) {
-    const body = $("source-body");
-    if (!list || !list.length) {
-      body.innerHTML = '<tr><td colspan="2" class="muted">No sources reported yet.</td></tr>';
-      return;
-    }
-    body.innerHTML = list.map((p) =>
-      "<tr>" +
-        "<td>" + esc(srcLabel(p.source)) + "</td>" +
-        "<td>" + (p.count || 0) + "</td>" +
-      "</tr>"
-    ).join("");
-  }
-
-  function renderPromos(list) {
-    const body = $("promo-body");
-    if (!list || !list.length) {
-      body.innerHTML = '<tr><td colspan="2" class="muted">No promo codes entered yet.</td></tr>';
-      return;
-    }
-    body.innerHTML = list.map((p) =>
-      "<tr>" +
-        '<td class="mono">' + esc(p.code) + "</td>" +
-        "<td>" + (p.count || 0) + "</td>" +
-      "</tr>"
-    ).join("");
-  }
-
-  function show(dash) {
-    $("dash").hidden = !dash;
-    $("gate").hidden = dash;
-  }
+  // ---------- Load ----------
+  function show(dash) { $("dash").hidden = !dash; $("gate").hidden = dash; }
 
   async function load() {
     const key = localStorage.getItem(KEY_STORE);
     if (!key) return show(false);
     try {
       const r = await fetch("/api/stats?key=" + encodeURIComponent(key), { cache: "no-store" });
-      if (r.status === 401) {
-        localStorage.removeItem(KEY_STORE);
-        $("gateErr").textContent = "That key was rejected.";
-        return show(false);
-      }
+      if (r.status === 401) { localStorage.removeItem(KEY_STORE); $("gateErr").textContent = "That key was rejected."; return show(false); }
       const d = await r.json();
+      lastData = d;
       show(true);
-
-      // --- New stats tab ---
-      const daily = d.daily || [];
-      const today = daily[daily.length - 1] || { installs: 0, active: 0 };
-      const yest = daily[daily.length - 2] || { installs: 0, active: 0 };
-      $("n-live").textContent = nf(d.live);
-      $("n-today").textContent = nf(today.active);
-      $("n-new").textContent = nf(today.installs);
-      $("n-total").textContent = nf(d.total);
-      $("n-subs").textContent = nf(d.funnel ? d.funnel.subscribe : 0);
-      $("n-hours").textContent = d.totalHours != null ? nf(d.totalHours) : "—";
-      setDelta($("n-today-d"), today.active, yest.active);
-      setDelta($("n-new-d"), today.installs, yest.installs);
-      renderFunnel(d.funnel);
-      renderTrend(daily);
-      renderVersions(d.versions);
-      renderRetention(d.retention);
-      $("n-foot").textContent = "Updated " + new Date(d.at).toLocaleTimeString() +
-        " · funnel & trend use UTC days · checkout/subscribe are all-time web events";
-
-      // --- Legacy tab ---
-      $("v-live").textContent = d.live;
-      $("v-today").textContent = d.today;
-      $("v-week").textContent = d.week;
-      $("v-total").textContent = d.total;
-      $("v-sessions").textContent = d.sessionsToday ?? "—";
-      $("v-avg").textContent = d.avgSession ? fmtDuration(d.avgSession) : "—";
-      renderPromos(d.promos);
-      renderSources(d.sources);
-      renderSessions(d.sessions);
-      $("foot").textContent = "Updated " + new Date(d.at).toLocaleTimeString() +
-        " · today/week boundaries are UTC · avg excludes single-ping launches";
+      renderOverview(d);
+      renderFunnelTab(d);
+      renderAcquisition(d);
+      renderRetention(d);
+      renderHealth(d);
+      renderSessions();
     } catch (e) {
-      $("foot").textContent = "Couldn't reach the server. Retrying…";
-      $("n-foot").textContent = "Couldn't reach the server. Retrying…";
+      if ($("o-foot")) $("o-foot").textContent = "Couldn't reach the server. Retrying...";
     }
   }
 
-  $("enter").onclick = () => {
-    const v = $("key").value.trim();
-    if (!v) return;
-    localStorage.setItem(KEY_STORE, v);
-    $("gateErr").textContent = "";
-    load();
-  };
+  $("enter").onclick = () => { const v = $("key").value.trim(); if (!v) return; localStorage.setItem(KEY_STORE, v); $("gateErr").textContent = ""; load(); };
   $("key").addEventListener("keydown", (e) => { if (e.key === "Enter") $("enter").click(); });
   $("signout").onclick = () => { localStorage.removeItem(KEY_STORE); show(false); };
 
-  setTab(localStorage.getItem(TAB_STORE) || "new");
+  setTab(localStorage.getItem(TAB_STORE) || "overview");
   load();
-  timer = setInterval(load, 15000);
+  timer = setInterval(load, 30000);
 </script>
 </body>
 </html>
