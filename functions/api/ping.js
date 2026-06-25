@@ -56,43 +56,31 @@ export async function onRequestPost({ request, env, waitUntil }) {
   if (env.STATS) {
     const now = Date.now();
     try {
-      // Upsert the install. RETURNING tells us whether this row was just created:
-      // on a fresh insert first_seen == now; on a conflict-update it keeps its old
-      // (smaller) first_seen. So `first_seen = now` is a reliable "new install" flag.
+      // Upsert the install in a SINGLE write. promo + src are sticky (first reported
+      // value wins, via COALESCE), so the macro re-sending them on every 60s heartbeat
+      // no longer costs an extra UPDATE per ping -- they just ride along on this same
+      // row write. This roughly halves D1 writes for attributed installs.
+      //   RETURNING tells us whether the row was just created: a fresh insert has
+      //   first_seen == now, a conflict-update keeps its older first_seen, so
+      //   `first_seen = now` is a reliable "new install" flag.
+      //   NOTE: this assumes the promo + src columns exist (they do in prod; added via
+      //   the manual promo column and migrations/0002_add_src.sql). If they were ever
+      //   absent the whole upsert would fail, but the outer try/catch keeps that from
+      //   ever surfacing to the macro (the heartbeat always returns 200).
       const dev = await env.STATS.prepare(
-        `INSERT INTO devices (id, first_seen, last_seen, version)
-         VALUES (?1, ?2, ?2, ?3)
-         ON CONFLICT(id) DO UPDATE SET last_seen = ?2, version = ?3
+        `INSERT INTO devices (id, first_seen, last_seen, version, promo, src)
+         VALUES (?1, ?2, ?2, ?3, ?4, ?5)
+         ON CONFLICT(id) DO UPDATE SET
+           last_seen = ?2,
+           version   = ?3,
+           promo     = COALESCE(devices.promo, ?4),
+           src       = COALESCE(devices.src, ?5)
          RETURNING (first_seen = ?2) AS is_new`
       )
-        .bind(id, now, version || null)
+        .bind(id, now, version || null, promo || null, src || null)
         .first();
 
       await recordSession(env, id, version, now);
-
-      // Stamp the creator promo code onto the install (sticky; only when reported).
-      // Its own try/catch so a missing `promo` column can never break core stats.
-      if (promo) {
-        try {
-          await env.STATS.prepare(`UPDATE devices SET promo = ?2 WHERE id = ?1`)
-            .bind(id, promo)
-            .run();
-        } catch {
-          // `promo` column not added yet -> ignore (see migrations/0001_add_promo.sql).
-        }
-      }
-
-      // Stamp the acquisition source onto the install (sticky; only when reported).
-      // Its own try/catch so a missing `src` column can never break core stats.
-      if (src) {
-        try {
-          await env.STATS.prepare(`UPDATE devices SET src = ?2 WHERE id = ?1`)
-            .bind(id, src)
-            .run();
-        } catch {
-          // `src` column not added yet -> ignore (see migrations/0002_add_src.sql).
-        }
-      }
 
       // Funnel event (e.g. "Get access" clicked). Best-effort; logEvent swallows a
       // missing `events` table so this can never break the heartbeat.
