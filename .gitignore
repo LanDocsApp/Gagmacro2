@@ -1,2 +1,12 @@
 # Local access code (signed paste-code) — personal, never commit
 token.txt
+
+# Wrangler local state/cache (contains the cached Cloudflare account id) — never commit
+.wrangler/
+
+# Local dev secrets for `wrangler pages dev` — never commit
+.dev.vars
+.dev.vars.*
+
+# Node dependencies, if ever installed locally
+node_modules/
