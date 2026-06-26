@@ -100,7 +100,7 @@ global InstallFile  := A_AppData "\GardenMacro\install.txt"  ; first-run stamp +
 ; Version shown in the window's bottom corner. Bump AppVersion on real releases;
 ; the build time is taken from this file's last-modified date, so it changes every
 ; time you save the script -> an easy "did my latest change actually load?" check.
-global AppVersion := "1.0.0"
+global AppVersion := "1.0.1"
 global BackendBase  := "https://gardenmacro.com"   ; subscription backend
 global VerifyUrl    := BackendBase "/api/desktop/verify"
 global PortalUrl    := BackendBase "/api/desktop/portal"   ; Stripe billing portal (manage/cancel)
@@ -1683,9 +1683,9 @@ HtmlTemplate() {
   <div id='gearsPane' hidden>
     <div class='prowrap'>
       <div id='gearContent'>
-        <div class='note'>
-          <span class='ni'>&#9888;</span>
-          <span>Open the in-game <b>Gear Shop</b> and keep it on screen <b>before</b> you press Start &mdash; the gear macro begins from inside that menu.</span>
+        <div class='setupnote' style='margin-bottom:6px'>
+          <span class='sni'>&#9888;</span>
+          <span>Open the in-game <b>Gear Shop</b> and keep it on screen <b>before</b> you press Start. The gear macro begins from inside that menu.</span>
         </div>
         <div id='gearList' class='list'></div>
       </div>
@@ -1707,9 +1707,19 @@ HtmlTemplate() {
     </div>
   </div>
 
-  <div id='setupNote' class='setupnote'>
-    <span class='sni'>&#9881;</span>
-    <span>Turn on <b>UI Navigation</b> in Roblox settings for the macro to work.</span>
+  <div id='setupNote' class='setupnote' style='flex-direction:column;align-items:stretch;gap:3px'>
+    <div style='display:flex;align-items:center;gap:8px'>
+      <span class='sni'>&#9881;</span>
+      <span>Turn on <b>UI Navigation</b> in Roblox settings for the macro to work.</span>
+    </div>
+    <div style='display:flex;align-items:center;gap:8px'>
+      <span class='sni'>&#8635;</span>
+      <span>Make sure you <b>rejoin the game</b> before starting the macro.</span>
+    </div>
+    <div style='display:flex;align-items:center;gap:8px'>
+      <span class='sni'>&#9776;</span>
+      <span>Make sure you are <b>inside the shop menu</b> when you start the macro.</span>
+    </div>
   </div>
 
   <div id='footer' class='footer'>
