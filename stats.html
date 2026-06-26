@@ -161,6 +161,7 @@
       <div class="grid">
         <div class="card live"><div class="label"><span class="dot"></span>Live now</div><div class="value" id="o-live">-</div></div>
         <div class="card"><div class="label">Active today</div><div class="value" id="o-today">-</div><div class="delta flat" id="o-today-d"></div></div>
+        <div class="card"><div class="label">Returning active today</div><div class="value" id="o-today-ret">-</div><div class="delta flat" id="o-today-ret-h">existing users, not first-time</div></div>
         <div class="card"><div class="label">New installs today</div><div class="value" id="o-new">-</div><div class="delta flat" id="o-new-d"></div></div>
         <div class="card"><div class="label">Total installs</div><div class="value" id="o-total">-</div></div>
         <div class="card"><div class="label">Pro subscribers</div><div class="value" id="o-subs">-</div></div>
@@ -449,6 +450,7 @@
     const yest = daily[daily.length - 2] || { installs: 0, active: 0 };
     $("o-live").textContent = nf(d.live);
     $("o-today").textContent = nf(today.active);
+    $("o-today-ret").textContent = nf(d.todayReturning);
     $("o-new").textContent = nf(today.installs);
     $("o-total").textContent = nf(d.total);
     $("o-subs").textContent = nf(d.funnel ? d.funnel.subscribe : 0);

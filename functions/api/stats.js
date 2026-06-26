@@ -3,6 +3,8 @@
 // Returns { live, today, week, total, sessionsToday, avgSession, sessions, at, ... }:
 //   live          = distinct installs active in the last 2 minutes
 //   today         = distinct installs active since 00:00 UTC today
+//   todayReturning= installs active today that were NOT first installed today
+//                   (i.e. existing users coming back, not first-time testers)
 //   week          = distinct installs active in the last 7 days
 //   total         = all installs ever seen (every row)
 //   sessionsToday = sessions started since 00:00 UTC today
@@ -70,6 +72,7 @@ export async function onRequestGet({ request, env }) {
          COUNT(*)                                              AS total,
          SUM(CASE WHEN last_seen > ?1 THEN 1 ELSE 0 END)       AS live,
          SUM(CASE WHEN last_seen >= ?2 THEN 1 ELSE 0 END)      AS today,
+         SUM(CASE WHEN last_seen >= ?2 AND first_seen < ?2 THEN 1 ELSE 0 END) AS todayReturning,
          SUM(CASE WHEN last_seen > ?3 THEN 1 ELSE 0 END)       AS week
        FROM devices`
     )
@@ -412,6 +415,7 @@ export async function onRequestGet({ request, env }) {
     return json({
       live: row?.live || 0,
       today: row?.today || 0,
+      todayReturning: row?.todayReturning || 0,
       week: row?.week || 0,
       total: row?.total || 0,
       sessionsToday: sess?.sessionsToday || 0,
