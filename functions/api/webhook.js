@@ -10,7 +10,21 @@ export async function onRequestPost({ request, env }) {
   const sig = request.headers.get("stripe-signature") || "";
   const rawBody = await request.text(); // raw, unparsed — required for the HMAC
 
-  const ok = await verifyStripeWebhook(rawBody, sig, env.STRIPE_WEBHOOK_SECRET);
+  // A missing secret must never throw an uncaught exception (Cloudflare 1101):
+  // that failure mode is invisible in logs and let a misconfig silently disable
+  // the endpoint for days. Fail loud and explicit instead.
+  if (!env.STRIPE_WEBHOOK_SECRET) {
+    console.error("webhook: STRIPE_WEBHOOK_SECRET is not set in this environment");
+    return new Response("webhook secret not configured", { status: 500 });
+  }
+
+  let ok = false;
+  try {
+    ok = await verifyStripeWebhook(rawBody, sig, env.STRIPE_WEBHOOK_SECRET);
+  } catch (e) {
+    console.error("webhook: signature verification threw —", e && (e.stack || e.message || e));
+    return new Response("signature verification error", { status: 500 });
+  }
   if (!ok) return new Response("invalid signature", { status: 400 });
 
   let event;
@@ -70,7 +84,8 @@ export async function onRequestPost({ request, env }) {
         break; // ignore everything else
     }
   } catch (e) {
-    // Transient failure (e.g. KV/Stripe) — 500 so Stripe retries.
+    // Transient failure (e.g. KV) — log it and 500 so Stripe retries.
+    console.error("webhook: handler error on", event && event.type, "—", e && (e.stack || e.message || e));
     return new Response("handler error", { status: 500 });
   }
 
