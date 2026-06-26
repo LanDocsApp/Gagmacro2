@@ -139,9 +139,12 @@
     <header>
       <div>
         <h1>Garden Macro stats</h1>
-        <div class="sub">Anonymous installs. Auto-refreshes every 30s.</div>
+        <div class="sub">Anonymous installs. <span id="updated"></span></div>
       </div>
-      <button class="signout" id="signout">Sign out</button>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <button class="signout" id="refresh">↻ Refresh</button>
+        <button class="signout" id="signout">Sign out</button>
+      </div>
     </header>
 
     <div class="tabs" id="tabs">
@@ -329,7 +332,6 @@
   const $ = (id) => document.getElementById(id);
   const KEY_STORE = "gm_stats_key";
   const TAB_STORE = "gm_stats_tab";
-  let timer = null;
   let lastData = null;
 
   const nf = (n) => (n == null ? "-" : Number(n).toLocaleString("en-US"));
@@ -694,6 +696,8 @@
       renderRetention(d);
       renderHealth(d);
       renderSessions();
+      const u = $("updated");
+      if (u) u.textContent = "Updated " + new Date(d.at || Date.now()).toLocaleTimeString() + " · press Refresh to update.";
     } catch (e) {
       if ($("o-foot")) $("o-foot").textContent = "Couldn't reach the server. Retrying...";
     }
@@ -704,8 +708,22 @@
   $("signout").onclick = () => { localStorage.removeItem(KEY_STORE); show(false); };
 
   setTab(localStorage.getItem(TAB_STORE) || "overview");
+
+  // MANUAL REFRESH ONLY -- there is deliberately no auto-refresh / polling timer.
+  // Every /api/stats call runs ~20 full-table-scan queries (a few thousand D1 rows
+  // read per load), so a tab left polling on a timer is what burns through the D1
+  // free-tier read budget. The dashboard loads once when opened; press Refresh to
+  // pull fresh numbers. A tab left open all day now costs exactly one read.
+  $("refresh").onclick = async () => {
+    const b = $("refresh");
+    if (b.disabled) return;
+    b.disabled = true;
+    const t = b.textContent;
+    b.textContent = "Refreshing…";
+    try { await load(); } finally { b.disabled = false; b.textContent = t; }
+  };
+
   load();
-  timer = setInterval(load, 30000);
 </script>
 </body>
 </html>
