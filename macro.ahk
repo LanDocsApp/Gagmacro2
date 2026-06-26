@@ -1720,6 +1720,10 @@ HtmlTemplate() {
       <span class='sni'>&#9776;</span>
       <span>Make sure you are <b>inside the shop menu</b> when you start the macro.</span>
     </div>
+    <div style='display:flex;align-items:center;gap:8px'>
+      <span class='sni'>&#10227;</span>
+      <span>The macro re-buys automatically every <b>5 minutes</b> on each restock.</span>
+    </div>
   </div>
 
   <div id='footer' class='footer'>
