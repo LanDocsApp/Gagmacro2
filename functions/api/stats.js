@@ -236,7 +236,7 @@ export async function onRequestGet({ request, env }) {
         `SELECT
            COUNT(*)                                                                       AS total,
            SUM(CASE WHEN ?1 - first_seen >= ?2 AND last_seen - first_seen < ?2 THEN 1 ELSE 0 END) AS oneAndDone,
-           SUM(CASE WHEN last_seen - first_seen >= ?2 THEN 1 ELSE 0 END)                   AS returning,
+           SUM(CASE WHEN last_seen - first_seen >= ?2 THEN 1 ELSE 0 END)                   AS retained,
            SUM(CASE WHEN last_seen > ?1 - ?3 THEN 1 ELSE 0 END)                            AS active7,
            SUM(CASE WHEN ?1 - last_seen >= ?3 THEN 1 ELSE 0 END)                           AS lapsed7d,
            SUM(CASE WHEN ?1 - last_seen >= ?4 THEN 1 ELSE 0 END)                           AS lapsed30d,
@@ -249,7 +249,7 @@ export async function onRequestGet({ request, env }) {
       retention = {
         total: rt?.total || 0,
         oneAndDone: rt?.oneAndDone || 0,
-        returning: rt?.returning || 0,
+        returning: rt?.retained || 0,
         active7: rt?.active7 || 0,
         lapsed7d: rt?.lapsed7d || 0,
         lapsed30d: rt?.lapsed30d || 0,
@@ -366,7 +366,7 @@ export async function onRequestGet({ request, env }) {
     const acqCols = (col) =>
       `SELECT d.${col} AS k, COUNT(*) AS installs,
               SUM(CASE WHEN ga.device_id IS NOT NULL THEN 1 ELSE 0 END) AS getAccess,
-              SUM(CASE WHEN d.last_seen - d.first_seen >= 86400000 THEN 1 ELSE 0 END) AS returning
+              SUM(CASE WHEN d.last_seen - d.first_seen >= 86400000 THEN 1 ELSE 0 END) AS retained
        FROM devices d
        LEFT JOIN (SELECT DISTINCT device_id FROM events WHERE name = 'get_access') ga ON ga.device_id = d.id
        WHERE d.${col} IS NOT NULL AND d.${col} <> ''
@@ -374,26 +374,26 @@ export async function onRequestGet({ request, env }) {
     try {
       const sr = await env.STATS.prepare(acqCols("src")).all();
       acqSources = (sr?.results || []).map((r) => ({
-        source: String(r.k), installs: r.installs || 0, getAccess: r.getAccess || 0, returning: r.returning || 0,
+        source: String(r.k), installs: r.installs || 0, getAccess: r.getAccess || 0, returning: r.retained || 0,
       }));
       const pr2 = await env.STATS.prepare(acqCols("promo")).all();
       acqPromos = (pr2?.results || []).map((r) => ({
-        code: String(r.k), installs: r.installs || 0, getAccess: r.getAccess || 0, returning: r.returning || 0,
+        code: String(r.k), installs: r.installs || 0, getAccess: r.getAccess || 0, returning: r.retained || 0,
       }));
     } catch {
       // events table absent -> fall back to installs + returning only (no getAccess).
       const fb = (col) =>
         `SELECT ${col} AS k, COUNT(*) AS installs, 0 AS getAccess,
-                SUM(CASE WHEN last_seen - first_seen >= 86400000 THEN 1 ELSE 0 END) AS returning
+                SUM(CASE WHEN last_seen - first_seen >= 86400000 THEN 1 ELSE 0 END) AS retained
          FROM devices WHERE ${col} IS NOT NULL AND ${col} <> '' GROUP BY ${col} ORDER BY installs DESC`;
       try {
         const sr = await env.STATS.prepare(fb("src")).all();
         acqSources = (sr?.results || []).map((r) => ({
-          source: String(r.k), installs: r.installs || 0, getAccess: 0, returning: r.returning || 0,
+          source: String(r.k), installs: r.installs || 0, getAccess: 0, returning: r.retained || 0,
         }));
         const pr2 = await env.STATS.prepare(fb("promo")).all();
         acqPromos = (pr2?.results || []).map((r) => ({
-          code: String(r.k), installs: r.installs || 0, getAccess: 0, returning: r.returning || 0,
+          code: String(r.k), installs: r.installs || 0, getAccess: 0, returning: r.retained || 0,
         }));
       } catch {
         acqSources = []; acqPromos = [];
