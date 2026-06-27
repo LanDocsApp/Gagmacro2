@@ -100,6 +100,8 @@
   table.tbl tr.live td { background: var(--green-soft); }
   table.tbl tr.flag td { background: #fff7ed; }
   table.tbl tr.flag2 td { background: var(--red-soft); }
+  table.tbl td.mono a { color: var(--blue); text-decoration: none; }
+  table.tbl td.mono a:hover { text-decoration: underline; }
   .muted { color: var(--muted); }
 
   /* Heatmap */
@@ -518,11 +520,22 @@
     $("f-foot").textContent = "Updated " + new Date(d.at).toLocaleTimeString() + " UTC days. Checkout and subscribed are all-time web events.";
   }
 
+  // Promo code -> creator detail dashboard. Keys are uppercase to match backend codes.
+  const CREATOR_LINKS = {
+    OVER: "https://gardenmacro.com/creator.html#eyJ0IjoiY3JlYXRvciIsImlkIjoiam9zZSJ9.DfFzxNKEBjyXbAY-c4A9WjOwGIFYbOTpEYoKusmcEbc",
+    ROOKIE: "https://gardenmacro.com/creator.html#eyJ0IjoiY3JlYXRvciIsImlkIjoianVrZW0ifQ.5sWZeQIX2WDXz_tQIkVU3msVU2NbktTh68jO0zuwj84",
+    JUKEM: "https://gardenmacro.com/creator.html#eyJ0IjoiY3JlYXRvciIsImlkIjoianVrZW0ifQ.5sWZeQIX2WDXz_tQIkVU3msVU2NbktTh68jO0zuwj84",
+    LION: "https://gardenmacro.com/creator.html#eyJ0IjoiY3JlYXRvciIsImlkIjoibGlvbiJ9.qp8g83qo6IFi3UB0rFz5KKYFyUETBtYXbxl8xjdCFHg",
+  };
   function acqRows(list, isPromo) {
     if (!list || !list.length) return '<tr><td colspan="4" class="muted">No data yet.</td></tr>';
     return list.map((r) => {
       const name = isPromo ? r.code : srcLabel(r.source);
-      return "<tr><td" + (isPromo ? ' class="mono"' : "") + ">" + esc(name) + "</td>" +
+      const link = isPromo ? CREATOR_LINKS[String(name).toUpperCase()] : null;
+      const cell = link
+        ? '<a href="' + esc(link) + '" target="_blank" rel="noopener">' + esc(name) + "</a>"
+        : esc(name);
+      return "<tr><td" + (isPromo ? ' class="mono"' : "") + ">" + cell + "</td>" +
         '<td class="num">' + nf(r.installs) + "</td>" +
         '<td class="num">' + pct(r.getAccess, r.installs) + "%</td>" +
         '<td class="num">' + pct(r.returning, r.installs) + "%</td></tr>";
