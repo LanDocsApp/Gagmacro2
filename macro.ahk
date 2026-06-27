@@ -100,11 +100,12 @@ global InstallFile  := A_AppData "\GardenMacro\install.txt"  ; first-run stamp +
 ; Version shown in the window's bottom corner. Bump AppVersion on real releases;
 ; the build time is taken from this file's last-modified date, so it changes every
 ; time you save the script -> an easy "did my latest change actually load?" check.
-global AppVersion := "1.0.1"
+global AppVersion := "1.0.2"
 global BackendBase  := "https://gardenmacro.com"   ; subscription backend
 global VerifyUrl    := BackendBase "/api/desktop/verify"
 global PortalUrl    := BackendBase "/api/desktop/portal"   ; Stripe billing portal (manage/cancel)
 global PingUrl      := BackendBase "/api/ping"              ; anonymous usage stats
+global TutorialUrl  := "https://www.youtube.com/watch?v=2-K89sp8H4o"  ; "Video setup" link -> YouTube walkthrough
 global TokenFile    := A_AppData "\GardenMacro\token.txt"   ; saved paste-code
 global DeviceFile   := A_AppData "\GardenMacro\device.txt"  ; random anon install id
 global DeviceId     := ""           ; set at startup (see GetOrCreateDeviceId)
@@ -409,6 +410,8 @@ OnWebMessage(sender, args) {
             OpenAccessPage()
         case "openhelp":
             OpenHelpPage()
+        case "opentutorial":
+            OpenTutorialPage()
         case "manage":
             OpenManageSubscription()
         case "activate":
@@ -879,6 +882,16 @@ OpenHelpPage() {
         Run(url)
     catch
         try Run("explorer.exe " url)
+}
+
+; "Video setup" -> open the YouTube walkthrough in the default browser.
+; Same open-in-browser fallback as OpenHelpPage.
+OpenTutorialPage() {
+    global TutorialUrl
+    try
+        Run(TutorialUrl)
+    catch
+        try Run("explorer.exe " TutorialUrl)
 }
 
 ; "Manage subscription" (Account tab, Pro only) -> open the Stripe billing portal
@@ -1668,7 +1681,7 @@ HtmlTemplate() {
   </div>
   <div class='sub'>
     <span id='count'>0 selected</span>
-    <span><a class='help' onclick='send("openhelp")'>Help &amp; setup</a> &middot; <a onclick='setAll(true)'>Select all</a> &middot; <a onclick='setAll(false)'>Clear</a></span>
+    <span><a onclick='send("openhelp")'>Help &amp; setup</a> &middot; <a class='help' onclick='send("opentutorial")'>Video setup</a> &middot; <a onclick='setAll(true)'>Select all</a> &middot; <a onclick='setAll(false)'>Clear</a></span>
   </div>
 
   <div id='seedsPane'>
@@ -1683,10 +1696,6 @@ HtmlTemplate() {
   <div id='gearsPane' hidden>
     <div class='prowrap'>
       <div id='gearContent'>
-        <div class='setupnote' style='margin-bottom:6px'>
-          <span class='sni'>&#9888;</span>
-          <span>Open the in-game <b>Gear Shop</b> and keep it on screen <b>before</b> you press Start. The gear macro begins from inside that menu.</span>
-        </div>
         <div id='gearList' class='list'></div>
       </div>
       <div id='gearLock' class='prolock'>
