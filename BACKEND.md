@@ -42,6 +42,9 @@ dashboard (Pages → Settings → Environment variables), already configured:
 - `COOKIE_SECRET` (signs the session cookie + the desktop paste-code)
 - optional `PUBLIC_BASE_URL` — only if served from a domain other than the
   request origin. Otherwise the origin is detected automatically.
+- optional `DISCORD_WEBHOOK_URL` — Discord channel webhook that gets a "new
+  subscriber" ping on each paid checkout. Falls back to a hardcoded URL in
+  `_lib/discord.js`; set this env var to rotate the webhook without a redeploy.
 
 External setup that must match:
 
