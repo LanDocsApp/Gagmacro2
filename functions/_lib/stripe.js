@@ -75,3 +75,11 @@ export function searchSubscriptionsByGoogleId(env, googleId) {
   const query = `metadata['google_id']:'${googleId}'`;
   return stripe(env, "GET", `/v1/subscriptions/search?query=${encodeURIComponent(query)}`);
 }
+
+// Look up a Stripe promotion code by its customer-facing code string (e.g. "LION").
+// Returns the list payload { data: [{ code, times_redeemed, active, ... }] }; data
+// is empty if no such promotion code exists. Used by the creator dashboard to count
+// how many people redeemed a creator's code at checkout (times_redeemed).
+export function listPromotionCodes(env, code) {
+  return stripe(env, "GET", "/v1/promotion_codes", { code, limit: 1 });
+}

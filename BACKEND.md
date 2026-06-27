@@ -22,8 +22,13 @@ functions/
     webhook.js               POST -> verify Stripe sig, sync KV
     desktop/verify.js        POST -> { token } -> { active: true|false }
     desktop/portal.js        POST -> { token } -> { url } (Stripe billing portal: manage/cancel)
+    creator/stats.js         POST -> { token } -> one creator's { installs, subscriptions } per code
+    creator/link.js          GET  -> (admin, STATS_KEY) mint a creator's private dashboard link
+  _lib/
+    creators.js        creator -> promo-code registry (mirror of macro.ahk PromoValid)
 index.html      marketing landing
 signin.html     sign in with Google / get your code
+creator.html    per-creator stats dashboard (opened via a private signed link)
 wrangler.toml   Pages config + SUBS KV binding
 ```
 
@@ -100,6 +105,33 @@ macro's unlock state on next launch) stay in sync automatically.
 > One-time setup: enable the portal in the Stripe dashboard at **Settings →
 > Billing → Customer portal** (allow cancellation, invoice history, and
 > payment-method updates), or `createBillingPortalSession` will error.
+
+## Creator dashboard
+
+Each creator (a hardcoded set in `_lib/creators.js`, kept in sync with the macro's
+`PromoValid`) can see how their promo code is performing without seeing anyone
+else's data. A creator may own more than one code (e.g. jukemplayz = ROOKIE +
+JUKEM); their dashboard aggregates across all of them with a per-code breakdown.
+
+- **Login = a private signed link.** The link's URL fragment is an HMAC token over
+  `{ t:"creator", id:"<slug>" }` (signed with `COOKIE_SECRET`, same scheme as the
+  desktop paste-code). `creator.html` reads it, remembers it in `localStorage`, and
+  POSTs it to `/api/creator/stats`. No passwords, no per-creator secrets stored.
+- **Installs** = `COUNT(*)` of `devices` rows whose `promo` is one of the creator's
+  codes (D1 `STATS`).
+- **Subscriptions** = each code's Stripe **promotion code** `times_redeemed` (the
+  codes double as Stripe promo codes at checkout). Shows `—` if Stripe is
+  unreachable, and flags a code as unlinked if no Stripe promotion code matches it.
+
+To onboard a creator, hit (with your `STATS_KEY`):
+
+```
+GET /api/creator/link?key=<STATS_KEY>            -> links for every creator
+GET /api/creator/link?key=<STATS_KEY>&id=jukem   -> one creator's link
+```
+
+and send the returned `url` to the creator. No new env vars or bindings are needed
+(reuses `COOKIE_SECRET`, `STRIPE_SECRET_KEY`, `STATS_KEY`, and the `STATS` D1 DB).
 
 ## Local dev
 

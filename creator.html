@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Creator dashboard — Garden Macro</title>
+  <style>
+    :root { --green:#16a34a; --green-dark:#15803d; --ink:#0f172a; --muted:#64748b; --line:#e2e8f0; --soft:#f8fafc; }
+    * { box-sizing:border-box; margin:0; padding:0; }
+    body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; color:var(--ink); background:var(--soft); line-height:1.6; min-height:100vh; display:grid; place-items:center; padding:24px; }
+    .card { background:#fff; border:1px solid var(--line); border-radius:20px; padding:36px; max-width:560px; width:100%; box-shadow:0 16px 40px rgba(15,23,42,.06); }
+    .mark { width:44px; height:44px; border-radius:12px; background:var(--green); display:grid; place-items:center; color:#fff; font-size:22px; margin-bottom:18px; }
+    h1 { font-size:24px; letter-spacing:-.5px; margin-bottom:4px; }
+    p.sub { color:var(--muted); margin-bottom:24px; font-size:14px; }
+    label { display:block; font-size:13px; font-weight:600; color:var(--muted); margin-bottom:8px; }
+    .row { display:flex; gap:8px; }
+    input { flex:1; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:13px; background:var(--soft); border:1px solid var(--line); border-radius:10px; padding:12px 14px; }
+    .btn { background:var(--green); color:#fff; font-weight:600; font-size:14px; padding:0 18px; border:none; border-radius:10px; cursor:pointer; white-space:nowrap; }
+    .btn:hover { background:var(--green-dark); }
+    .btn:disabled { opacity:.6; cursor:default; }
+    .stats { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:8px 0 4px; }
+    .stat { background:var(--soft); border:1px solid var(--line); border-radius:14px; padding:18px; }
+    .stat .n { font-size:34px; font-weight:800; letter-spacing:-1px; color:var(--ink); }
+    .stat .k { font-size:13px; color:var(--muted); font-weight:600; }
+    table { width:100%; border-collapse:collapse; margin-top:20px; font-size:14px; }
+    th, td { text-align:left; padding:10px 8px; border-bottom:1px solid var(--line); }
+    th { font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); font-weight:700; }
+    td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
+    .tag { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12px; background:#ecfdf5; color:var(--green-dark); padding:2px 8px; border-radius:6px; font-weight:700; }
+    .foot { margin-top:22px; font-size:12.5px; color:var(--muted); }
+    .err { background:#fef2f2; color:#b91c1c; font-size:14px; padding:12px 14px; border-radius:10px; margin-bottom:18px; }
+    .note { font-size:12px; color:#854d0e; background:#fef9c3; padding:8px 12px; border-radius:8px; margin-top:14px; }
+    .hidden { display:none; }
+    .signout { background:none; border:none; color:var(--muted); font-size:12.5px; cursor:pointer; text-decoration:underline; padding:0; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="mark">🌱</div>
+
+    <!-- Sign-in (shown when there's no saved token) -->
+    <div id="login">
+      <h1>Creator dashboard</h1>
+      <p class="sub">Paste your access code to see how your code is doing. You only need to do this once on this device.</p>
+      <div id="loginErr" class="err hidden"></div>
+      <label for="token">Access code</label>
+      <div class="row">
+        <input id="token" type="password" placeholder="Paste your access code" autocomplete="off" spellcheck="false" />
+        <button class="btn" id="go">View</button>
+      </div>
+      <p class="foot">Lost your code or link? Ask the Garden Macro team for a new one.</p>
+    </div>
+
+    <!-- Dashboard (shown once a valid token loads) -->
+    <div id="board" class="hidden">
+      <h1 id="hello">Your stats</h1>
+      <p class="sub" id="codeLine"></p>
+      <div class="stats">
+        <div class="stat"><div class="n" id="installs">—</div><div class="k">Installs with your code</div></div>
+        <div class="stat"><div class="n" id="subs">—</div><div class="k">Subscribed through your code</div></div>
+      </div>
+      <div id="breakdownWrap" class="hidden">
+        <table>
+          <thead><tr><th>Code</th><th class="num">Installs</th><th class="num">Subscribed</th></tr></thead>
+          <tbody id="breakdown"></tbody>
+        </table>
+      </div>
+      <div id="subsNote" class="note hidden">Subscription counts are temporarily unavailable — refresh in a moment.</div>
+      <p class="foot">
+        <span id="updated"></span> ·
+        <button class="signout" id="signout">Sign out</button>
+      </p>
+    </div>
+  </div>
+
+  <script>
+    var STORE = "gm_creator_token";
+
+    function el(id) { return document.getElementById(id); }
+    function fmt(n) { return (n == null) ? "—" : Number(n).toLocaleString("en-US"); }
+
+    // Token sources, in order: URL fragment (magic link) > saved (localStorage).
+    function tokenFromHash() {
+      var h = (location.hash || "").replace(/^#/, "").trim();
+      return h || "";
+    }
+
+    function saveToken(t) { try { localStorage.setItem(STORE, t); } catch (e) {} }
+    function loadToken() { try { return localStorage.getItem(STORE) || ""; } catch (e) { return ""; } }
+    function clearToken() { try { localStorage.removeItem(STORE); } catch (e) {} }
+
+    function showLogin(msg) {
+      el("board").classList.add("hidden");
+      el("login").classList.remove("hidden");
+      if (msg) { el("loginErr").textContent = msg; el("loginErr").classList.remove("hidden"); }
+      else { el("loginErr").classList.add("hidden"); }
+    }
+
+    function render(data) {
+      el("login").classList.add("hidden");
+      el("board").classList.remove("hidden");
+      var nm = data.name || "";
+      el("hello").textContent = nm ? (nm + (/s$/i.test(nm) ? "'" : "'s") + " stats") : "Your stats";
+      el("installs").textContent = fmt(data.totals && data.totals.installs);
+      el("subs").textContent = fmt(data.totals && data.totals.subscriptions);
+
+      var codes = data.codes || [];
+      var line = codes.map(function (c) { return c.code; }).join(" + ");
+      el("codeLine").textContent = codes.length > 1 ? ("Codes: " + line) : ("Code: " + line);
+
+      // Per-code breakdown only when a creator owns more than one code.
+      if (codes.length > 1) {
+        el("breakdown").innerHTML = codes.map(function (c) {
+          return "<tr><td><span class='tag'>" + c.code + "</span></td>" +
+                 "<td class='num'>" + fmt(c.installs) + "</td>" +
+                 "<td class='num'>" + fmt(c.subscriptions) + "</td></tr>";
+        }).join("");
+        el("breakdownWrap").classList.remove("hidden");
+      } else {
+        el("breakdownWrap").classList.add("hidden");
+      }
+
+      el("subsNote").classList.toggle("hidden", data.subsAvailable !== false);
+      var d = new Date(data.at || Date.now());
+      el("updated").textContent = "Updated " + d.toLocaleString();
+    }
+
+    async function load(token) {
+      el("go").disabled = true;
+      try {
+        var r = await fetch("/api/creator/stats", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token: token }),
+          cache: "no-store",
+        });
+        if (r.status === 401) { clearToken(); showLogin("That access code isn't valid. Check the link you were sent."); return; }
+        if (!r.ok) { showLogin("Couldn't load your stats right now. Try again in a moment."); return; }
+        var data = await r.json();
+        saveToken(token);
+        render(data);
+      } catch (e) {
+        showLogin("Network error — check your connection and try again.");
+      } finally {
+        el("go").disabled = false;
+      }
+    }
+
+    el("go").addEventListener("click", function () {
+      var t = el("token").value.trim();
+      if (t) load(t);
+    });
+    el("token").addEventListener("keydown", function (e) { if (e.key === "Enter") el("go").click(); });
+    el("signout").addEventListener("click", function () { clearToken(); location.hash = ""; el("token").value = ""; showLogin(""); });
+
+    // Boot: a magic-link token in the fragment wins; otherwise use the saved one.
+    (function () {
+      var hashTok = tokenFromHash();
+      if (hashTok) {
+        // Strip the token from the address bar (it's the credential) but keep it in storage.
+        history.replaceState(null, "", location.pathname + location.search);
+        load(hashTok);
+      } else {
+        var saved = loadToken();
+        if (saved) load(saved);
+        else showLogin("");
+      }
+    })();
+  </script>
+</body>
+</html>
