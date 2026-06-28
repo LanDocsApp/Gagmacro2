@@ -237,23 +237,31 @@ function subMonthlyCents(s) {
   return Math.round(cents);
 }
 
+// True if the subscription carries an ONGOING (never-ending) discount — a forever/
+// repeating comp such as a 100%-off grant. Version-robust: reads BOTH the modern
+// `discounts` array AND the legacy singular `discount` field (which is what the pinned
+// pre-Basil API version returns), each of which may be an inlined Discount object. A
+// one-time ("once") code's discount has its `end` timestamp set, so it is NOT ongoing.
+function hasOngoingDiscount(s) {
+  const list = [];
+  if (Array.isArray(s.discounts)) for (const d of s.discounts) list.push(d);
+  if (s.discount) list.push(s.discount);
+  for (const d of list) {
+    if (d && typeof d === "object" && d.end == null) return true;
+  }
+  return false;
+}
+
 // Does a subscription contribute to MRR? Mirrors Stripe's MRR: status must be `active`
 // (trials/past_due/canceled excluded), it must NOT be pending cancellation (cancel_at /
-// cancel_at_period_end / canceled_at set -> €0 going forward), and it must NOT carry an
-// ONGOING discount (a discount with end===null, i.e. a forever/repeating comp such as a
-// 100%-off grant -> €0). A first-month "once" code has its discount's `end` set, so it is
-// NOT excluded and counts at full recurring price (Stripe excludes one-time discounts from
-// MRR). NOTE: an ongoing PARTIAL discount (e.g. 50%-off forever) is treated as €0 here
-// rather than reduced — fine for this app where forever-discounts are 100%-off comps.
+// cancel_at_period_end / canceled_at set -> €0 going forward), and it must NOT be an
+// ongoing-discount comp (-> €0). NOTE: an ongoing PARTIAL discount (e.g. 50%-off forever)
+// is treated as €0 here rather than reduced — fine for this app where forever-discounts
+// are 100%-off comps.
 function mrrCounts(s) {
   if (s.status !== "active") return false;
   if (s.cancel_at_period_end || s.cancel_at || s.canceled_at) return false;
-  const discs = s.discounts;
-  if (Array.isArray(discs)) {
-    for (const d of discs) {
-      if (d && typeof d === "object" && d.end == null) return false;
-    }
-  }
+  if (hasOngoingDiscount(s)) return false;
   return true;
 }
 
@@ -281,7 +289,11 @@ export async function subsSnapshot(env, now) {
     while (pages < PAGE_CAP) {
       const params = { status: "all", limit: 100 };
       if (after) params.starting_after = after;
-      const res = await listSubscriptionsPage(env, params, STRIPE_API_VERSION);
+      // No version pin here (unlike the invoice scan): the pre-Basil pin returns the legacy
+      // singular `discount` field, whereas the account default inlines the modern `discounts`
+      // array of Discount objects (with `end`). hasOngoingDiscount() reads both, but using the
+      // default keeps us on the shape verified against the live account.
+      const res = await listSubscriptionsPage(env, params);
       const data = (res && res.data) || [];
       for (const s of data) {
         byStatus[s.status] = (byStatus[s.status] || 0) + 1;
@@ -289,7 +301,9 @@ export async function subsSnapshot(env, now) {
         if (!currency && s.currency) currency = s.currency;
         const start = (s.start_date || s.created || 0) * 1000;
         if (start && start >= mStart) newM++;
-        const ended = (s.canceled_at || s.ended_at || 0) * 1000;
+        // "Churned" = actually ENDED (ended_at), not merely scheduled to cancel. A sub
+        // pending cancellation (canceled_at set, ended_at null) is still active, not churned.
+        const ended = (s.ended_at || 0) * 1000;
         if (ended && ended >= mStart) churnedM++;
         if (ended && start && ended > start) {
           lifetimeSum += ended - start;
