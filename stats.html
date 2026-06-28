@@ -445,10 +445,14 @@
     dayChart("o-chart", daily, "installs", "var(--green)", "active", "var(--blue)");
 
     const f = d.funnel || {};
+    // "Subscribed" = REAL active subscribers (from Stripe, comps/test excluded) when the
+    // money data has loaded; falls back to the all-time subscribe-event count otherwise.
+    const subscribed = (moneyData && moneyData.subs && moneyData.subs.active != null)
+      ? moneyData.subs.active : (f.subscribe || 0);
     $("o-funnel").innerHTML = [
-      ["Installs", f.installs], ["Get access", f.getAccess], ["Checkout", f.checkout], ["Subscribed", f.subscribe],
+      ["Installs", f.installs], ["Get access", f.getAccess], ["Checkout", f.checkout], ["Subscribed", subscribed],
     ].map(([k, v]) => '<div class="card"><div class="label">' + k + '</div><div class="value">' + nf(v || 0) + "</div></div>").join("");
-    $("o-funnote").innerHTML = "Install to subscribed: <b>" + pct(f.subscribe, f.installs) + "%</b> &middot; clicked Get access: <b>" + pct(f.getAccess, f.installs) + "%</b>";
+    $("o-funnote").innerHTML = "Install to subscribed: <b>" + pct(subscribed, f.installs) + "%</b> &middot; clicked Get access: <b>" + pct(f.getAccess, f.installs) + "%</b>";
 
     const versions = d.versions || [];
     const vtotal = versions.reduce((s, v) => s + (v.count || 0), 0);
@@ -534,6 +538,9 @@
     $("m-ltv-s").textContent = subs.ltvCents == null ? "" : (subs.ltvEstimated ? "estimate" : "avg lifetime × price");
     $("o-mrr-s").textContent = mrr == null ? "live from Stripe"
       : (subs.mrrSubs != null ? subs.mrrSubs + " paying" + (active != null && active !== subs.mrrSubs ? " of " + active + " active" : " subs") : "");
+
+    // Refresh the Overview funnel so its "Subscribed" uses the real active count.
+    if (lastData) renderOverview(lastData);
 
     const mo = (m && m.month) || {};
     $("m-monthlabel").textContent = mo.label ? "(" + mo.label + ")" : "";
