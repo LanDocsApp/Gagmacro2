@@ -687,7 +687,11 @@
 
     const plRow = (label, val, o) => {
       o = o || {};
-      const cell = val == null ? "—" : (o.neg && val ? "−" : "") + money(Math.abs(val), cur);
+      // Total (net profit) shows the real signed value — it can be negative (a loss).
+      // Cost lines (o.neg) are shown as −amount; revenue as a plain amount.
+      const cell = val == null ? "—"
+        : o.total ? money(val, cur)
+        : (o.neg && val ? "−" : "") + money(Math.abs(val), cur);
       return "<tr" + (o.total ? ' class="total"' : "") + "><td>" + label + '</td><td class="num">' + cell + "</td></tr>";
     };
     $("f-pl").innerHTML =
