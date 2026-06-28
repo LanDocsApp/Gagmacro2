@@ -183,8 +183,8 @@
     <!-- MONEY -->
     <div id="tab-money" class="panel" hidden>
       <div class="grid">
-        <div class="card"><div class="label">Active subscribers</div><div class="value" id="m-active">…</div></div>
-        <div class="card"><div class="label">MRR</div><div class="value" id="m-mrr">…</div></div>
+        <div class="card"><div class="label">Active subscribers</div><div class="value" id="m-active">…</div><div class="vsub" id="m-active-s"></div></div>
+        <div class="card"><div class="label">MRR</div><div class="value" id="m-mrr">…</div><div class="vsub" id="m-mrr-s"></div></div>
         <div class="card"><div class="label">New this month</div><div class="value" id="m-new">…</div></div>
         <div class="card"><div class="label">Churned this month</div><div class="value" id="m-churn">…</div></div>
         <div class="card"><div class="label">Avg sub length</div><div class="value" id="m-life">…</div><div class="vsub" id="m-life-s"></div></div>
@@ -422,13 +422,19 @@
     setMoneyCard("o-mrr", money(mrr, cur));
     setMoneyCard("m-active", active == null ? "—" : nf(active));
     setMoneyCard("m-mrr", money(mrr, cur));
+    var payNote = subs.mrrSubs == null ? "" : subs.mrrSubs + " paying" + (active != null && active !== subs.mrrSubs ? " · " + (active - subs.mrrSubs) + " comp/ending" : "");
+    $("m-mrr-s").textContent = payNote;
+    var bs = subs.byStatus || {};
+    var extra = (bs.past_due || 0) + (bs.trialing || 0);
+    $("m-active-s").textContent = active == null ? "" : (extra > 0 ? extra + " trial/past-due too" : "Stripe-active");
     setMoneyCard("m-new", subs.newThisMonth == null ? "—" : nf(subs.newThisMonth));
     setMoneyCard("m-churn", subs.churnedThisMonth == null ? "—" : nf(subs.churnedThisMonth));
     setMoneyCard("m-life", subs.avgLifetimeMonths == null ? "—" : subs.avgLifetimeMonths + " mo");
     $("m-life-s").textContent = subs.avgLifetimeMonths == null ? "needs churned subs" : (subs.ltvEstimated ? "estimate (low sample)" : "observed");
     setMoneyCard("m-ltv", money(subs.ltvCents, cur));
     $("m-ltv-s").textContent = subs.ltvCents == null ? "" : (subs.ltvEstimated ? "estimate" : "avg lifetime × price");
-    $("o-mrr-s").textContent = mrr == null ? "live from Stripe" : (active != null ? active + " active subs" : "");
+    $("o-mrr-s").textContent = mrr == null ? "live from Stripe"
+      : (subs.mrrSubs != null ? subs.mrrSubs + " paying" + (active != null && active !== subs.mrrSubs ? " of " + active + " active" : " subs") : "");
 
     const mo = (m && m.month) || {};
     $("m-monthlabel").textContent = mo.label ? "(" + mo.label + ")" : "";

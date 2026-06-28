@@ -24,7 +24,6 @@ import {
   listSubscriptionsPage,
   listRefundsPage,
   listPromotionCodesPage,
-  getPrice,
 } from "./stripe.js";
 import { codePurpose } from "./creators.js";
 
@@ -214,11 +213,56 @@ export async function scanInvoices(env, now) {
 
 // ---- Subscription snapshot --------------------------------------------------
 // active/byStatus/MRR/new/churned this month + average lifetime -> LTV.
+
+// A subscription's normalized MONTHLY recurring amount (settlement-of-price currency
+// minor units), read from its items inline — no extra Stripe call, supports any interval.
+function subMonthlyCents(s) {
+  const items = (s.items && s.items.data) || [];
+  let cents = 0;
+  for (const it of items) {
+    const price = it.price || it.plan || {};
+    const unit = price.unit_amount != null ? price.unit_amount : price.amount != null ? price.amount : 0;
+    const qty = it.quantity || s.quantity || 1;
+    const rec = price.recurring || price; // legacy `plan` carries interval at top level
+    const interval = rec.interval || "month";
+    const ic = rec.interval_count || 1;
+    let monthly = unit * qty;
+    if (interval === "year") monthly = monthly / (12 * ic);
+    else if (interval === "week") monthly = (monthly * 52) / (12 * ic);
+    else if (interval === "day") monthly = (monthly * 365) / (12 * ic);
+    else monthly = monthly / ic; // month
+    cents += monthly;
+  }
+  if (!items.length && s.plan && s.plan.amount != null) cents = s.plan.amount * (s.quantity || 1);
+  return Math.round(cents);
+}
+
+// Does a subscription contribute to MRR? Mirrors Stripe's MRR: status must be `active`
+// (trials/past_due/canceled excluded), it must NOT be pending cancellation (cancel_at /
+// cancel_at_period_end / canceled_at set -> €0 going forward), and it must NOT carry an
+// ONGOING discount (a discount with end===null, i.e. a forever/repeating comp such as a
+// 100%-off grant -> €0). A first-month "once" code has its discount's `end` set, so it is
+// NOT excluded and counts at full recurring price (Stripe excludes one-time discounts from
+// MRR). NOTE: an ongoing PARTIAL discount (e.g. 50%-off forever) is treated as €0 here
+// rather than reduced — fine for this app where forever-discounts are 100%-off comps.
+function mrrCounts(s) {
+  if (s.status !== "active") return false;
+  if (s.cancel_at_period_end || s.cancel_at || s.canceled_at) return false;
+  const discs = s.discounts;
+  if (Array.isArray(discs)) {
+    for (const d of discs) {
+      if (d && typeof d === "object" && d.end == null) return false;
+    }
+  }
+  return true;
+}
+
 export async function subsSnapshot(env, now) {
   const out = {
     active: null,
     byStatus: {},
     mrrCents: null,
+    mrrSubs: null,
     priceCurrency: null,
     newThisMonth: null,
     churnedThisMonth: null,
@@ -228,22 +272,11 @@ export async function subsSnapshot(env, now) {
     available: true,
   };
   const mStart = monthStartMs(now);
-  const ACTIVE = new Set(["active", "trialing", "past_due"]);
-
-  let unitAmount = null;
-  try {
-    if (env.STRIPE_PRICE_ID) {
-      const price = await getPrice(env, env.STRIPE_PRICE_ID, STRIPE_API_VERSION);
-      unitAmount = price && price.unit_amount != null ? price.unit_amount : null;
-      out.priceCurrency = price && price.currency ? price.currency : null;
-    }
-  } catch {
-    /* price unavailable -> MRR stays null */
-  }
 
   try {
     let after = null, pages = 0;
     let active = 0, newM = 0, churnedM = 0, lifetimeSum = 0, lifetimeN = 0;
+    let mrr = 0, payingN = 0, currency = null;
     const byStatus = {};
     while (pages < PAGE_CAP) {
       const params = { status: "all", limit: 100 };
@@ -252,7 +285,8 @@ export async function subsSnapshot(env, now) {
       const data = (res && res.data) || [];
       for (const s of data) {
         byStatus[s.status] = (byStatus[s.status] || 0) + 1;
-        if (ACTIVE.has(s.status)) active++;
+        if (s.status === "active") active++; // matches Stripe's active-subscription count
+        if (!currency && s.currency) currency = s.currency;
         const start = (s.start_date || s.created || 0) * 1000;
         if (start && start >= mStart) newM++;
         const ended = (s.canceled_at || s.ended_at || 0) * 1000;
@@ -260,6 +294,10 @@ export async function subsSnapshot(env, now) {
         if (ended && start && ended > start) {
           lifetimeSum += ended - start;
           lifetimeN++;
+        }
+        if (mrrCounts(s)) {
+          mrr += subMonthlyCents(s);
+          payingN++;
         }
       }
       if (!res || !res.has_more || !data.length) break;
@@ -274,9 +312,11 @@ export async function subsSnapshot(env, now) {
     }
     out.active = active;
     out.byStatus = byStatus;
+    out.priceCurrency = currency;
     out.newThisMonth = newM;
     out.churnedThisMonth = churnedM;
-    out.mrrCents = unitAmount != null ? active * unitAmount : null;
+    out.mrrCents = mrr;
+    out.mrrSubs = payingN;
 
     // Average lifetime: prefer observed (churned) lifetimes; fall back to 1/churn-rate
     // when too few have actually churned (flagged so the UI can show "estimate").
@@ -286,8 +326,8 @@ export async function subsSnapshot(env, now) {
       out.avgLifetimeMonths = Math.round((active / churnedM) * 10) / 10;
       out.ltvEstimated = true;
     }
-    if (out.avgLifetimeMonths != null && unitAmount != null) {
-      out.ltvCents = Math.round(out.avgLifetimeMonths * unitAmount);
+    if (out.avgLifetimeMonths != null && payingN > 0) {
+      out.ltvCents = Math.round(out.avgLifetimeMonths * (mrr / payingN)); // avg revenue/paying sub
     }
   } catch {
     out.available = false;
@@ -412,6 +452,7 @@ export async function buildMoneySnapshot(env) {
       active: subs.active,
       byStatus: subs.byStatus,
       mrrCents: subs.mrrCents,
+      mrrSubs: subs.mrrSubs,
       newThisMonth: subs.newThisMonth,
       churnedThisMonth: subs.churnedThisMonth,
       avgLifetimeMonths: subs.avgLifetimeMonths,
