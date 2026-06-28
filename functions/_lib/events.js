@@ -4,7 +4,11 @@
 // transient D1 error can NEVER break the calling flow (heartbeat, checkout, webhook).
 // Returns true on success, false if it was skipped or swallowed an error.
 
-const ALLOWED = new Set(["get_access", "checkout", "subscribe", "hint_shown", "loyalty_shown"]);
+const ALLOWED = new Set([
+  "get_access", "checkout", "subscribe",
+  "hint_shown", "hint_copied", "hint_dismiss",
+  "loyalty_shown", "loyalty_copied", "loyalty_dismiss",
+]);
 
 export async function logEvent(env, name, opts = {}) {
   if (!env || !env.STATS || !ALLOWED.has(name)) return false;

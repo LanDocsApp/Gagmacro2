@@ -428,6 +428,11 @@ OnWebMessage(sender, args) {
             ChooseSource(p ? SubStr(msg, p + 1) : "")
         case "sourceskip":
             SkipSource()
+        case "ev":
+            ; "ev|<name>" -> forward a one-off funnel event from the WebView (popup
+            ; shown/copied/dismissed). The backend allowlists which names it accepts.
+            if parts.Length >= 2 && parts[2] != ""
+                SendEvent(parts[2])
         case "fit":
             if parts.Length >= 2 && IsInteger(parts[2])
                 FitWindowHeight(Integer(parts[2]))
@@ -1772,7 +1777,7 @@ HtmlTemplate() {
       <div class='mh'>
         <span class='mlock'>&#11088;</span>
         <h2 id='hintTitle'>You left rare seeds on the table</h2>
-        <button class='mx' onclick='closeHint()'>&times;</button>
+        <button class='mx' onclick='dismissHint()'>&times;</button>
       </div>
       <p class='mdesc'>If you had upgraded, this session would have bought you on average</p>
       <div class='hintwrap'>
@@ -1785,7 +1790,7 @@ HtmlTemplate() {
         <button class='btn' onclick='copyCode(this, "hintCode")'>Copy</button>
       </div>
       <button class='btn green block' onclick='closeHint(); openAccess();'>Unlock the best seeds &mdash; 20% off &rarr;</button>
-      <a class='hintDismiss' onclick='closeHint()'>Maybe later</a>
+      <a class='hintDismiss' onclick='dismissHint()'>Maybe later</a>
     </div>
   </div>
 
@@ -1794,7 +1799,7 @@ HtmlTemplate() {
       <div class='mh'>
         <span class='mlock'>&#127881;</span>
         <h2>You&#39;ve unlocked <span class='off'>50% off</span>!</h2>
-        <button class='mx' onclick='closeDiscount()'>&times;</button>
+        <button class='mx' onclick='dismissDiscount()'>&times;</button>
       </div>
       <p class='mdesc'>Thanks for running Garden Macro for over <span id='discountHours'>5</span> hours. Here&#39;s <b>50% off</b> Garden Macro Pro &mdash; enter this code at checkout:</p>
       <div class='codebox'>
@@ -1802,7 +1807,7 @@ HtmlTemplate() {
         <button class='btn' onclick='copyDiscount(this)'>Copy</button>
       </div>
       <button class='btn green block' onclick='closeDiscount(); openAccess();'>Get Pro &mdash; 50% off &rarr;</button>
-      <a class='hintDismiss' onclick='closeDiscount()'>Maybe later</a>
+      <a class='hintDismiss' onclick='dismissDiscount()'>Maybe later</a>
     </div>
   </div>
 
@@ -2033,9 +2038,15 @@ HtmlTemplate() {
         document.execCommand('copy'); sel.removeAllRanges();
       } catch(e2){}
     }
+    if (id === 'hintCode') send('ev|hint_copied');         /* funnel: post-session upsell code copied */
+    else if (id === 'discountCode') send('ev|loyalty_copied'); /* funnel: loyalty code copied */
     if (btn){ var t = btn.textContent; btn.textContent = 'Copied'; setTimeout(function(){ btn.textContent = t; }, 1400); }
   }
   function copyDiscount(btn){ copyCode(btn, 'discountCode'); }
+  /* Dismissals (X / "Maybe later") log a funnel event; the CTA buttons do NOT (they
+     route to openAccess instead), so dismiss counts only true "not now" closes. */
+  function dismissHint(){ send('ev|hint_dismiss'); closeHint(); }
+  function dismissDiscount(){ send('ev|loyalty_dismiss'); closeDiscount(); }
 
   /* Promo codes. AHK sends "promoask" shortly after first launch; the page shows the
      prompt. Apply (or Enter) -> AHK validates and replies "promook|<CODE>|<PCT>" (badge

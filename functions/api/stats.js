@@ -195,6 +195,20 @@ export async function onRequestGet({ request, env }) {
       }
     }
 
+    // Popup funnel events (loyalty + post-session upsell): shown/copied/dismissed counts
+    // from the events table. Redemptions are added on the dashboard from Stripe (Money tab).
+    let popupEvents = {};
+    try {
+      const pe = await env.STATS.prepare(
+        `SELECT name, COUNT(*) AS n FROM events
+         WHERE name IN ('loyalty_shown','loyalty_copied','loyalty_dismiss','hint_shown','hint_copied','hint_dismiss')
+         GROUP BY name`
+      ).all();
+      for (const r of pe?.results || []) popupEvents[String(r.name)] = r.n || 0;
+    } catch {
+      popupEvents = {};
+    }
+
     // Make every registered creator code show up in Acquisition, even with zero installs.
     try {
       const present = new Set(acqPromos.map((r) => String(r.code).toUpperCase()));
@@ -225,6 +239,7 @@ export async function onRequestGet({ request, env }) {
       versions,
       acqSources,
       acqPromos,
+      popupEvents,
       at: now,
     });
   } catch (e) {
