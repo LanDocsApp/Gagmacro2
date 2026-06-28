@@ -490,6 +490,19 @@ export async function buildMoneySnapshot(env) {
   // Highest earners first, then by uses.
   codeRows.sort((a, b) => (b.netSettledCents || 0) - (a.netSettledCents || 0) || b.uses - a.uses);
 
+  // Creator earnings attributable to THIS month (their first-month commission on subs that
+  // redeemed a creator code this month) — the P&L's creator-cost line.
+  const mStart = monthStartMs(now);
+  let creatorEarnedMonth = 0;
+  if (scan.available) {
+    for (const pc of codes.byId.values()) {
+      if (pc.purpose !== "creator") continue;
+      const agg = scan.byPc.get(pc.id);
+      if (!agg) continue;
+      for (const r of agg.redemptions) if (r.at >= mStart && r.status !== "refunded") creatorEarnedMonth += r.amountCents;
+    }
+  }
+
   return {
     currency,
     subs: {
@@ -505,12 +518,13 @@ export async function buildMoneySnapshot(env) {
     },
     month: {
       label: monthLabel(now),
-      startedAt: monthStartMs(now),
+      startedAt: mStart,
       grossCents: scan.available ? scan.month.grossCents : null,
       netSettledCents: scan.available ? scan.month.netCents : null,
       feesCents: scan.available ? scan.month.feesCents : null,
       refundsCents: refunds.available ? refunds.cents : null,
       refundsCount: refunds.available ? refunds.count : null,
+      creatorEarnedCents: scan.available ? creatorEarnedMonth : null,
     },
     codes: codeRows,
     codesAvailable: scan.available && codes.available,
