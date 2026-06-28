@@ -24,6 +24,7 @@ functions/
     desktop/portal.js        POST -> { token } -> { url } (Stripe billing portal: manage/cancel)
     creator/stats.js         POST -> { token } -> one creator's { installs, subscriptions } per code
     creator/link.js          GET  -> (admin, STATS_KEY) mint a creator's private dashboard link
+    creator/payout.js        POST -> (admin, STATS_KEY + token) creator payout ledger (list/add/delete)
   _lib/
     creators.js        creator -> promo-code registry (mirror of macro.ahk PromoValid)
 index.html      marketing landing
@@ -135,6 +136,30 @@ GET /api/creator/link?key=<STATS_KEY>&id=jukem   -> one creator's link
 
 and send the returned `url` to the creator. No new env vars or bindings are needed
 (reuses `COOKIE_SECRET`, `STRIPE_SECRET_KEY`, `STATS_KEY`, and the `STATS` D1 DB).
+
+### Payout tracking (admin-only)
+
+`creator.html` has a **Payouts** section that is hidden for creators and only
+appears once you unlock it with your `STATS_KEY` (the **Admin** button at the
+bottom; the key is reused from the main stats dashboard's `localStorage`, so if
+you're already signed into `/stats` it loads automatically). It shows, per
+creator: **Total installs / Paid out / Pending**, the total amount paid, a payout
+history, and a form to **Record** a new payout (installs covered, optional dollar
+amount, optional note) or delete one.
+
+It's backed by `/api/creator/payout`, which requires **both** the `STATS_KEY`
+(authorization) and the creator's signed `token` (which creator). The creator
+token alone — what a creator has — can't read or write payouts, which is why this
+is a separate endpoint from `creator/stats.js`. Payouts are tracked per creator
+(slug), aggregated across all their codes: `paidInstalls = SUM(installs)`,
+`pending = total installs driven − paidInstalls`.
+
+> One-time setup: apply **migration 0004** (`migrations/0004_add_payouts.sql`) to
+> the `gagmacro-stats` D1 DB to create the `payouts` table. Until then the section
+> still loads (installs + zeros), it just can't store anything.
+
+The **Acquisition** tab on `/stats` lists every creator code (from `_lib/creators.js`),
+including codes with zero installs, so new creators show up before they've driven any.
 
 ## Local dev
 

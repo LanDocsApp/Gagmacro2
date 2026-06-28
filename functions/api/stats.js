@@ -35,6 +35,7 @@
 // a configured key the endpoint stays locked.
 
 import { json } from "../_lib/http.js";
+import { CREATORS } from "../_lib/creators.js";
 
 // Build an array of the last `n` UTC day strings (YYYY-MM-DD), oldest first.
 function lastUtcDays(now, n) {
@@ -401,6 +402,24 @@ export async function onRequestGet({ request, env }) {
       } catch {
         acqSources = []; acqPromos = [];
       }
+    }
+
+    // Make every registered creator code show up in the Acquisition tab, even ones
+    // with zero installs (the SQL above only returns codes that have ≥1 install).
+    // Match case-insensitively so we don't duplicate a code that does have installs.
+    try {
+      const present = new Set(acqPromos.map((r) => String(r.code).toUpperCase()));
+      for (const c of Object.values(CREATORS)) {
+        for (const code of c.codes) {
+          const CODE = String(code).toUpperCase();
+          if (!present.has(CODE)) {
+            present.add(CODE);
+            acqPromos.push({ code: CODE, installs: 0, getAccess: 0, returning: 0 });
+          }
+        }
+      }
+    } catch {
+      // registry unavailable -> just show the codes that have installs
     }
 
     // Total session count (context for the Sessions tab, which shows the latest 100).
