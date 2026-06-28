@@ -100,7 +100,7 @@ global InstallFile  := A_AppData "\GardenMacro\install.txt"  ; first-run stamp +
 ; Version shown in the window's bottom corner. Bump AppVersion on real releases;
 ; the build time is taken from this file's last-modified date, so it changes every
 ; time you save the script -> an easy "did my latest change actually load?" check.
-global AppVersion := "1.0.2"
+global AppVersion := "1.0.3"
 global BackendBase  := "https://gardenmacro.com"   ; subscription backend
 global VerifyUrl    := BackendBase "/api/desktop/verify"
 global PortalUrl    := BackendBase "/api/desktop/portal"   ; Stripe billing portal (manage/cancel)
@@ -205,6 +205,7 @@ global Seeds := [
     {name: "Poison Apple",    rarity: "Mythic"},
     {name: "Venom Spitter",   rarity: "Mythic"},
     {name: "Moon Bloom",      rarity: "Super"},
+    {name: "Hypno Bloom",     rarity: "Super"},
     {name: "Dragon's Breath", rarity: "Super"}
 ]
 
