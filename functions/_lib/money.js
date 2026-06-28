@@ -287,12 +287,12 @@ export async function subsSnapshot(env, now) {
     let mrr = 0, payingN = 0, currency = null;
     const byStatus = {};
     while (pages < PAGE_CAP) {
-      const params = { status: "all", limit: 100 };
+      // expand discounts: in the LIST they come back as bare discount IDs (strings) unless
+      // expanded, so without this hasOngoingDiscount() can't read `end` and 100%-off comps
+      // leak into MRR. No version pin here (unlike the invoice scan) — the account default
+      // returns the modern `discounts` array; hasOngoingDiscount() also reads legacy `discount`.
+      const params = { status: "all", limit: 100, expand: ["data.discounts"] };
       if (after) params.starting_after = after;
-      // No version pin here (unlike the invoice scan): the pre-Basil pin returns the legacy
-      // singular `discount` field, whereas the account default inlines the modern `discounts`
-      // array of Discount objects (with `end`). hasOngoingDiscount() reads both, but using the
-      // default keeps us on the shape verified against the live account.
       const res = await listSubscriptionsPage(env, params);
       const data = (res && res.data) || [];
       for (const s of data) {
