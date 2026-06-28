@@ -653,6 +653,7 @@ MaybeShowUpgradeHint(elapsedMs) {
             return
         try MainGui.Restore()               ; un-minimize so the hint is actually seen
         Post("hint|" HintCount(mythicExp) "|" HintCount(superExp))
+        SendEvent("hint_shown")             ; funnel: the post-session upsell popup was shown
         return
     }
 
@@ -661,6 +662,7 @@ MaybeShowUpgradeHint(elapsedMs) {
         return
     try MainGui.Restore()
     Post("hint|0|" HintCount(superExp))
+    SendEvent("hint_shown")                 ; funnel: the post-session upsell popup was shown
 }
 
 ; Round an expected count for display: nearest whole, never below 1, so a small
@@ -732,6 +734,7 @@ MaybeShowLoyaltyDiscount() {
     try MainGui.Restore()                   ; un-minimize so the offer is actually seen
     ; Carry the milestone hours just crossed so the popup copy reads "over 5/20 hours".
     Post("discount|" DiscountCode "|" DiscountMiles[reached])
+    SendEvent("loyalty_shown")              ; funnel: the 50%-off loyalty popup was shown
     return true
 }
 

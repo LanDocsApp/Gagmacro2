@@ -24,9 +24,13 @@ functions/
     desktop/portal.js        POST -> { token } -> { url } (Stripe billing portal: manage/cancel)
     creator/stats.js         POST -> { token } -> one creator's { installs, subscriptions } per code
     creator/link.js          GET  -> (admin, STATS_KEY) mint a creator's private dashboard link
-    creator/payout.js        POST -> (admin, STATS_KEY + token) creator payout ledger (list/add/delete)
+    creator/payout.js        POST -> (admin, STATS_KEY + token) DISBURSEMENT ledger (list/add/delete)
+    creator/payout-view.js   POST -> { token } -> creator's read-only earned/pending/paid + redemptions
+    money.js                 GET  -> (admin, STATS_KEY) Money-tab data: active subs, MRR, this-month
+                                     money, per-code net-settled earnings (heavy Stripe scan, lazy-loaded)
   _lib/
-    creators.js        creator -> promo-code registry (mirror of macro.ahk PromoValid)
+    creators.js        creator -> promo-code registry (mirror of macro.ahk PromoValid) + code purpose tags
+    money.js           shared Stripe money math: net-settled per-code earnings, MRR, churn, avg lifetime
 index.html      marketing landing
 signin.html     sign in with Google / get your code
 creator.html    per-creator stats dashboard (opened via a private signed link)
@@ -137,32 +141,46 @@ GET /api/creator/link?key=<STATS_KEY>&id=jukem   -> one creator's link
 and send the returned `url` to the creator. No new env vars or bindings are needed
 (reuses `COOKIE_SECRET`, `STRIPE_SECRET_KEY`, `STATS_KEY`, and the `STATS` D1 DB).
 
-### Payout tracking (admin-only)
+### Payout tracking
 
-`creator.html` has a **Payouts** section that is hidden for creators and only
-appears once you unlock it with your `STATS_KEY` (the **Admin** button at the
-bottom; the key is reused from the main stats dashboard's `localStorage`, so if
-you're already signed into `/stats` it loads automatically). It shows, per
-creator: **Subscribers / Paid out / Pending**, the total amount paid, a payout
-history, and a form to **Record** a new payout (subscribers covered, optional
-dollar amount, optional note) or delete one.
+A creator earns the **actual net-settled first-month revenue** from each subscriber
+their code brought in — the real money that landed in Stripe (after fees, FX-converted
+into the settlement currency, refunds excluded), read from each discounted invoice's
+`balance_transaction.net`. There is no configurable rate; the amount is the true
+per-customer Stripe figure. Because every coupon is duration `once`, each redemption's
+discounted invoice IS its first-month invoice, so net-settled-of-that-invoice == earned.
 
-It's backed by `/api/creator/payout`, which requires **both** the `STATS_KEY`
-(authorization) and the creator's signed `token` (which creator). The creator
-token alone — what a creator has — can't read or write payouts, which is why this
-is a separate endpoint from `creator/stats.js`. Payouts are tracked per creator
-(slug), aggregated across all their codes. You pay on **subscribers** (paid Stripe
-redemptions, the same `times_redeemed` the dashboard shows as "Subscribed"):
-`paidSubscribers = SUM(subscribers)`, `pending = total subscribers driven −
-paidSubscribers`. Total/pending read `—` if Stripe is unreachable; the paid count
-from the ledger always shows.
+Two endpoints, two audiences:
 
-> One-time setup: apply **migration 0004** (`migrations/0004_add_payouts.sql`) to
-> the `gagmacro-stats` D1 DB to create the `payouts` table. Until then the section
-> still loads (installs + zeros), it just can't store anything.
+- **`/api/creator/payout-view`** (token-only, read-only) — what the **creator** sees on
+  `creator.html`: **Earned / Pending / Paid out** in both money and subs, plus a
+  redemptions list (date · code · amount · status) with **no customer PII**. `earned`
+  comes from the Stripe scan; `paidOut` from the disbursement ledger; `pending =
+  earned − paidOut`. Earned reads `—` if Stripe is unreachable; paid-out always shows.
+- **`/api/creator/payout`** (admin: `STATS_KEY` + `token`) — the **disbursement ledger**.
+  The `payouts` D1 table now records only what you've actually *paid* (amount, subs
+  covered, note, date). The **Record a payout** form on `creator.html` appears once you
+  unlock with your `STATS_KEY` (the **Admin** button; key reused from `/stats`).
+
+The admin **Money tab** (`/api/money`, `STATS_KEY`, lazy-loaded) shows the same earnings
+across every code: a per-promotion-code table tagged by purpose (creator / conversion
+`superseed` / loyalty `promacro`) with uses, net-settled revenue, paid-to-creator, and
+net — plus active subscribers, MRR, new/churned this month, avg subscription length → LTV,
+and this-month gross/net/fees/refunds. All Stripe figures degrade to `—` (HTTP 200, never
+500) when Stripe is down; Overview and Acquisition stay D1-only and never call Stripe.
+
+> **Stripe API version:** `_lib/money.js` pins a pre-"Basil" `Stripe-Version` on every
+> money call (`STRIPE_API_VERSION`) so `invoice.charge` (and its expandable
+> `balance_transaction`) is always present. Stripe's 2025-03-31 "Basil" release moved the
+> charge under `invoice.payments[]`; the code reads both, but the pin is the safety net —
+> without it, a Basil-default account would read every `net` as 0 and pay creators $0.
+
+> One-time setup: apply **migration 0004** (`migrations/0004_add_payouts.sql`) for the
+> `payouts` ledger. The model needs no other migration; earned/owed comes from Stripe.
 
 The **Acquisition** tab on `/stats` lists every creator code (from `_lib/creators.js`),
 including codes with zero installs, so new creators show up before they've driven any.
+`/stats` is now **3 tabs** (Overview · Acquisition · Money), down from six.
 
 ## Local dev
 

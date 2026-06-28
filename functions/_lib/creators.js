@@ -21,3 +21,31 @@ export function getCreator(id) {
   const c = CREATORS[key];
   return c ? { id: key, name: c.name, codes: c.codes.slice() } : null;
 }
+
+// Non-creator system discount codes the macro shows on its own (NOT attribution
+// codes), tagged by the lever they represent so the Money dashboard can compare
+// "which popup converts". Keep in sync with macro.ahk:
+//   superseed -> post-session "seeds you missed" upsell (20%)
+//   promacro  -> 5h/20h runtime loyalty popup (50%)
+export const SYSTEM_CODE_PURPOSE = {
+  SUPERSEED: "conversion",
+  PROMACRO: "loyalty",
+};
+
+// Reverse index: uppercased creator code -> owning creator slug.
+const CODE_TO_CREATOR = (() => {
+  const m = {};
+  for (const id of Object.keys(CREATORS))
+    for (const code of CREATORS[id].codes) m[code.toUpperCase()] = id;
+  return m;
+})();
+
+// Tag a promo code string with its purpose + owning creator (if any). Used to
+// label the Money tab's discount-code table and to attribute earnings.
+// Returns { purpose: "creator"|"conversion"|"loyalty"|"other", creatorId: string|null }.
+export function codePurpose(code) {
+  const CODE = String(code || "").trim().toUpperCase();
+  if (CODE_TO_CREATOR[CODE]) return { purpose: "creator", creatorId: CODE_TO_CREATOR[CODE] };
+  if (SYSTEM_CODE_PURPOSE[CODE]) return { purpose: SYSTEM_CODE_PURPOSE[CODE], creatorId: null };
+  return { purpose: "other", creatorId: null };
+}

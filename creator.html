@@ -36,6 +36,7 @@
     .pay .stats { grid-template-columns:1fr 1fr 1fr; }
     .pay .stat .n { font-size:28px; }
     .pay .stat.pending .n { color:#b45309; }
+    .pay .stat .kk { font-size:11px; color:var(--muted); margin-top:3px; font-variant-numeric:tabular-nums; }
     .payform { display:flex; flex-wrap:wrap; gap:8px; margin-top:18px; }
     .payform input { flex:1 1 90px; min-width:80px; font-size:13px; background:var(--soft); border:1px solid var(--line); border-radius:10px; padding:11px 12px; }
     .payform input.notein { flex:2 1 160px; font-family:inherit; }
@@ -82,30 +83,44 @@
       </div>
       <div id="subsNote" class="note hidden">Subscription counts are temporarily unavailable — refresh in a moment.</div>
 
-      <!-- Payouts: admin-only. Stays hidden for creators; appears once a valid
-           STATS_KEY is unlocked (it's reused from the main stats dashboard). -->
+      <!-- Payouts: read-only for the creator. Earned = the real net-settled first-month
+           revenue (after Stripe fees + currency conversion, refunds excluded) from
+           subscribers their code brought in. Paid-out/pending from the disbursement ledger. -->
       <div id="payouts" class="pay hidden">
         <h2>Payouts</h2>
-        <p class="sub" style="margin-bottom:14px;">Subscribers you've paid this creator for, and what's still outstanding. Only you can see this.</p>
+        <p class="sub" style="margin-bottom:14px;">What you've earned from the subscribers your code brought in, what's been paid, and what's still owed. Earned is the first month's revenue, net of fees.</p>
         <div class="stats">
-          <div class="stat"><div class="n" id="payTotal">—</div><div class="k">Subscribers</div></div>
-          <div class="stat"><div class="n" id="payPaid">—</div><div class="k">Paid out</div></div>
-          <div class="stat pending"><div class="n" id="payPending">—</div><div class="k">Pending</div></div>
+          <div class="stat"><div class="n" id="payEarned">—</div><div class="k">Earned</div><div class="kk" id="payEarnedSubs"></div></div>
+          <div class="stat pending"><div class="n" id="payPending">—</div><div class="k">Pending</div><div class="kk" id="payPendingSubs"></div></div>
+          <div class="stat"><div class="n" id="payPaid">—</div><div class="k">Paid out</div><div class="kk" id="payPaidSubs"></div></div>
         </div>
-        <p class="foot" style="margin-top:12px;">Total paid: <strong id="payAmount">$0.00</strong></p>
-        <div id="payHistoryWrap" class="hidden">
+        <div id="redemptionsWrap" class="hidden">
+          <p class="sub" style="margin:18px 0 6px;font-weight:600;color:var(--ink);">Redemptions</p>
           <table>
-            <thead><tr><th>Date</th><th class="num">Subscribers</th><th class="num">Amount</th><th>Note</th><th></th></tr></thead>
-            <tbody id="payHistory"></tbody>
+            <thead><tr><th>Date</th><th>Code</th><th class="num">Earned</th><th>Status</th></tr></thead>
+            <tbody id="redemptions"></tbody>
+          </table>
+        </div>
+        <div id="payNote" class="note hidden">Earnings are temporarily unavailable — refresh in a moment.</div>
+      </div>
+
+      <!-- Admin disbursement ledger: only the owner (with STATS_KEY) records payments. -->
+      <div id="adminPay" class="pay hidden">
+        <h2>Record a payout</h2>
+        <p class="sub" style="margin-bottom:10px;">Log a payment you've made to this creator. Only you can see this.</p>
+        <div id="ledgerWrap" class="hidden">
+          <table>
+            <thead><tr><th>Date</th><th class="num">Subs</th><th class="num">Amount</th><th>Note</th><th></th></tr></thead>
+            <tbody id="ledger"></tbody>
           </table>
         </div>
         <div class="payform">
-          <input id="pIn" type="number" min="0" step="1" placeholder="Subscribers" />
           <input id="pAmt" type="number" min="0" step="0.01" placeholder="Amount $" />
+          <input id="pIn" type="number" min="0" step="1" placeholder="Subs covered" />
           <input id="pNote" class="notein" type="text" placeholder="Note (optional)" maxlength="200" />
           <button class="btn" id="payAdd">Record</button>
         </div>
-        <p class="foot" style="margin-top:12px;"><button class="lock" id="payHide">Hide payouts</button></p>
+        <p class="foot" style="margin-top:12px;"><button class="lock" id="payHide">Hide admin</button></p>
       </div>
 
       <p class="foot">
@@ -188,7 +203,8 @@
         saveToken(token);
         currentToken = token;
         render(data);
-        loadPayouts();
+        loadPayoutView();
+        loadLedger();
       } catch (e) {
         showLogin("Network error — check your connection and try again.");
       } finally {
@@ -196,43 +212,69 @@
       }
     }
 
-    // ---- Payouts (admin-only) -------------------------------------------
-    // The admin unlocks with the STATS_KEY, reused from the main stats dashboard
-    // (same localStorage key), so if you're already signed into /stats it just works.
-    var KEYSTORE = "gm_stats_key";
-    function adminKey() { try { return localStorage.getItem(KEYSTORE) || ""; } catch (e) { return ""; } }
-    function setAdminKey(k) { try { localStorage.setItem(KEYSTORE, k); } catch (e) {} }
+    // ---- Money helpers ---------------------------------------------------
+    var payCurrency = "usd";
+    function money(cents, cur) {
+      if (cents == null) return "—";
+      var c = (cur || payCurrency || "usd").toUpperCase();
+      try { return new Intl.NumberFormat("en-US", { style: "currency", currency: c }).format(cents / 100); }
+      catch (e) { return "$" + (Number(cents) / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+    }
     function escHtml(s) {
       return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
         return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
       });
     }
-    function money(cents) {
-      return "$" + (Number(cents || 0) / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    // ---- Read-only payout view (creator-facing; token only, no PII) -------
+    async function loadPayoutView() {
+      if (!currentToken) return;
+      try {
+        var r = await fetch("/api/creator/payout-view", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token: currentToken }),
+          cache: "no-store",
+        });
+        if (!r.ok) return;
+        renderPayoutView(await r.json());
+      } catch (e) {}
     }
 
-    function renderPayouts(p) {
-      el("payTotal").textContent = fmt(p.totalSubscriptions);
-      el("payPaid").textContent = fmt(p.paidSubscribers);
-      el("payPending").textContent = fmt(p.pendingSubscribers);
-      el("payAmount").textContent = money(p.paidCents);
-      var rows = p.payouts || [];
+    function renderPayoutView(p) {
+      if (p.currency) payCurrency = p.currency;
+      var earned = p.earned || {}, pending = p.pending || {}, paid = p.paidOut || {};
+      el("payEarned").textContent = money(earned.moneyCents, p.currency);
+      el("payPending").textContent = money(pending.moneyCents, p.currency);
+      el("payPaid").textContent = money(paid.moneyCents, p.currency);
+      el("payEarnedSubs").textContent = (earned.subs == null ? "—" : fmt(earned.subs)) + " subs";
+      el("payPendingSubs").textContent = (pending.subs == null ? "—" : fmt(pending.subs)) + " subs";
+      el("payPaidSubs").textContent = fmt(paid.subs || 0) + " subs";
+
+      var rows = p.redemptions || [];
       if (rows.length) {
-        el("payHistory").innerHTML = rows.map(function (r) {
+        el("redemptions").innerHTML = rows.map(function (r) {
           var d = new Date(r.at);
+          var st = r.status === "refunded" ? "<span style='color:#b91c1c'>refunded</span>" : "paid";
           return "<tr><td>" + d.toLocaleDateString() + "</td>" +
-            "<td class='num'>" + fmt(r.subscribers) + "</td>" +
-            "<td class='num'>" + (r.amountCents ? money(r.amountCents) : "—") + "</td>" +
-            "<td>" + escHtml(r.note) + "</td>" +
-            "<td class='num'><button class='del' data-id='" + r.id + "' title='Delete'>✕</button></td></tr>";
+            "<td><span class='tag'>" + escHtml(r.code) + "</span></td>" +
+            "<td class='num'>" + money(r.amountCents, p.currency) + "</td>" +
+            "<td>" + st + "</td></tr>";
         }).join("");
-        el("payHistoryWrap").classList.remove("hidden");
+        el("redemptionsWrap").classList.remove("hidden");
       } else {
-        el("payHistory").innerHTML = "";
-        el("payHistoryWrap").classList.add("hidden");
+        el("redemptionsWrap").classList.add("hidden");
       }
+      el("payNote").classList.toggle("hidden", p.available !== false);
       el("payouts").classList.remove("hidden");
     }
+
+    // ---- Admin disbursement ledger (owner only; STATS_KEY + token) --------
+    // Reuses the STATS_KEY from the main stats dashboard (same localStorage key), so
+    // if you're already signed into /stats it just works.
+    var KEYSTORE = "gm_stats_key";
+    function adminKey() { try { return localStorage.getItem(KEYSTORE) || ""; } catch (e) { return ""; } }
+    function setAdminKey(k) { try { localStorage.setItem(KEYSTORE, k); } catch (e) {} }
 
     function payApi(payload) {
       return fetch("/api/creator/payout", {
@@ -243,15 +285,34 @@
       });
     }
 
-    async function loadPayouts() {
+    async function loadLedger() {
       var key = adminKey();
-      if (!key || !currentToken) return; // not an admin -> stays a plain creator view
+      if (!key || !currentToken) return; // not the owner -> ledger/record form stay hidden
       try {
         var r = await payApi({ key: key, token: currentToken, action: "list" });
-        if (!r.ok) return; // wrong/expired key or DB issue -> leave it hidden
-        renderPayouts(await r.json());
+        if (!r.ok) return;
+        renderLedger(await r.json());
         el("adminBox").classList.add("hidden");
       } catch (e) {}
+    }
+
+    function renderLedger(p) {
+      var rows = p.payouts || [];
+      if (rows.length) {
+        el("ledger").innerHTML = rows.map(function (r) {
+          var d = new Date(r.at);
+          return "<tr><td>" + d.toLocaleDateString() + "</td>" +
+            "<td class='num'>" + fmt(r.subscribers) + "</td>" +
+            "<td class='num'>" + (r.amountCents ? money(r.amountCents, payCurrency) : "—") + "</td>" +
+            "<td>" + escHtml(r.note) + "</td>" +
+            "<td class='num'><button class='del' data-id='" + r.id + "' title='Delete'>✕</button></td></tr>";
+        }).join("");
+        el("ledgerWrap").classList.remove("hidden");
+      } else {
+        el("ledger").innerHTML = "";
+        el("ledgerWrap").classList.add("hidden");
+      }
+      el("adminPay").classList.remove("hidden");
     }
 
     async function addPayout() {
@@ -260,13 +321,14 @@
       var subscribers = Number(el("pIn").value || 0);
       var amount = Number(el("pAmt").value || 0);
       var note = el("pNote").value.trim();
-      if (!subscribers && !amount) { el("pIn").focus(); return; }
+      if (!subscribers && !amount) { el("pAmt").focus(); return; }
       el("payAdd").disabled = true;
       try {
         var r = await payApi({ key: key, token: currentToken, action: "add", subscribers: subscribers, amount: amount, note: note });
         if (r.ok) {
-          renderPayouts(await r.json());
+          renderLedger(await r.json());
           el("pIn").value = ""; el("pAmt").value = ""; el("pNote").value = "";
+          loadPayoutView(); // refresh paid-out / pending
         }
       } catch (e) {} finally {
         el("payAdd").disabled = false;
@@ -278,7 +340,7 @@
       if (!key || !id) return;
       try {
         var r = await payApi({ key: key, token: currentToken, action: "delete", id: id });
-        if (r.ok) renderPayouts(await r.json());
+        if (r.ok) { renderLedger(await r.json()); loadPayoutView(); }
       } catch (e) {}
     }
 
@@ -291,16 +353,16 @@
       if (!k) return;
       setAdminKey(k);
       el("adminKey").value = "";
-      loadPayouts();
+      loadLedger();
     });
     el("adminKey").addEventListener("keydown", function (e) { if (e.key === "Enter") el("adminUnlock").click(); });
     el("payAdd").addEventListener("click", addPayout);
     el("pNote").addEventListener("keydown", function (e) { if (e.key === "Enter") addPayout(); });
-    el("payHistory").addEventListener("click", function (e) {
+    el("ledger").addEventListener("click", function (e) {
       var b = e.target.closest && e.target.closest(".del");
       if (b && confirm("Delete this payout entry?")) deletePayout(Number(b.getAttribute("data-id")));
     });
-    el("payHide").addEventListener("click", function () { el("payouts").classList.add("hidden"); });
+    el("payHide").addEventListener("click", function () { el("adminPay").classList.add("hidden"); });
 
     el("go").addEventListener("click", function () {
       var t = el("token").value.trim();

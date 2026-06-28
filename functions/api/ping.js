@@ -17,8 +17,12 @@ import { json } from "../_lib/http.js";
 import { logEvent } from "../_lib/events.js";
 
 // Funnel events the heartbeat is allowed to report (keeps logEvent's allowlist in
-// sync at the parse boundary). Today only the "Get access" click.
-const PING_EVENTS = new Set(["get_access"]);
+// sync at the parse boundary):
+//   get_access    -- the "Get access" button was clicked
+//   hint_shown    -- the post-session "seeds you missed" upsell popup was shown (superseed, 20%)
+//   loyalty_shown -- the 5h/20h runtime loyalty popup was shown (promacro, 50%)
+// The *_shown events are the denominator for popup -> subscribe conversion rate.
+const PING_EVENTS = new Set(["get_access", "hint_shown", "loyalty_shown"]);
 
 // A session is "still going" as long as pings keep arriving within this window.
 // Pings fire every 60s; allowing ~2 missed beats means a flaky network or a brief

@@ -18,17 +18,22 @@ function toFormBody(obj, prefix) {
   return pairs.join("&");
 }
 
-async function stripe(env, method, path, params) {
-  const opts = { method, headers: { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}` } };
+// opts.version pins a Stripe-Version header for THIS call only (used by the money
+// endpoint to lock the invoice->charge response shape across Stripe API versions —
+// see _lib/money.js STRIPE_API_VERSION). Omitting it uses the account default.
+async function stripe(env, method, path, params, opts = {}) {
+  const headers = { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}` };
+  if (opts.version) headers["Stripe-Version"] = opts.version;
+  const reqOpts = { method, headers };
   let url = "https://api.stripe.com" + path;
   if (params && method === "GET") {
     const q = toFormBody(params);
     if (q) url += (path.includes("?") ? "&" : "?") + q;
   } else if (params) {
-    opts.headers["Content-Type"] = "application/x-www-form-urlencoded";
-    opts.body = toFormBody(params);
+    reqOpts.headers["Content-Type"] = "application/x-www-form-urlencoded";
+    reqOpts.body = toFormBody(params);
   }
-  const res = await fetch(url, opts);
+  const res = await fetch(url, reqOpts);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const err = new Error((data && data.error && data.error.message) || `Stripe ${res.status}`);
@@ -82,4 +87,28 @@ export function searchSubscriptionsByGoogleId(env, googleId) {
 // how many people redeemed a creator's code at checkout (times_redeemed).
 export function listPromotionCodes(env, code) {
   return stripe(env, "GET", "/v1/promotion_codes", { code, limit: 1 });
+}
+
+// ---- Money/payout reads (used by _lib/money.js) -------------------------
+// These accept a pinned Stripe-Version (`version`) so the invoice->charge shape is
+// deterministic, and take raw `params` so the caller controls pagination/expand.
+
+export function getPrice(env, id, version) {
+  return stripe(env, "GET", `/v1/prices/${encodeURIComponent(id)}`, null, { version });
+}
+
+export function listInvoicesPage(env, params, version) {
+  return stripe(env, "GET", "/v1/invoices", params, { version });
+}
+
+export function listSubscriptionsPage(env, params, version) {
+  return stripe(env, "GET", "/v1/subscriptions", params, { version });
+}
+
+export function listRefundsPage(env, params, version) {
+  return stripe(env, "GET", "/v1/refunds", params, { version });
+}
+
+export function listPromotionCodesPage(env, params, version) {
+  return stripe(env, "GET", "/v1/promotion_codes", params, { version });
 }
