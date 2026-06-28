@@ -619,7 +619,13 @@ html { scroll-behavior: smooth; }
   "use strict";
   var reduce = true;  // page is static by default — disables canvas motion, window tilt, and magnetic buttons
 
-  /* ── Seed list — same order/data as macro.ahk ── */
+  /* ── Seed list ──
+     Fallback / instant-render copy of macro.ahk's seed list. It is kept current,
+     but it does NOT need hand-editing for every new seed: on load the page fetches
+     the live macro source and re-parses this list from it (see syncSeedsFromMacro
+     below), so adding a seed in macro.ahk updates the site automatically. This
+     embedded copy only renders first paint and covers the case where that fetch
+     fails (offline / GitHub blocked). */
   var SEEDS = [
     {n:'Carrot',r:'Common'},{n:'Strawberry',r:'Common'},{n:'Blueberry',r:'Common'},
     {n:'Tulip',r:'Uncommon'},{n:'Tomato',r:'Uncommon'},{n:'Apple',r:'Uncommon'},
@@ -629,7 +635,7 @@ html { scroll-behavior: smooth; }
     {n:'Dragon Fruit',r:'Legendary'},{n:'Acorn',r:'Legendary'},{n:'Cherry',r:'Legendary'},{n:'Sunflower',r:'Legendary'},
     {n:'Venus Fly Trap',r:'Mythic'},{n:'Pomegranate',r:'Mythic'},{n:'Poison Apple',r:'Mythic'},
     {n:'Venom Spitter',r:'Mythic'},
-    {n:"Moon Bloom",r:'Super'},{n:"Dragon's Breath",r:'Super'}
+    {n:"Moon Bloom",r:'Super'},{n:"Hypno Bloom",r:'Super'},{n:"Dragon's Breath",r:'Super'}
   ];
   var RARECLASS = { Legendary:'lg', Mythic:'my', Super:'sp' };
   var selected = {};   // 1-based index -> true
@@ -717,6 +723,40 @@ html { scroll-behavior: smooth; }
   stopBtn.onclick = stopSim;
 
   render(); updateCount(); setRunning(false);
+
+  /* ── Keep the seed list in sync with the macro automatically ──
+     The embedded SEEDS above is only the first-paint fallback. On load we fetch
+     the exact macro source the launcher runs and re-parse its seed list, so adding
+     a seed in macro.ahk updates this page with nothing to edit here. Best-effort:
+     any failure (offline / blocked) just leaves the fallback list in place. */
+  (function syncSeedsFromMacro() {
+    var MACRO_URL = 'https://raw.githubusercontent.com/LanDocsApp/Gagmacro2/main/macro.ahk';
+    fetch(MACRO_URL, { cache: 'no-cache' })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (src) {
+        if (!src) return;
+        var live = parseMacroSeeds(src);
+        if (!live.length) return;                       // parse failed -> keep fallback
+        if (running || selectedList().length) return;   // don't swap mid-interaction
+        if (JSON.stringify(live) === JSON.stringify(SEEDS)) return;  // already in sync
+        SEEDS = live; selected = {};
+        render(); updateCount();
+      })
+      .catch(function () { /* offline / blocked -> fallback stays */ });
+  })();
+
+  /* Pull the `Seeds := [ {name:"..",rarity:".."}, .. ]` block out of the macro
+     source. Names are double-quoted, so apostrophes (Dragon's Breath) are safe;
+     the capture stops at the array's first ']', so the separate Gears list below
+     it is never picked up. */
+  function parseMacroSeeds(src) {
+    var out = [];
+    var block = src.match(/\bSeeds\s*:=\s*\[([\s\S]*?)\]/);
+    if (!block) return out;
+    var re = /name:\s*"([^"]*)"\s*,\s*rarity:\s*"([^"]*)"/g, m;
+    while ((m = re.exec(block[1]))) out.push({ n: m[1], r: m[2] });
+    return out;
+  }
 
   /* ── Hero headline: per-word staggered rise ── */
   var hl = document.querySelector('.hero-headline');
