@@ -1,7 +1,8 @@
 // POST /api/creator/payout — admin payout ledger for a creator.
 //
-// Tracks how much you've paid each creator against the installs their code(s)
-// drove. ADMIN ONLY: every action requires BOTH
+// Tracks how much you've paid each creator against the SUBSCRIBERS their code(s)
+// drove (paid Stripe redemptions — the same number the dashboard shows as
+// "Subscribed", not installs). ADMIN ONLY: every action requires BOTH
 //   key   = your STATS_KEY (authorization — same key as /api/stats)
 //   token = a creator's signed dashboard token (identifies WHICH creator)
 // so a creator (who has the token but not the key) can never read or write payouts;
@@ -9,75 +10,79 @@
 //
 // Body { key, token, action, ... }:
 //   "list"   -> summary + history (default)
-//   "add"    -> record a payout { installs, amount (dollars), note }
+//   "add"    -> record a payout { subscribers, amount (dollars), note }
 //   "delete" -> remove a payout by { id }
 //
 // All three return the fresh summary:
-//   { creator:{ id, name, codes }, totalInstalls, paidInstalls, pendingInstalls,
-//     paidCents, payouts:[{ id, installs, amountCents, note, at }], at }
-//
-// Payouts are per CREATOR (slug), aggregated across all their codes — you pay on
-// total installs driven, not per code. Requires migration 0004 (the payouts table).
+//   { creator:{ id, name, codes }, totalSubscriptions, subsAvailable,
+//     paidSubscribers, pendingSubscribers, paidCents,
+//     payouts:[{ id, subscribers, amountCents, note, at }], at }
+// totalSubscriptions/pendingSubscribers are null when Stripe is unreachable
+// (the paid count from the ledger is always available). Payouts are per CREATOR
+// (slug), aggregated across all their codes. Requires migration 0004.
 
 import { json } from "../../_lib/http.js";
 import { verifyToken } from "../../_lib/crypto.js";
 import { getCreator } from "../../_lib/creators.js";
+import { listPromotionCodes } from "../../_lib/stripe.js";
 
-// COUNT installs across all of a creator's codes (same basis as /api/creator/stats).
-async function totalInstalls(env, codes) {
+// Total subscribers a creator drove = sum of each code's Stripe promotion-code
+// `times_redeemed`. Returns { total, available }; available=false (total=null) if
+// any Stripe lookup errors, so we never show a wrong "pending" off a partial total.
+async function totalSubscriptions(env, codes) {
   let total = 0;
+  let available = true;
   for (const code of codes) {
     try {
-      const row = await env.STATS.prepare(
-        `SELECT COUNT(*) AS n FROM devices WHERE UPPER(promo) = ?1`
-      )
-        .bind(code.toUpperCase())
-        .first();
-      total += (row && row.n) || 0;
+      const pc = await listPromotionCodes(env, code.toUpperCase());
+      const first = pc && pc.data && pc.data[0];
+      total += first ? first.times_redeemed || 0 : 0;
     } catch {
-      // ignore a single code's failure; the others still count
+      available = false;
     }
   }
-  return total;
+  return { total: available ? total : null, available };
 }
 
 async function summary(env, creator) {
-  const total = await totalInstalls(env, creator.codes);
-  let paidInstalls = 0;
+  const { total, available } = await totalSubscriptions(env, creator.codes);
+
+  let paidSubscribers = 0;
   let paidCents = 0;
   let payouts = [];
   try {
     const agg = await env.STATS.prepare(
-      `SELECT COALESCE(SUM(installs), 0) AS i, COALESCE(SUM(amount_cents), 0) AS c
+      `SELECT COALESCE(SUM(subscribers), 0) AS s, COALESCE(SUM(amount_cents), 0) AS c
        FROM payouts WHERE creator_id = ?1`
     )
       .bind(creator.id)
       .first();
-    paidInstalls = (agg && agg.i) || 0;
+    paidSubscribers = (agg && agg.s) || 0;
     paidCents = (agg && agg.c) || 0;
 
     const rows = await env.STATS.prepare(
-      `SELECT id, installs, amount_cents, note, created_at
+      `SELECT id, subscribers, amount_cents, note, created_at
        FROM payouts WHERE creator_id = ?1 ORDER BY created_at DESC LIMIT 100`
     )
       .bind(creator.id)
       .all();
     payouts = ((rows && rows.results) || []).map((r) => ({
       id: r.id,
-      installs: r.installs || 0,
+      subscribers: r.subscribers || 0,
       amountCents: r.amount_cents || 0,
       note: r.note || "",
       at: r.created_at,
     }));
   } catch {
-    // payouts table not applied yet -> zeros + empty history (still shows installs)
+    // payouts table not applied yet -> zeros + empty history
   }
 
   return json({
     creator: { id: creator.id, name: creator.name, codes: creator.codes },
-    totalInstalls: total,
-    paidInstalls,
-    pendingInstalls: Math.max(0, total - paidInstalls),
+    totalSubscriptions: total,
+    subsAvailable: available,
+    paidSubscribers,
+    pendingSubscribers: available ? Math.max(0, total - paidSubscribers) : null,
     paidCents,
     payouts,
     at: Date.now(),
@@ -111,18 +116,18 @@ export async function onRequestPost({ request, env }) {
   if (!env.STATS) return json({ error: "stats database not bound" }, 500);
 
   if (action === "add") {
-    const installs = Math.max(0, Math.round(Number(body.installs) || 0));
+    const subscribers = Math.max(0, Math.round(Number(body.subscribers) || 0));
     const amountCents = Math.max(0, Math.round((Number(body.amount) || 0) * 100));
     const note = String(body.note || "").slice(0, 200);
-    if (installs === 0 && amountCents === 0) {
+    if (subscribers === 0 && amountCents === 0) {
       return json({ error: "nothing to record" }, 400);
     }
     try {
       await env.STATS.prepare(
-        `INSERT INTO payouts (creator_id, installs, amount_cents, note, created_at)
+        `INSERT INTO payouts (creator_id, subscribers, amount_cents, note, created_at)
          VALUES (?1, ?2, ?3, ?4, ?5)`
       )
-        .bind(creator.id, installs, amountCents, note, Date.now())
+        .bind(creator.id, subscribers, amountCents, note, Date.now())
         .run();
     } catch (e) {
       return json({ error: "could not record", detail: String((e && e.message) || e) }, 500);

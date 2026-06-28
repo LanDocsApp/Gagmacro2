@@ -86,21 +86,21 @@
            STATS_KEY is unlocked (it's reused from the main stats dashboard). -->
       <div id="payouts" class="pay hidden">
         <h2>Payouts</h2>
-        <p class="sub" style="margin-bottom:14px;">Installs you've paid this creator for, and what's still outstanding. Only you can see this.</p>
+        <p class="sub" style="margin-bottom:14px;">Subscribers you've paid this creator for, and what's still outstanding. Only you can see this.</p>
         <div class="stats">
-          <div class="stat"><div class="n" id="payInstalls">—</div><div class="k">Total installs</div></div>
+          <div class="stat"><div class="n" id="payTotal">—</div><div class="k">Subscribers</div></div>
           <div class="stat"><div class="n" id="payPaid">—</div><div class="k">Paid out</div></div>
           <div class="stat pending"><div class="n" id="payPending">—</div><div class="k">Pending</div></div>
         </div>
         <p class="foot" style="margin-top:12px;">Total paid: <strong id="payAmount">$0.00</strong></p>
         <div id="payHistoryWrap" class="hidden">
           <table>
-            <thead><tr><th>Date</th><th class="num">Installs</th><th class="num">Amount</th><th>Note</th><th></th></tr></thead>
+            <thead><tr><th>Date</th><th class="num">Subscribers</th><th class="num">Amount</th><th>Note</th><th></th></tr></thead>
             <tbody id="payHistory"></tbody>
           </table>
         </div>
         <div class="payform">
-          <input id="pIn" type="number" min="0" step="1" placeholder="Installs" />
+          <input id="pIn" type="number" min="0" step="1" placeholder="Subscribers" />
           <input id="pAmt" type="number" min="0" step="0.01" placeholder="Amount $" />
           <input id="pNote" class="notein" type="text" placeholder="Note (optional)" maxlength="200" />
           <button class="btn" id="payAdd">Record</button>
@@ -212,16 +212,16 @@
     }
 
     function renderPayouts(p) {
-      el("payInstalls").textContent = fmt(p.totalInstalls);
-      el("payPaid").textContent = fmt(p.paidInstalls);
-      el("payPending").textContent = fmt(p.pendingInstalls);
+      el("payTotal").textContent = fmt(p.totalSubscriptions);
+      el("payPaid").textContent = fmt(p.paidSubscribers);
+      el("payPending").textContent = fmt(p.pendingSubscribers);
       el("payAmount").textContent = money(p.paidCents);
       var rows = p.payouts || [];
       if (rows.length) {
         el("payHistory").innerHTML = rows.map(function (r) {
           var d = new Date(r.at);
           return "<tr><td>" + d.toLocaleDateString() + "</td>" +
-            "<td class='num'>" + fmt(r.installs) + "</td>" +
+            "<td class='num'>" + fmt(r.subscribers) + "</td>" +
             "<td class='num'>" + (r.amountCents ? money(r.amountCents) : "—") + "</td>" +
             "<td>" + escHtml(r.note) + "</td>" +
             "<td class='num'><button class='del' data-id='" + r.id + "' title='Delete'>✕</button></td></tr>";
@@ -257,13 +257,13 @@
     async function addPayout() {
       var key = adminKey();
       if (!key) return;
-      var installs = Number(el("pIn").value || 0);
+      var subscribers = Number(el("pIn").value || 0);
       var amount = Number(el("pAmt").value || 0);
       var note = el("pNote").value.trim();
-      if (!installs && !amount) { el("pIn").focus(); return; }
+      if (!subscribers && !amount) { el("pIn").focus(); return; }
       el("payAdd").disabled = true;
       try {
-        var r = await payApi({ key: key, token: currentToken, action: "add", installs: installs, amount: amount, note: note });
+        var r = await payApi({ key: key, token: currentToken, action: "add", subscribers: subscribers, amount: amount, note: note });
         if (r.ok) {
           renderPayouts(await r.json());
           el("pIn").value = ""; el("pAmt").value = ""; el("pNote").value = "";

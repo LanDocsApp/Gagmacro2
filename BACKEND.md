@@ -143,16 +143,19 @@ and send the returned `url` to the creator. No new env vars or bindings are need
 appears once you unlock it with your `STATS_KEY` (the **Admin** button at the
 bottom; the key is reused from the main stats dashboard's `localStorage`, so if
 you're already signed into `/stats` it loads automatically). It shows, per
-creator: **Total installs / Paid out / Pending**, the total amount paid, a payout
-history, and a form to **Record** a new payout (installs covered, optional dollar
-amount, optional note) or delete one.
+creator: **Subscribers / Paid out / Pending**, the total amount paid, a payout
+history, and a form to **Record** a new payout (subscribers covered, optional
+dollar amount, optional note) or delete one.
 
 It's backed by `/api/creator/payout`, which requires **both** the `STATS_KEY`
 (authorization) and the creator's signed `token` (which creator). The creator
 token alone — what a creator has — can't read or write payouts, which is why this
 is a separate endpoint from `creator/stats.js`. Payouts are tracked per creator
-(slug), aggregated across all their codes: `paidInstalls = SUM(installs)`,
-`pending = total installs driven − paidInstalls`.
+(slug), aggregated across all their codes. You pay on **subscribers** (paid Stripe
+redemptions, the same `times_redeemed` the dashboard shows as "Subscribed"):
+`paidSubscribers = SUM(subscribers)`, `pending = total subscribers driven −
+paidSubscribers`. Total/pending read `—` if Stripe is unreachable; the paid count
+from the ledger always shows.
 
 > One-time setup: apply **migration 0004** (`migrations/0004_add_payouts.sql`) to
 > the `gagmacro-stats` D1 DB to create the `payouts` table. Until then the section
