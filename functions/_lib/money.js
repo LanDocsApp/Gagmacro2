@@ -34,6 +34,20 @@ const PAGE_CAP = 40;                              // max list pages walked (×10
 const MS_DAY = 86400000;
 const MS_MONTH = 30.44 * MS_DAY;
 
+// Customers excluded from ALL dashboard stats (test purchases / internal accounts), so
+// they never touch MRR, active subs, revenue, churn, refunds, etc. Add Stripe customer
+// ids here (find one in the Stripe dashboard or via the customer's email).
+//   cus_UimtMOhR7SG8QQ = marko.miha2006@gmail.com — owner's payment test.
+const IGNORED_CUSTOMERS = new Set(["cus_UimtMOhR7SG8QQ"]);
+
+// Normalize a Stripe customer reference (id string or expanded object) to its id.
+function customerId(c) {
+  return typeof c === "string" ? c : (c && c.id) || "";
+}
+function isIgnoredCustomer(c) {
+  return IGNORED_CUSTOMERS.has(customerId(c));
+}
+
 // UTC midnight of the 1st of the current month.
 function monthStartMs(now) {
   const d = new Date(now);
@@ -109,7 +123,8 @@ export async function loadPromoCodes(env) {
   try {
     let after = null, pages = 0;
     while (pages < PAGE_CAP) {
-      const params = { limit: 100, expand: ["data.coupon"] };
+      // active: true -> archived/deactivated promo codes never appear on the dashboard.
+      const params = { limit: 100, active: true, expand: ["data.coupon"] };
       if (after) params.starting_after = after;
       const res = await listPromotionCodesPage(env, params, STRIPE_API_VERSION);
       const data = (res && res.data) || [];
@@ -171,6 +186,7 @@ export async function scanInvoices(env, now) {
       const res = await listInvoicesPage(env, params, STRIPE_API_VERSION);
       const data = (res && res.data) || [];
       for (const inv of data) {
+        if (isIgnoredCustomer(inv.customer)) continue; // test/internal customer -> ignore
         const charge = invoiceCharge(inv);
         const { net, gross, fee, currency: cur } = chargeNet(charge);
         if (cur && !currency) currency = cur;
@@ -252,16 +268,20 @@ function hasOngoingDiscount(s) {
   return false;
 }
 
-// Does a subscription contribute to MRR? Mirrors Stripe's MRR: status must be `active`
-// (trials/past_due/canceled excluded), it must NOT be pending cancellation (cancel_at /
-// cancel_at_period_end / canceled_at set -> €0 going forward), and it must NOT be an
-// ongoing-discount comp (-> €0). NOTE: an ongoing PARTIAL discount (e.g. 50%-off forever)
-// is treated as €0 here rather than reduced — fine for this app where forever-discounts
-// are 100%-off comps.
+// A "real" active subscriber: status active and NOT a free comp (ongoing 100%-off grant
+// to a creator/youtuber). This is what the "Active subscribers" card shows — real subs,
+// not freebies. (Ignored test customers are filtered out before this is ever called.)
+function isRealActive(s) {
+  return s.status === "active" && !hasOngoingDiscount(s);
+}
+
+// Does a subscription contribute to MRR? = a real active sub that is NOT pending
+// cancellation (cancel_at / cancel_at_period_end / canceled_at set -> €0 going forward).
+// NOTE: an ongoing PARTIAL discount (e.g. 50%-off forever) is treated as a comp (€0) here
+// — fine for this app where forever-discounts are 100%-off grants.
 function mrrCounts(s) {
-  if (s.status !== "active") return false;
+  if (!isRealActive(s)) return false;
   if (s.cancel_at_period_end || s.cancel_at || s.canceled_at) return false;
-  if (hasOngoingDiscount(s)) return false;
   return true;
 }
 
@@ -296,8 +316,9 @@ export async function subsSnapshot(env, now) {
       const res = await listSubscriptionsPage(env, params);
       const data = (res && res.data) || [];
       for (const s of data) {
+        if (isIgnoredCustomer(s.customer)) continue; // test/internal customer -> ignore entirely
         byStatus[s.status] = (byStatus[s.status] || 0) + 1;
-        if (s.status === "active") active++; // matches Stripe's active-subscription count
+        if (isRealActive(s)) active++; // real subs only — free comps excluded from the count
         if (!currency && s.currency) currency = s.currency;
         const start = (s.start_date || s.created || 0) * 1000;
         if (start && start >= mStart) newM++;
@@ -356,11 +377,12 @@ export async function refundsThisMonth(env, now) {
   try {
     let after = null, pages = 0;
     while (pages < PAGE_CAP) {
-      const params = { limit: 100, created: { gte: sinceSec }, expand: ["data.balance_transaction"] };
+      const params = { limit: 100, created: { gte: sinceSec }, expand: ["data.balance_transaction", "data.charge"] };
       if (after) params.starting_after = after;
       const res = await listRefundsPage(env, params, STRIPE_API_VERSION);
       const data = (res && res.data) || [];
       for (const r of data) {
+        if (r.charge && isIgnoredCustomer(r.charge.customer)) continue; // test/internal refund -> ignore
         const bt = r.balance_transaction;
         if (bt && typeof bt === "object" && typeof bt.net === "number") cents += Math.abs(bt.net);
         else cents += r.amount || 0;
@@ -454,7 +476,9 @@ export async function buildMoneySnapshot(env) {
       grossCents: scan.available ? agg.grossCents : null,
       netSettledCents: scan.available ? agg.netCents : null,
       paidToCreatorCents,
-      netCents: scan.available ? agg.netCents - (paidToCreatorCents || 0) : null,
+      // Owed = still to pay the creator (earned − paid). Only meaningful for creator
+      // codes; null for conversion/loyalty/other codes (no creator to pay).
+      owedCents: isCreator && scan.available ? Math.max(0, agg.netCents - (paidToCreatorCents || 0)) : null,
     };
   });
   // Highest earners first, then by uses.

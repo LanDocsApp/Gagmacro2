@@ -202,12 +202,12 @@
       </div>
       <div class="section">
         <h2>Discount codes</h2>
-        <p class="hint">Every Stripe promo code, tagged by purpose. Net revenue = net-settled first-month money (after fees/FX, refunds excluded) — for creator codes this is what they earned. Paid to creator = your disbursements; Net = what's left to you.</p>
+        <p class="hint">Active Stripe promo codes only (archived ones hidden), tagged by purpose. Net revenue = net-settled first-month money (after fees/FX, refunds excluded) — for creator codes this is what they earned. Paid to creator = your disbursements; Owed = still to pay the creator (creator codes only).</p>
         <div class="tblwrap"><table class="tbl">
           <thead><tr>
             <th>Code</th><th>Purpose</th><th>Discount</th>
             <th class="num">Installs</th><th class="num">Uses</th>
-            <th class="num">Net revenue</th><th class="num">Paid creator</th><th class="num">Net</th>
+            <th class="num">Net revenue</th><th class="num">Paid creator</th><th class="num">Owed</th>
           </tr></thead>
           <tbody id="m-codes"><tr><td colspan="8" class="muted">Loading…</td></tr></tbody>
         </table></div>
@@ -422,11 +422,9 @@
     setMoneyCard("o-mrr", money(mrr, cur));
     setMoneyCard("m-active", active == null ? "—" : nf(active));
     setMoneyCard("m-mrr", money(mrr, cur));
-    var payNote = subs.mrrSubs == null ? "" : subs.mrrSubs + " paying" + (active != null && active !== subs.mrrSubs ? " · " + (active - subs.mrrSubs) + " comp/ending" : "");
+    var payNote = subs.mrrSubs == null ? "" : subs.mrrSubs + " paying" + (active != null && active > subs.mrrSubs ? " · " + (active - subs.mrrSubs) + " ending" : "");
     $("m-mrr-s").textContent = payNote;
-    var bs = subs.byStatus || {};
-    var extra = (bs.past_due || 0) + (bs.trialing || 0);
-    $("m-active-s").textContent = active == null ? "" : (extra > 0 ? extra + " trial/past-due too" : "Stripe-active");
+    $("m-active-s").textContent = active == null ? "" : "real subs (free & test excluded)";
     setMoneyCard("m-new", subs.newThisMonth == null ? "—" : nf(subs.newThisMonth));
     setMoneyCard("m-churn", subs.churnedThisMonth == null ? "—" : nf(subs.churnedThisMonth));
     setMoneyCard("m-life", subs.avgLifetimeMonths == null ? "—" : subs.avgLifetimeMonths + " mo");
@@ -455,10 +453,10 @@
     } else if (!codes.length) {
       $("m-codes").innerHTML = '<tr><td colspan="8" class="muted">No promotion codes found in Stripe.</td></tr>';
     } else {
-      let tNet = 0, tPaid = 0, tRev = 0, tUses = 0;
+      let tOwed = 0, tPaid = 0, tRev = 0, tUses = 0;
       const body = codes.map((c) => {
         const inst = installsByCode[String(c.code).toUpperCase()];
-        tNet += c.netCents || 0; tPaid += c.paidToCreatorCents || 0; tRev += c.netSettledCents || 0; tUses += c.uses || 0;
+        tOwed += c.owedCents || 0; tPaid += c.paidToCreatorCents || 0; tRev += c.netSettledCents || 0; tUses += c.uses || 0;
         return "<tr><td class=\"mono\">" + esc(c.code) + "</td>" +
           '<td><span class="chip ' + esc(c.purpose) + '">' + esc(c.purpose) + "</span></td>" +
           "<td>" + esc(c.discountLabel || "—") + "</td>" +
@@ -466,13 +464,13 @@
           '<td class="num">' + nf(c.uses) + "</td>" +
           '<td class="num">' + money(c.netSettledCents, cur) + "</td>" +
           '<td class="num">' + (c.paidToCreatorCents == null ? "—" : money(c.paidToCreatorCents, cur)) + "</td>" +
-          '<td class="num">' + money(c.netCents, cur) + "</td></tr>";
+          '<td class="num">' + (c.owedCents == null ? "—" : money(c.owedCents, cur)) + "</td></tr>";
       }).join("");
       const totals = '<tr class="total"><td>Total</td><td></td><td></td><td class="num"></td>' +
         '<td class="num">' + nf(tUses) + "</td>" +
         '<td class="num">' + money(tRev, cur) + "</td>" +
         '<td class="num">' + money(tPaid, cur) + "</td>" +
-        '<td class="num">' + money(tNet, cur) + "</td></tr>";
+        '<td class="num">' + money(tOwed, cur) + "</td></tr>";
       $("m-codes").innerHTML = body + totals;
     }
 
