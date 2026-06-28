@@ -34,6 +34,8 @@
   .card.live .value { color: var(--green); }
   .card .delta, .card .vsub { font-size: 12px; font-weight: 600; margin-top: 6px; font-family: "JetBrains Mono", monospace; }
   .card .vsub { color: var(--muted); font-weight: 500; }
+  .info { display: inline-block; width: 14px; height: 14px; line-height: 14px; text-align: center; border-radius: 50%; background: var(--line); color: var(--muted); font: 700 10px Inter, sans-serif; text-transform: none; letter-spacing: 0; cursor: help; margin-left: 5px; vertical-align: middle; }
+  .info:hover { background: var(--ink); color: #fff; }
   .delta.up { color: var(--green); } .delta.down { color: var(--red); } .delta.flat { color: var(--muted); }
   .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--green); margin-right: 6px; animation: pulse 1.6s infinite; vertical-align: middle; }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
@@ -319,6 +321,41 @@
       grid + bars + line + dots + xlab + "</svg>";
   }
 
+  // ---------- Info icons (hover tooltip per card) ----------
+  const CARD_INFO = {
+    "o-live": "Distinct installs that pinged in the last 2 minutes (currently running the macro).",
+    "o-today": "Distinct installs active since 00:00 UTC today.",
+    "o-today-ret": "Installs active today that were first installed on an earlier day — returning users, not first-timers.",
+    "o-new": "Installs whose very first ping was today (UTC).",
+    "o-total": "Every install ever recorded (all time).",
+    "o-active": "Real paying subscribers right now (from Stripe). Free 100%-off comps and ignored test accounts are excluded.",
+    "o-mrr": "Monthly recurring revenue — what your active real subs pay each month. Excludes free comps, subs set to cancel, and test accounts.",
+    "o-hours": "Total macro runtime summed across every session, all time.",
+    "m-active": "Distinct real subscribers with an active subscription right now. Excludes free 100%-off comps (youtuber grants) and ignored test accounts.",
+    "m-mrr": "Recurring monthly revenue from paying subs. Excludes comps, subs scheduled to cancel (won't renew), and test accounts — so it can differ from Stripe's raw MRR.",
+    "m-new": "Distinct real subscribers whose subscription started this calendar month (UTC). Comps and test accounts excluded.",
+    "m-churn": "Distinct real (paying) subscribers whose subscription fully ended this month. Free comps and test accounts don't count, and a sub merely scheduled to cancel isn't churned until it actually ends.",
+    "m-life": "Average time a subscription lasts. Shows 'observed' once enough real subs have ended; otherwise an estimate from your churn rate, or — until any real sub churns.",
+    "m-ltv": "Lifetime value: average subscription length × average monthly revenue per paying sub. Rough until you have more churn data.",
+    "m-gross": "Total settled charges this month (after discounts, before Stripe fees), in your payout currency. Test accounts excluded.",
+    "m-net": "What actually landed after Stripe fees and currency conversion, with refunded charges excluded.",
+    "m-fees": "Total Stripe processing fees on this month's charges.",
+    "m-refunds": "Money refunded this month. Test accounts are excluded.",
+  };
+  function addCardInfo() {
+    Object.keys(CARD_INFO).forEach((id) => {
+      const v = document.getElementById(id);
+      const card = v && v.closest(".card");
+      const label = card && card.querySelector(".label");
+      if (!label || label.querySelector(".info")) return;
+      const s = document.createElement("span");
+      s.className = "info";
+      s.textContent = "i";
+      s.title = CARD_INFO[id];
+      label.appendChild(s);
+    });
+  }
+
   // ---------- Tabs ----------
   function setTab(tab) {
     document.querySelectorAll(".panel").forEach((p) => (p.hidden = p.id !== "tab-" + tab));
@@ -508,6 +545,7 @@
   $("key").addEventListener("keydown", (e) => { if (e.key === "Enter") $("enter").click(); });
   $("signout").onclick = () => { localStorage.removeItem(KEY_STORE); show(false); };
 
+  addCardInfo();
   setTab(localStorage.getItem(TAB_STORE) || "overview");
 
   // MANUAL REFRESH ONLY -- no auto-refresh/polling. /api/stats runs full-table scans and

@@ -303,14 +303,19 @@ export async function subsSnapshot(env, now) {
 
   try {
     let after = null, pages = 0;
-    let active = 0, newM = 0, churnedM = 0, lifetimeSum = 0, lifetimeN = 0;
-    let mrr = 0, payingN = 0, currency = null;
+    // Count DISTINCT REAL customers — free 100%-off comps (youtuber grants) and ignored
+    // test accounts excluded — so two subs from one person, or a freebie, never inflate it.
+    const realActive = new Set(); // real customers with an active sub right now
+    const payingCust = new Set(); // real customers counted in MRR
+    const newReal = new Set();    // real customers whose sub STARTED this month
+    const endedReal = new Set();  // real customers whose sub ENDED this month
+    let mrr = 0, lifetimeSum = 0, lifetimeN = 0, currency = null;
     const byStatus = {};
     while (pages < PAGE_CAP) {
       // expand discounts: in the LIST they come back as bare discount IDs (strings) unless
       // expanded, so without this hasOngoingDiscount() can't read `end` and 100%-off comps
-      // leak into MRR. No version pin here (unlike the invoice scan) — the account default
-      // returns the modern `discounts` array; hasOngoingDiscount() also reads legacy `discount`.
+      // leak in. No version pin here (unlike the invoice scan) — the account default returns
+      // the modern `discounts` array; hasOngoingDiscount() also reads legacy `discount`.
       const params = { status: "all", limit: 100, expand: ["data.discounts"] };
       if (after) params.starting_after = after;
       const res = await listSubscriptionsPage(env, params);
@@ -318,51 +323,52 @@ export async function subsSnapshot(env, now) {
       for (const s of data) {
         if (isIgnoredCustomer(s.customer)) continue; // test/internal customer -> ignore entirely
         byStatus[s.status] = (byStatus[s.status] || 0) + 1;
-        if (isRealActive(s)) active++; // real subs only — free comps excluded from the count
         if (!currency && s.currency) currency = s.currency;
-        const start = (s.start_date || s.created || 0) * 1000;
-        if (start && start >= mStart) newM++;
-        // "Churned" = actually ENDED (ended_at), not merely scheduled to cancel. A sub
-        // pending cancellation (canceled_at set, ended_at null) is still active, not churned.
-        const ended = (s.ended_at || 0) * 1000;
-        if (ended && ended >= mStart) churnedM++;
-        if (ended && start && ended > start) {
-          lifetimeSum += ended - start;
-          lifetimeN++;
+        const cust = customerId(s.customer);
+        const comp = hasOngoingDiscount(s); // free 100%-off grant -> not a "real" subscriber
+        if (s.status === "active" && !comp) realActive.add(cust);
+        if (!comp) {
+          const start = (s.start_date || s.created || 0) * 1000;
+          if (start && start >= mStart) newReal.add(cust);
+          // ENDED (ended_at), not merely scheduled to cancel.
+          const ended = (s.ended_at || 0) * 1000;
+          if (ended && ended >= mStart) endedReal.add(cust);
+          if (ended && start && ended > start) { lifetimeSum += ended - start; lifetimeN++; }
         }
-        if (mrrCounts(s)) {
-          mrr += subMonthlyCents(s);
-          payingN++;
-        }
+        if (mrrCounts(s)) { mrr += subMonthlyCents(s); payingCust.add(cust); }
       }
       if (!res || !res.has_more || !data.length) break;
       after = data[data.length - 1].id;
       pages++;
     }
-    // Truncated at the page cap -> counts/MRR/churn would be partial; leave them null and
-    // flag unavailable rather than presenting an incomplete subscriber base as authoritative.
+    // Truncated at the page cap -> partial; degrade to unavailable rather than show a partial.
     if (pages >= PAGE_CAP) {
       out.available = false;
       return out;
     }
-    out.active = active;
+    // Churn = real customers who ended this month AND have no active sub now (a true loss,
+    // not a same-month re-subscribe).
+    let churned = 0;
+    for (const c of endedReal) if (!realActive.has(c)) churned++;
+
+    out.active = realActive.size;
     out.byStatus = byStatus;
     out.priceCurrency = currency;
-    out.newThisMonth = newM;
-    out.churnedThisMonth = churnedM;
+    out.newThisMonth = newReal.size;
+    out.churnedThisMonth = churned;
     out.mrrCents = mrr;
-    out.mrrSubs = payingN;
+    out.mrrSubs = payingCust.size;
 
-    // Average lifetime: prefer observed (churned) lifetimes; fall back to 1/churn-rate
-    // when too few have actually churned (flagged so the UI can show "estimate").
+    // Average lifetime: prefer observed (churned) lifetimes; fall back to 1/churn-rate when
+    // too few REAL subs have actually churned (flagged so the UI can show "estimate").
     if (lifetimeN >= 3) {
       out.avgLifetimeMonths = Math.round((lifetimeSum / lifetimeN / MS_MONTH) * 10) / 10;
-    } else if (active > 0 && churnedM > 0) {
-      out.avgLifetimeMonths = Math.round((active / churnedM) * 10) / 10;
+    } else if (realActive.size > 0 && churned > 0) {
+      out.avgLifetimeMonths = Math.round((realActive.size / churned) * 10) / 10;
       out.ltvEstimated = true;
     }
-    if (out.avgLifetimeMonths != null && payingN > 0) {
-      out.ltvCents = Math.round(out.avgLifetimeMonths * (mrr / payingN)); // avg revenue/paying sub
+    if (out.avgLifetimeMonths != null && payingCust.size > 0) {
+      out.ltvCents = Math.round(out.avgLifetimeMonths * (mrr / payingCust.size)); // avg rev/paying sub
     }
   } catch {
     out.available = false;
