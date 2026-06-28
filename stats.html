@@ -78,12 +78,15 @@
   table.tbl td.mono, table.tbl th.num, table.tbl td.num { font-family: "JetBrains Mono", monospace; }
   table.tbl td.num, table.tbl th.num { text-align: right; }
   table.tbl tr.total td { background: var(--green-soft); font-weight: 600; }
+  table.tbl tr.flag td { background: #fff7ed; }
   table.tbl td.mono a { color: var(--blue); text-decoration: none; }
   table.tbl td.mono a:hover { text-decoration: underline; }
   .muted { color: var(--muted); }
   .tblwrap { overflow-x: auto; }
-  .tbl .del { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 13px; padding: 2px 7px; border-radius: 6px; line-height: 1; }
+  .tbl .del, .tbl .edit { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 13px; padding: 2px 7px; border-radius: 6px; line-height: 1; }
   .tbl .del:hover { background: var(--red-soft); color: var(--red); }
+  .tbl .edit:hover { background: #eff6ff; color: var(--blue); }
+  .lnk { background: none; border: 0; color: var(--muted); cursor: pointer; text-decoration: underline; font-size: 12px; font-family: inherit; }
   .toolbar select { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 13px; font-family: inherit; background: var(--card); }
 
   .chip { display: inline-block; font: 600 10px Inter, sans-serif; color: #fff; border-radius: 5px; padding: 2px 7px; text-transform: capitalize; }
@@ -253,11 +256,13 @@
         </table></div>
         <div class="toolbar">
           <input id="x-label" type="text" placeholder="Label (e.g. Cloudflare Workers Paid)" />
-          <input id="x-amount" type="number" min="0" step="0.01" placeholder="Amount" style="flex:0 0 110px; min-width:90px" />
+          <input id="x-amount" type="number" min="0" step="0.01" placeholder="Amount" style="flex:0 0 100px; min-width:80px" />
+          <select id="x-cur"><option value="EUR">€ EUR</option><option value="USD">$ USD</option></select>
           <select id="x-cat"><option value="infra">Infra</option><option value="domain">Domain</option><option value="marketing">Marketing</option><option value="tools">Tools</option><option value="investment">Investment</option><option value="other">Other</option></select>
           <select id="x-rec"><option value="once">One-time</option><option value="monthly">Monthly</option><option value="yearly">Yearly</option></select>
           <input id="x-date" type="date" style="flex:0 0 150px" />
           <button class="btn" id="x-add">Add expense</button>
+          <button class="lnk" id="x-cancel" hidden>cancel edit</button>
         </div>
       </div>
       <div class="foot" id="f-foot"></div>
@@ -274,6 +279,10 @@
   let moneyState = "idle"; // idle | loading | done | error
   let expensesData = null; // /api/expenses payload (D1)
   let expensesState = "idle";
+  let editingId = null;    // expense id being edited (null = add mode)
+  let fxBase = "EUR";      // display currency for the P&L
+  let fxRates = { USD: 1.08 }; // units of <cur> per 1 fxBase (fallback EUR->USD until live rate loads)
+  let fxLive = false;
 
   const nf = (n) => (n == null ? "—" : Number(n).toLocaleString("en-US"));
   const pct = (num, den) => (den > 0 && num != null ? Math.round((num / den) * 1000) / 10 : 0);
@@ -598,10 +607,27 @@
   }
 
   // ---------- Finances (P&L + expense ledger) ----------
+  // FX: convert a minor-unit amount from `cur` into the display currency (fxBase).
+  function toDisplayCents(cents, cur) {
+    cur = (cur || fxBase).toUpperCase();
+    if (cur === fxBase) return cents;
+    const rate = fxRates[cur];        // units of `cur` per 1 fxBase
+    return rate ? Math.round(cents / rate) : cents;
+  }
+  async function loadFx() {
+    const base = ((moneyData && moneyData.currency) || "EUR").toUpperCase();
+    fxBase = base;
+    try {
+      const r = await fetch("https://api.frankfurter.app/latest?from=" + encodeURIComponent(base), { cache: "no-store" });
+      if (r.ok) { const d = await r.json(); if (d && d.rates) { fxRates = d.rates; fxLive = true; renderFinances(); } }
+    } catch (e) { /* keep fallback rate */ }
+  }
+
   async function loadExpenses() {
     const key = localStorage.getItem(KEY_STORE);
     if (!key) return;
     expensesState = "loading";
+    loadFx();
     try {
       const r = await fetch("/api/expenses", {
         method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store",
@@ -627,16 +653,17 @@
 
   function renderFinances() {
     const m = moneyData;
-    const cur = (m && m.currency) || "eur";
+    const cur = (m && m.currency) || fxBase; // display currency
     const exp = expensesData || [];
     const now = new Date();
     const mStart = (m && m.month && m.month.startedAt) || Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1);
 
     let monthExp = 0, recurring = 0, invested = 0;
     for (const e of exp) {
-      if (e.recurrence === "monthly") { monthExp += e.amountCents; recurring += e.amountCents; }
-      else if (e.recurrence === "yearly") { const mo = Math.round(e.amountCents / 12); monthExp += mo; recurring += mo; }
-      else { invested += e.amountCents; if (e.incurredAt >= mStart) monthExp += e.amountCents; }
+      const c = toDisplayCents(e.amountCents, e.currency); // normalize to display currency
+      if (e.recurrence === "monthly") { monthExp += c; recurring += c; }
+      else if (e.recurrence === "yearly") { const mo = Math.round(c / 12); monthExp += mo; recurring += mo; }
+      else { invested += c; if (e.incurredAt >= mStart) monthExp += c; }
     }
     const revenue = m && m.month ? m.month.netSettledCents : null;
     const creator = m && m.month ? (m.month.creatorEarnedCents || 0) : null;
@@ -670,15 +697,42 @@
       $("f-expenses").innerHTML = exp.map((e) => {
         const d = new Date(e.incurredAt);
         const rec = e.recurrence === "monthly" ? "Monthly" : e.recurrence === "yearly" ? "Yearly" : "One-time";
-        return "<tr><td>" + d.toLocaleDateString() + "</td>" +
+        return "<tr" + (e.id === editingId ? ' class="flag"' : "") + "><td>" + d.toLocaleDateString() + "</td>" +
           "<td>" + esc(e.label) + "</td>" +
           "<td>" + esc(e.category) + "</td>" +
           "<td>" + rec + "</td>" +
-          '<td class="num">' + money(e.amountCents, e.currency || cur) + "</td>" +
-          "<td class='num'><button class='del' data-id='" + e.id + "' title='Delete'>✕</button></td></tr>";
+          '<td class="num">' + money(e.amountCents, e.currency || fxBase) + "</td>" +
+          "<td class='num'><button class='edit' data-id='" + e.id + "' title='Edit'>✎</button> " +
+          "<button class='del' data-id='" + e.id + "' title='Delete'>✕</button></td></tr>";
       }).join("");
     }
-    $("f-foot").textContent = m && m.month ? "" : "Revenue & creator figures fill in once the Money tab data loads.";
+    const foreign = exp.some((e) => (e.currency || fxBase).toUpperCase() !== fxBase);
+    $("f-foot").textContent =
+      (m && m.month ? "" : "Revenue & creator figures fill in once the Money tab loads. ") +
+      (foreign && fxRates.USD ? "USD converted to " + fxBase + " at 1 " + fxBase + " = " + fxRates.USD + " USD" + (fxLive ? " (live ECB)." : " (approx).") : "");
+  }
+
+  function editExpense(id) {
+    const e = (expensesData || []).find((x) => x.id === id);
+    if (!e) return;
+    editingId = id;
+    $("x-label").value = e.label;
+    $("x-amount").value = e.amountCents / 100;
+    $("x-cur").value = (e.currency || fxBase).toUpperCase() === "USD" ? "USD" : "EUR";
+    $("x-cat").value = e.category || "other";
+    $("x-rec").value = e.recurrence || "once";
+    $("x-date").value = new Date(e.incurredAt).toISOString().slice(0, 10);
+    $("x-add").textContent = "Save changes";
+    $("x-cancel").hidden = false;
+    renderFinances(); // highlight the row being edited
+    $("x-label").focus();
+  }
+  function cancelEdit() {
+    editingId = null;
+    $("x-label").value = ""; $("x-amount").value = "";
+    $("x-add").textContent = "Add expense";
+    $("x-cancel").hidden = true;
+    renderFinances();
   }
 
   async function addExpense() {
@@ -687,18 +741,24 @@
     if (!label || !amount) { $("x-label").focus(); return; }
     const dv = $("x-date").value;
     const incurredAt = dv ? Date.parse(dv + "T00:00:00Z") : Date.now();
+    const payload = { label, amount, currency: $("x-cur").value, category: $("x-cat").value, recurrence: $("x-rec").value, incurredAt };
     $("x-add").disabled = true;
     try {
-      const ok = await expenseApi({ action: "add", label, amount, category: $("x-cat").value, recurrence: $("x-rec").value, incurredAt });
-      if (ok) { $("x-label").value = ""; $("x-amount").value = ""; }
+      const ok = editingId
+        ? await expenseApi(Object.assign({ action: "update", id: editingId }, payload))
+        : await expenseApi(Object.assign({ action: "add" }, payload));
+      if (ok) cancelEdit();
     } finally { $("x-add").disabled = false; }
   }
   $("x-add").onclick = addExpense;
+  $("x-cancel").onclick = cancelEdit;
   $("x-label").addEventListener("keydown", (e) => { if (e.key === "Enter") addExpense(); });
   $("x-amount").addEventListener("keydown", (e) => { if (e.key === "Enter") addExpense(); });
   $("f-expenses").addEventListener("click", (e) => {
-    const b = e.target.closest && e.target.closest(".del");
-    if (b && confirm("Delete this expense?")) expenseApi({ action: "delete", id: Number(b.getAttribute("data-id")) });
+    const ed = e.target.closest && e.target.closest(".edit");
+    if (ed) { editExpense(Number(ed.getAttribute("data-id"))); return; }
+    const del = e.target.closest && e.target.closest(".del");
+    if (del && confirm("Delete this expense?")) expenseApi({ action: "delete", id: Number(del.getAttribute("data-id")) });
   });
 
   // ---------- Load ----------

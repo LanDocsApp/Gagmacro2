@@ -72,6 +72,33 @@ export async function onRequestPost({ request, env }) {
     return listExpenses(env);
   }
 
+  if (action === "update") {
+    const id = Math.round(Number(body.id) || 0);
+    if (!id) return json({ error: "missing id" }, 400);
+    const label = String(body.label || "").trim().slice(0, 120);
+    const category = String(body.category || "other").trim().slice(0, 32) || "other";
+    const amountCents = Math.max(0, Math.round((Number(body.amount) || 0) * 100));
+    const recurrence = RECURRENCE.has(body.recurrence) ? body.recurrence : "once";
+    const incurredAt = Number.isFinite(Number(body.incurredAt)) && Number(body.incurredAt) > 0
+      ? Math.round(Number(body.incurredAt))
+      : Date.now();
+    const currency = String(body.currency || "").trim().slice(0, 8) || null;
+    const note = String(body.note || "").slice(0, 200);
+    if (!label || amountCents === 0) return json({ error: "need a label and amount" }, 400);
+    try {
+      await env.STATS.prepare(
+        `UPDATE expenses
+         SET label = ?2, category = ?3, amount_cents = ?4, currency = ?5, recurrence = ?6, incurred_at = ?7, note = ?8
+         WHERE id = ?1`
+      )
+        .bind(id, label, category, amountCents, currency, recurrence, incurredAt, note)
+        .run();
+    } catch (e) {
+      return json({ error: "could not update", detail: String((e && e.message) || e) }, 500);
+    }
+    return listExpenses(env);
+  }
+
   if (action === "delete") {
     const id = Math.round(Number(body.id) || 0);
     if (!id) return json({ error: "missing id" }, 400);
