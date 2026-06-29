@@ -6,8 +6,8 @@
 
 const ALLOWED = new Set([
   "get_access", "checkout", "subscribe",
-  "hint_shown", "hint_copied", "hint_dismiss",
-  "loyalty_shown", "loyalty_copied", "loyalty_dismiss",
+  "hint_shown", "hint_copied", "hint_dismiss", "hint_cta",
+  "loyalty_shown", "loyalty_copied", "loyalty_dismiss", "loyalty_cta",
 ]);
 
 export async function logEvent(env, name, opts = {}) {

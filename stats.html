@@ -223,10 +223,10 @@
       </div>
       <div class="section">
         <h2>Popup performance</h2>
-        <p class="hint">How the in-macro upsell popups convert. Shown / Copied / Dismissed are macro events (they start counting once users update the macro); Redeemed is the Stripe redemption count for each popup's code. Shown→Used = redeemed ÷ shown.</p>
+        <p class="hint">How the in-macro upsell popups convert. <b>Shown</b> = times it appeared (impressions — one person can see it several times). <b>Copied</b> = code copied. <b>Clicked</b> = clicked the green CTA through to checkout. <b>Dismissed</b> = closed via X / Maybe later. <b>No action</b> = shown but neither clicked nor dismissed (closed the macro / ignored — normal for most impressions). <b>Redeemed</b> = Stripe redemptions of the code. Events only count once users update the macro.</p>
         <div class="tblwrap"><table class="tbl">
-          <thead><tr><th>Popup</th><th class="num">Shown</th><th class="num">Copied</th><th class="num">Dismissed</th><th class="num">Redeemed</th><th class="num">Shown→Used</th></tr></thead>
-          <tbody id="m-popups"><tr><td colspan="6" class="muted">Loading…</td></tr></tbody>
+          <thead><tr><th>Popup</th><th class="num">Shown</th><th class="num">Copied</th><th class="num">Clicked</th><th class="num">Dismissed</th><th class="num">No action</th><th class="num">Redeemed</th><th class="num">Shown→Used</th></tr></thead>
+          <tbody id="m-popups"><tr><td colspan="8" class="muted">Loading…</td></tr></tbody>
         </table></div>
       </div>
       <div class="foot" id="m-foot"></div>
@@ -615,15 +615,18 @@
       return null;
     };
     const rows = [
-      { label: "Loyalty", sub: "50% · 5h/20h runtime", shown: pe.loyalty_shown || 0, copied: pe.loyalty_copied || 0, dismissed: pe.loyalty_dismiss || 0, redeemed: usesFor("PROMACRO") },
-      { label: "Conversion", sub: "20% · post-session", shown: pe.hint_shown || 0, copied: pe.hint_copied || 0, dismissed: pe.hint_dismiss || 0, redeemed: usesFor("SUPERSEED") },
+      { label: "Loyalty", sub: "50% · 5h/20h runtime", shown: pe.loyalty_shown || 0, copied: pe.loyalty_copied || 0, clicked: pe.loyalty_cta || 0, dismissed: pe.loyalty_dismiss || 0, redeemed: usesFor("PROMACRO") },
+      { label: "Conversion", sub: "20% · post-session", shown: pe.hint_shown || 0, copied: pe.hint_copied || 0, clicked: pe.hint_cta || 0, dismissed: pe.hint_dismiss || 0, redeemed: usesFor("SUPERSEED") },
     ];
     $("m-popups").innerHTML = rows.map((r) => {
+      const noAction = Math.max(0, r.shown - r.clicked - r.dismissed);
       const conv = r.shown > 0 && r.redeemed != null ? pct(r.redeemed, r.shown) + "%" : "—";
       return "<tr><td>" + r.label + ' <span class="muted">' + r.sub + "</span></td>" +
         '<td class="num">' + nf(r.shown) + "</td>" +
         '<td class="num">' + nf(r.copied) + "</td>" +
+        '<td class="num">' + nf(r.clicked) + "</td>" +
         '<td class="num">' + nf(r.dismissed) + "</td>" +
+        '<td class="num muted">' + nf(noAction) + "</td>" +
         '<td class="num">' + (r.redeemed == null ? "—" : nf(r.redeemed)) + "</td>" +
         '<td class="num">' + conv + "</td></tr>";
     }).join("");

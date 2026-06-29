@@ -201,7 +201,8 @@ export async function onRequestGet({ request, env }) {
     try {
       const pe = await env.STATS.prepare(
         `SELECT name, COUNT(*) AS n FROM events
-         WHERE name IN ('loyalty_shown','loyalty_copied','loyalty_dismiss','hint_shown','hint_copied','hint_dismiss')
+         WHERE name IN ('loyalty_shown','loyalty_copied','loyalty_dismiss','loyalty_cta',
+                        'hint_shown','hint_copied','hint_dismiss','hint_cta')
          GROUP BY name`
       ).all();
       for (const r of pe?.results || []) popupEvents[String(r.name)] = r.n || 0;

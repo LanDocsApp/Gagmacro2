@@ -20,14 +20,14 @@ import { logEvent } from "../_lib/events.js";
 // sync at the parse boundary):
 //   get_access      -- the "Get access" button was clicked
 //   hint_shown      -- the post-session "seeds you missed" upsell popup was shown (superseed, 20%)
-//   hint_copied     -- its code was copied; hint_dismiss -- it was dismissed (X / Maybe later)
+//   hint_copied     -- code copied; hint_dismiss -- dismissed (X/Maybe later); hint_cta -- clicked through
 //   loyalty_shown   -- the 5h/20h runtime loyalty popup was shown (promacro, 50%)
-//   loyalty_copied  -- its code was copied; loyalty_dismiss -- it was dismissed
-// The shown/copied/dismissed events power the Popup-performance funnel on /stats.
+//   loyalty_copied  -- code copied; loyalty_dismiss -- dismissed; loyalty_cta -- clicked through
+// The shown/copied/dismissed/cta events power the Popup-performance funnel on /stats.
 const PING_EVENTS = new Set([
   "get_access",
-  "hint_shown", "hint_copied", "hint_dismiss",
-  "loyalty_shown", "loyalty_copied", "loyalty_dismiss",
+  "hint_shown", "hint_copied", "hint_dismiss", "hint_cta",
+  "loyalty_shown", "loyalty_copied", "loyalty_dismiss", "loyalty_cta",
 ]);
 
 // A session is "still going" as long as pings keep arriving within this window.

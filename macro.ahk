@@ -1789,7 +1789,7 @@ HtmlTemplate() {
         <span id='hintCode' class='codeval'>superseed</span>
         <button class='btn' onclick='copyCode(this, "hintCode")'>Copy</button>
       </div>
-      <button class='btn green block' onclick='closeHint(); openAccess();'>Unlock the best seeds &mdash; 20% off &rarr;</button>
+      <button class='btn green block' onclick='ctaHint()'>Unlock the best seeds &mdash; 20% off &rarr;</button>
       <a class='hintDismiss' onclick='dismissHint()'>Maybe later</a>
     </div>
   </div>
@@ -1806,7 +1806,7 @@ HtmlTemplate() {
         <span id='discountCode' class='codeval'>promacro</span>
         <button class='btn' onclick='copyDiscount(this)'>Copy</button>
       </div>
-      <button class='btn green block' onclick='closeDiscount(); openAccess();'>Get Pro &mdash; 50% off &rarr;</button>
+      <button class='btn green block' onclick='ctaDiscount()'>Get Pro &mdash; 50% off &rarr;</button>
       <a class='hintDismiss' onclick='dismissDiscount()'>Maybe later</a>
     </div>
   </div>
@@ -2047,6 +2047,10 @@ HtmlTemplate() {
      route to openAccess instead), so dismiss counts only true "not now" closes. */
   function dismissHint(){ send('ev|hint_dismiss'); closeHint(); }
   function dismissDiscount(){ send('ev|loyalty_dismiss'); closeDiscount(); }
+  /* CTA = clicked through to the access page (strongest intent). Logs a popup event
+     AND opens access (openAccess fires its own get_access funnel event). */
+  function ctaHint(){ send('ev|hint_cta'); closeHint(); openAccess(); }
+  function ctaDiscount(){ send('ev|loyalty_cta'); closeDiscount(); openAccess(); }
 
   /* Promo codes. AHK sends "promoask" shortly after first launch; the page shows the
      prompt. Apply (or Enter) -> AHK validates and replies "promook|<CODE>|<PCT>" (badge
