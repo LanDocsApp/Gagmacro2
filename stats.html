@@ -180,10 +180,10 @@
       </div>
       <div class="section">
         <h2>Promo code performance</h2>
-        <p class="hint">Engagement by creator promo code. Every creator code is listed, even ones with no installs yet. Revenue per code lives on the Money tab.</p>
+        <p class="hint">Engagement and conversion by creator promo code. CTR = share that clicked Get access · Returning = came back a later day · Subscribers = Stripe redemptions of that code · Install→Sub = installs that became paid subs. Every creator code is listed, even ones with no installs. Revenue per code is on the Money tab.</p>
         <div class="tblwrap"><table class="tbl">
-          <thead><tr><th>Code</th><th class="num">Installs</th><th class="num">Get access CTR</th><th class="num">Returning</th></tr></thead>
-          <tbody id="a-promo"><tr><td colspan="4" class="muted">Loading...</td></tr></tbody>
+          <thead><tr><th>Code</th><th class="num">Installs</th><th class="num">Get access CTR</th><th class="num">Returning</th><th class="num">Subscribers</th><th class="num">Install→Sub</th></tr></thead>
+          <tbody id="a-promo"><tr><td colspan="6" class="muted">Loading...</td></tr></tbody>
         </table></div>
       </div>
       <div class="foot" id="a-foot"></div>
@@ -476,18 +476,33 @@
     JUKEM: "https://gardenmacro.com/creator.html#eyJ0IjoiY3JlYXRvciIsImlkIjoianVrZW0ifQ.5sWZeQIX2WDXz_tQIkVU3msVU2NbktTh68jO0zuwj84",
     LION: "https://gardenmacro.com/creator.html#eyJ0IjoiY3JlYXRvciIsImlkIjoibGlvbiJ9.qp8g83qo6IFi3UB0rFz5KKYFyUETBtYXbxl8xjdCFHg",
   };
+  // Subscribers a promo code drove = its Stripe redemptions (times_redeemed), matched by
+  // code from the money data. null when money hasn't loaded or the code has no Stripe code.
+  function subsForCode(code) {
+    if (!moneyData || !moneyData.codes) return null;
+    const u = String(code).toUpperCase();
+    for (const c of moneyData.codes) if (String(c.code).toUpperCase() === u) return c.uses;
+    return null;
+  }
   function acqRows(list, isPromo) {
-    if (!list || !list.length) return '<tr><td colspan="4" class="muted">No data yet.</td></tr>';
+    const cols = isPromo ? 6 : 4;
+    if (!list || !list.length) return '<tr><td colspan="' + cols + '" class="muted">No data yet.</td></tr>';
     return list.map((r) => {
       const name = isPromo ? r.code : srcLabel(r.source);
       const link = isPromo ? CREATOR_LINKS[String(name).toUpperCase()] : null;
       const cell = link
         ? '<a href="' + esc(link) + '" target="_blank" rel="noopener">' + esc(name) + "</a>"
         : esc(name);
-      return "<tr><td" + (isPromo ? ' class="mono"' : "") + ">" + cell + "</td>" +
+      let row = "<tr><td" + (isPromo ? ' class="mono"' : "") + ">" + cell + "</td>" +
         '<td class="num">' + nf(r.installs) + "</td>" +
         '<td class="num">' + pct(r.getAccess, r.installs) + "%</td>" +
-        '<td class="num">' + pct(r.returning, r.installs) + "%</td></tr>";
+        '<td class="num">' + pct(r.returning, r.installs) + "%</td>";
+      if (isPromo) {
+        const subs = subsForCode(r.code);
+        row += '<td class="num">' + (subs == null ? "—" : nf(subs)) + "</td>" +
+          '<td class="num">' + (subs == null || !r.installs ? "—" : pct(subs, r.installs) + "%") + "</td>";
+      }
+      return row + "</tr>";
     }).join("");
   }
   function renderAcquisition(d) {
@@ -539,8 +554,9 @@
     $("o-mrr-s").textContent = mrr == null ? "live from Stripe"
       : (subs.mrrSubs != null ? subs.mrrSubs + " paying" + (active != null && active !== subs.mrrSubs ? " of " + active + " active" : " subs") : "");
 
-    // Refresh the Overview funnel so its "Subscribed" uses the real active count.
-    if (lastData) renderOverview(lastData);
+    // Refresh Overview funnel (real "Subscribed") + Acquisition promo table (Subscribers
+    // / Install→Sub) now that the Stripe code data is available.
+    if (lastData) { renderOverview(lastData); renderAcquisition(lastData); }
 
     const mo = (m && m.month) || {};
     $("m-monthlabel").textContent = mo.label ? "(" + mo.label + ")" : "";
