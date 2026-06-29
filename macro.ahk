@@ -280,7 +280,7 @@ SetTimer(MaybeAskSource, -1800)
 ;  UI  (WebView2 window + HTML/CSS/JS)
 ; ============================================================
 BuildUi() {
-    global MainGui, controller, wv, PremiumCount, Seeds, Gears, PromoCode, PromoPct
+    global MainGui, controller, wv, PremiumCount, Seeds, Gears, PromoCode, PromoPct, TokenFile
 
     dllPath := A_ScriptDir "\lib\WebView2Loader.dll"
     dataDir := A_AppData "\GardenMacro\WebView2"   ; writable user-data folder
@@ -318,6 +318,12 @@ BuildUi() {
     html := StrReplace(html, "__VERSION__", VersionLabel())
     html := StrReplace(html, "__PROMO__", PromoCode)   ; "" if none/skipped -> badge stays hidden
     html := StrReplace(html, "__PROMOPCT__", PromoPct) ; the code's discount percent (0 if none) -> badge "N% off"
+    ; A saved access code means the user is PROBABLY Pro (pending the async license
+    ; check). Hold the limited-time strip hidden until that check resolves so Pro
+    ; members never see it flash; with no saved code the user is definitely free, so
+    ; the strip can show from the first frame (no pop-in / resize). See applyPromoStrip.
+    hasToken := (FileExist(TokenFile) && ReadToken(TokenFile) != "") ? "1" : "0"
+    html := StrReplace(html, "__HASTOKEN__", hasToken)
     wv.NavigateToString(html)
 }
 
@@ -845,11 +851,17 @@ CheckSavedLicense() {
     global TokenFile, Unlocked
     if Unlocked
         return
-    if !FileExist(TokenFile)
+    ; No saved code -> the user is free; reveal the limited-time strip the page was
+    ; holding hidden (it only holds when a saved code might unlock Pro). See BuildUi.
+    if !FileExist(TokenFile) {
+        Post("profree")
         return
+    }
     token := ReadToken(TokenFile)
-    if (token = "")
+    if (token = "") {
+        Post("profree")
         return
+    }
     res := VerifyToken(token)
     if (res.status = "active") {
         Unlocked := true
@@ -861,6 +873,7 @@ CheckSavedLicense() {
         ; user; instead the next launch re-verifies and unlocks again. A genuinely
         ; cancelled code just keeps returning inactive (and re-unlocks automatically if
         ; the user resubscribes, since it's tied to their account, not a one-time grant).
+        Post("profree")                 ; confirmed not Pro -> let the strip show
     } else {
         ; Offline / server unreachable / status undetermined: trust the saved code for
         ; this session, like the launcher does, so paying users aren't locked out.
@@ -1587,6 +1600,14 @@ HtmlTemplate() {
       font-family:'Consolas','JetBrains Mono',monospace}
   .ver{margin-left:auto;font-size:11px;color:#bbb;white-space:nowrap;
        font-family:'Consolas','JetBrains Mono',monospace}
+  /* Limited-time discount strip, centered at the very bottom (below Start/Stop).
+     Hidden for Pro users (nothing to sell) and for users already holding a creator
+     promo code (Stripe codes don't stack -> don't show a rival code). */
+  .promostrip{text-align:center;font-size:11.5px;line-height:1.35;font-weight:600;
+       color:#15803d;background:#ecfdf5;border:1px dashed #86efac;border-radius:8px;
+       padding:7px 10px;cursor:pointer}
+  .promostrip:hover{background:#dcfce7;border-color:#86efac}
+  .promostrip b{font-weight:800}
   /* Free version: locked premium seeds + Get-access bar + unlock modal */
   /* Locked premium rows keep their FULL rarity colors + glow + sparks (they
      sell the upgrade). The only "locked" cue is a clean lock badge on the box. */
@@ -1750,6 +1771,8 @@ HtmlTemplate() {
     <span class='ver'>v__VERSION__</span>
   </div>
 
+  <div id='promoStrip' class='promostrip' hidden onclick='openAccess()'>&#9203; Limited time discount: use code <b>NEWSEED</b> for <b>30% off</b> Garden Macro Pro</div>
+
   <div id='overlay' class='overlay' hidden>
     <div class='modal'>
       <div class='mh'>
@@ -1852,6 +1875,8 @@ HtmlTemplate() {
   var PREMIUM = __PREMIUM__;          /* number of locked seeds (for the upsell copy) */
   var PROMO = '__PROMO__';            /* entered promo code (UPPER), '' if none -> no corner badge */
   var PROMO_PCT = __PROMOPCT__;       /* that code's discount percent (0 if none) -> badge "N% off" */
+  var PENDING_PRO = !!__HASTOKEN__;   /* a saved code exists -> Pro likely; hold the limited-time strip
+                                         hidden until the license check confirms free/Pro (no flash) */
   var unlocked = false;              /* premium (seeds) unlocked this session? */
   var seedSel = {};                  /* 1-based index -> true (seeds tab) */
   var gearSel = {};                  /* 1-based index -> true (gears tab) */
@@ -2062,6 +2087,18 @@ HtmlTemplate() {
       document.getElementById('promoBadgePct').textContent = PROMO_PCT;
       b.hidden = false;
     } else b.hidden = true;
+    applyPromoStrip();
+  }
+  /* Limited-time "NEWSEED 30% off" bottom strip. Show it only to free users who
+     don't already hold a creator code (those get their own corner badge; Stripe
+     codes don't stack, so we never show a rival code on top of one). */
+  function applyPromoStrip(){
+    var s = document.getElementById('promoStrip');
+    if (!s) return;
+    var before = s.hidden;
+    s.hidden = unlocked || !!PROMO || PENDING_PRO;   /* hidden while a saved code is still being verified */
+    if (s.hidden !== before)                 /* visibility changed -> resize to fit */
+      requestAnimationFrame(function(){ requestAnimationFrame(fitWindow); });
   }
   /* Source ("where did you hear about us?") wall. AHK sends "sourceask" on first
      launch, BEFORE the promo prompt. Picking a channel (or Skip) -> AHK records +
@@ -2145,9 +2182,11 @@ HtmlTemplate() {
   }
   function unlockPremium(){
     unlocked = true;
+    PENDING_PRO = false;                 /* license check settled (Pro) -> strip stays hidden */
     closeAccess();
     var bar = document.getElementById('premiumBar');
     if (bar) bar.hidden = true;          /* access granted -> no upsell bar needed */
+    applyPromoStrip();                   /* Pro now -> drop the limited-time strip */
     applyGearLock();                     /* Pro -> the Gears tab is now usable */
     document.getElementById('tabAccount').hidden = false;  /* Pro -> show the Account tab */
     renderAll();
@@ -2173,6 +2212,7 @@ HtmlTemplate() {
     if (type === 'status') { /* status line removed from UI */ }
     else if (type === 'state') setRunning(rest === '1');
     else if (type === 'unlock') unlockPremium();
+    else if (type === 'profree') { PENDING_PRO = false; applyPromoStrip(); }  /* license check settled (free) -> reveal strip */
     else if (type === 'licensemsg') setLicenseMsg(rest);
     else if (type === 'accountmsg') setAccountMsg(rest);
     else if (type === 'access') openAccess();   /* tried to Start a Pro-locked tab */
@@ -2190,7 +2230,11 @@ HtmlTemplate() {
     /* Measure to the footer normally; on the Account tab the footer is hidden,
        so measure to the account card instead. */
     var f = document.getElementById('footer');
-    var ref = (f && !f.hidden) ? f : document.querySelector('#accountPane .acard');
+    var strip = document.getElementById('promoStrip');
+    var ref;
+    if (strip && !strip.hidden) ref = strip;   /* limited-time strip sits below the footer */
+    else if (f && !f.hidden)    ref = f;
+    else ref = document.querySelector('#accountPane .acard');
     if (!ref) return;
     var cssH = ref.getBoundingClientRect().bottom + 16;   /* + body bottom padding */
     send('fit|' + Math.ceil(cssH * (window.devicePixelRatio || 1)));
