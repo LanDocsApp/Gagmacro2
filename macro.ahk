@@ -141,6 +141,7 @@ global PromoValid := Map(                                 ; the only codes we ac
     "OVER",   10,
     "ROOKIE", 10,
     "JUKEM",  10,
+    "VEXY",   20,
     "LION",   20)
 global PromoAsked := false        ; has the first-launch promo prompt been answered?
 global PromoCode  := ""           ; the accepted code (UPPER-cased), "" if none / skipped

@@ -13,6 +13,7 @@ export const CREATORS = {
   jose:  { name: "jose",       codes: ["OVER"] },
   jukem: { name: "jukemplayz", codes: ["ROOKIE", "JUKEM"] },
   lion:  { name: "White Lion", codes: ["LION"] },
+  vexy:  { name: "VexyChaos",  codes: ["VEXY"] },
 };
 
 // Look up a creator by slug (case-insensitive). Returns { id, name, codes } or null.
