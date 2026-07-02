@@ -10,7 +10,7 @@
 ;    0. Focuses Roblox + small mouse nudge
 ;    1. Clicks the shop at (697, 103), presses "e"
 ;    2. Presses "\" for keyboard UI nav, snaps to position 1
-;       (down 5x, hold Up 5s), then moves onto the first ticked seed.
+;       (Up 5x, then Down 3x), then moves onto the first ticked seed.
 ;  Steps 0-2 (Setup) run ONCE. The shop UI then stays open and the
 ;  cursor stays put, so each restock only repeats the buy pass:
 ;    3. From the first ticked seed, walk DOWN buying each ticked seed
@@ -282,6 +282,7 @@ SetTimer(MaybeAskSource, -1800)
 ; ============================================================
 BuildUi() {
     global MainGui, controller, wv, PremiumCount, Seeds, Gears, PromoCode, PromoPct, TokenFile
+    global SourceAsked, PromoAsked
 
     dllPath := A_ScriptDir "\lib\WebView2Loader.dll"
     dataDir := A_AppData "\GardenMacro\WebView2"   ; writable user-data folder
@@ -325,6 +326,14 @@ BuildUi() {
     ; the strip can show from the first frame (no pop-in / resize). See applyPromoStrip.
     hasToken := (FileExist(TokenFile) && ReadToken(TokenFile) != "") ? "1" : "0"
     html := StrReplace(html, "__HASTOKEN__", hasToken)
+    ; A first-launch onboarding wall arrives ~1.8s after load (see MaybeAskSource), so the
+    ; fully-rendered app would flash until then. If a wall IS going to show, tell the page to
+    ; paint a plain cover from the very first frame; the real wall cross-dissolves in over it.
+    ;   source wall shows <=> source not yet answered
+    ;   promo  wall shows <=> source done, promo not asked, and not (likely) Pro -- a saved
+    ;                         token means a returning user (already onboarded / probably Pro).
+    willOnboard := (!SourceAsked) || (!PromoAsked && hasToken = "0")
+    html := StrReplace(html, "__ONBOARD__", willOnboard ? "1" : "0")
     wv.NavigateToString(html)
 }
 
@@ -1383,19 +1392,20 @@ Setup() {
         ;           FirstSel-1 Down presses (same as seeds).
         downsToFirst := FirstSel - 1
     } else {
-        ; 2b-seeds. Snap to position 1: Down 5x, then hold Up 5s to scroll all the
-        ;           way back to the top -> the first seed.
+        ; 2b-seeds. Snap to position 1: Up 5x to climb to the top of the list, then
+        ;           Down 3x to settle onto the first seed. ~500ms between each press
+        ;           so the game reliably registers every input.
         UiStatus("Resetting to position 1...")
         Loop 5 {
-            Send "{Down}"
-            if !Wait(300)
+            Send "{Up}"
+            if !Wait(500)
                 return false
         }
-        Send "{Up down}"
-        Wait(5000)
-        Send "{Up up}"
-        if !Wait(300)
-            return false
+        Loop 3 {
+            Send "{Down}"
+            if !Wait(500)
+                return false
+        }
         ; 2c-seeds. Position 1 is the first seed, so reach seed FirstSel with
         ;           FirstSel-1 Down presses.
         downsToFirst := FirstSel - 1
@@ -1654,7 +1664,7 @@ HtmlTemplate() {
   .wall h2{font-size:22px;font-weight:800;margin:0 0 18px;color:#111}
   /* Welcome screen: the warm "you're in" finale after onboarding. */
   .welcome h2{margin:0;font-size:26px}
-  .welcomeSeed{font-size:46px;line-height:1;margin-bottom:8px}
+  .brandLogo{display:block;margin:0 auto 10px}
   .wall #promoInput{width:100%;text-align:center;font-size:16px;letter-spacing:1px;
         text-transform:uppercase;margin-bottom:4px}
   .wall .lmsg{text-align:center;margin:6px 0 12px}
@@ -1835,6 +1845,21 @@ HtmlTemplate() {
     </div>
   </div>
 
+  <!-- First-launch cover: painted from frame 1 (when onboarding is pending) so the app is
+       never visible before the first wall dissolves in over it. Placed BEFORE the walls so
+       they stack on top of it during the cross-dissolve. -->
+  <div id='bootCover' class='wall' hidden>
+    <div class='wallinner welcome'>
+      <svg class='brandLogo' width='58' height='58' viewBox='0 0 64 64' fill='none' xmlns='http://www.w3.org/2000/svg'>
+        <rect width='64' height='64' rx='16' fill='#16a34a'/>
+        <path d='M32 52 V30' stroke='#fff' stroke-width='3.6' stroke-linecap='round'/>
+        <path d='M32 36 C22 36 17 28 18 19 C28 20 33 27 32 36 Z' fill='#fff'/>
+        <path d='M32 40 C42 40 47 32 46 23 C36 24 31 31 32 40 Z' fill='#fff'/>
+      </svg>
+      <h2>Garden Macro</h2>
+    </div>
+  </div>
+
   <div id='sourceOverlay' class='wall' hidden>
     <div class='wallinner'>
       <h2>Where did you hear about the macro?</h2>
@@ -1864,7 +1889,12 @@ HtmlTemplate() {
 
   <div id='welcomeOverlay' class='wall' hidden>
     <div class='wallinner welcome'>
-      <div class='welcomeSeed'>&#127793;</div>
+      <svg class='brandLogo' width='50' height='50' viewBox='0 0 64 64' fill='none' xmlns='http://www.w3.org/2000/svg'>
+        <rect width='64' height='64' rx='16' fill='#16a34a'/>
+        <path d='M32 52 V30' stroke='#fff' stroke-width='3.6' stroke-linecap='round'/>
+        <path d='M32 36 C22 36 17 28 18 19 C28 20 33 27 32 36 Z' fill='#fff'/>
+        <path d='M32 40 C42 40 47 32 46 23 C36 24 31 31 32 40 Z' fill='#fff'/>
+      </svg>
       <h2>Welcome!</h2>
     </div>
   </div>
@@ -1878,6 +1908,8 @@ HtmlTemplate() {
   var PROMO_PCT = __PROMOPCT__;       /* that code's discount percent (0 if none) -> badge "N% off" */
   var PENDING_PRO = !!__HASTOKEN__;   /* a saved code exists -> Pro likely; hold the limited-time strip
                                          hidden until the license check confirms free/Pro (no flash) */
+  var WILL_ONBOARD = !!__ONBOARD__;   /* a first-launch wall is coming ~1.8s after load -> paint a cover
+                                         from frame 1 so the app never flashes before onboarding */
   var unlocked = false;              /* premium (seeds) unlocked this session? */
   var seedSel = {};                  /* 1-based index -> true (seeds tab) */
   var gearSel = {};                  /* 1-based index -> true (gears tab) */
@@ -2145,14 +2177,25 @@ HtmlTemplate() {
     });
   }
 
-  function openSourceAsk(){ sawWall = true; enterWall('sourceOverlay'); }
+  /* First-launch app cover (see WILL_ONBOARD). It's painted from frame 1 so the app never
+     shows before the first wall; the first wall then dissolves in over it and drops it. */
+  function coverUp(){ return !document.getElementById('bootCover').hidden; }
+  function showBootCover(){ document.getElementById('bootCover').hidden = false; }
+
+  function openSourceAsk(){
+    sawWall = true;
+    if (coverUp()) crossWall('bootCover', 'sourceOverlay');   /* dissolve cover -> source */
+    else enterWall('sourceOverlay');
+  }
   function closeSource(){ document.getElementById('sourceOverlay').hidden = true; }
   function chooseSource(key){ send('source|' + key); }
   function skipSource(){ send('sourceskip'); }
 
   function openPromoAsk(){
     sawWall = true;
-    crossWall('sourceOverlay', 'promoOverlay', function(){   /* dissolve source -> promo */
+    /* Normally the source wall is showing; on the source-already-answered path the boot
+       cover is still up instead. Dissolve whichever is visible into the promo wall. */
+    crossWall(coverUp() ? 'bootCover' : 'sourceOverlay', 'promoOverlay', function(){
       document.getElementById('promoInput').focus();
     });
   }
@@ -2220,7 +2263,11 @@ HtmlTemplate() {
     else if (type === 'hint') { var hp = rest.split('|'); showHint(hp[0], hp[1]); }  /* post-run upsell */
     else if (type === 'discount') { var dp = rest.split('|'); showDiscount(dp[0], dp[1]); }   /* loyalty 50%-off code + milestone hours */
     else if (type === 'sourceask') openSourceAsk();     /* first-launch acquisition prompt (before promo) */
-    else if (type === 'sourcedone') { if (sawWall) goWelcome('sourceOverlay'); else closeSource(); }  /* settled: welcome if a wall showed, else just close */
+    else if (type === 'sourcedone') {                        /* settled: nothing more to ask */
+      if (sawWall) goWelcome('sourceOverlay');               /* a wall showed -> welcome finale */
+      else if (coverUp()) exitWall('bootCover');             /* covered but nothing to ask -> reveal app */
+      else closeSource();
+    }
     else if (type === 'promoask') openPromoAsk();       /* first-launch promo prompt */
     else if (type === 'promook') { var pp = rest.split('|'); promoAccepted(pp[0], pp[1]); }  /* valid code -> badge + close */
     else if (type === 'promobad') setPromoMsg(rest);    /* invalid code -> keep prompt open */
@@ -2242,6 +2289,8 @@ HtmlTemplate() {
   }
 
   /* init */
+  if (WILL_ONBOARD) showBootCover();   /* cover the app now, before first paint, so it never
+                                          flashes before the onboarding wall arrives (~1.8s) */
   renderAll();
   applyLockUi();
   applyGearLock();
