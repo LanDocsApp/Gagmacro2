@@ -22,8 +22,8 @@
 ;  The window has two tabs: "Seeds" (above) and "Gears". The Gears tab
 ;  buys from the in-game GEAR SHOP and differs only in setup: you must
 ;  already be standing in the open Gear Shop UI when you press Start, so
-;  it skips the shop click + "e". It presses "\" for keyboard nav, taps
-;  Down 2x to land on position 1 (the first gear), then walks down onto
+;  it skips the shop click + "e". It presses "\" for keyboard nav, then
+;  Up 5x + Down 3x to land on position 1 (the first gear), then walks down onto
 ;  the first ticked gear. From there the buy pass is identical to seeds.
 ;
 ;  Controls:
@@ -1381,11 +1381,18 @@ Setup() {
         return false
 
     if (ActiveMode = "gears") {
-        ; 2b-gears. Land on position 1 (the first gear): Down 2x.
+        ; 2b-gears. Snap to position 1 (the first gear): Up 5x to climb to the top,
+        ;           then Down 3x to settle. ~500ms between each press so the game
+        ;           reliably registers every input.
         UiStatus("Resetting to position 1...")
-        Loop 2 {
+        Loop 5 {
+            Send "{Up}"
+            if !Wait(500)
+                return false
+        }
+        Loop 3 {
             Send "{Down}"
-            if !Wait(300)
+            if !Wait(500)
                 return false
         }
         ; 2c-gears. Position 1 is the first gear, so reach gear FirstSel with
