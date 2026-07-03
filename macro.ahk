@@ -112,6 +112,19 @@ global DeviceId     := ""           ; set at startup (see GetOrCreateDeviceId)
 global HeartbeatReq := 0            ; keeps the async ping COM object alive in-flight
 global EventReq     := 0            ; keeps the async funnel-event ping alive in-flight
 
+; --- Update check: the launcher downloads the newest macro.ahk from GitHub `main`
+;     at LAUNCH, so you always start on the latest build. But this macro runs for
+;     hours/days at a time (re-buying every restock), so a version shipped WHILE a
+;     session is open won't be picked up until the user relaunches. So we re-read the
+;     AppVersion published on `main` at startup and every UpdateCheckMs; if it's newer
+;     than the running build we show a red "restart to update" banner in the UI. The
+;     source of truth is the SAME raw URL the launcher pulls from, so there is exactly
+;     one version to bump per release (AppVersion above) -- nothing else to keep in sync.
+global UpdateSrcUrl   := "https://raw.git" "hubusercontent.com/LanD" "ocsApp/Gag" "macro2/main/macro.ahk"
+global UpdateCheckMs  := 60 * 60 * 1000   ; re-check for a newer build hourly while open
+global UpdateNotified := false            ; banner already shown this session? (only nag once)
+global UpdateReq      := 0                ; keeps the update-check COM object alive in-flight
+
 ; --- Loyalty discount: as a user accumulates macro runtime (added up across every
 ;     session) they earn a 50%-off code for Pro at each hour-milestone in DiscountMiles
 ;     -- so it shows at 5h, then again at 20h. Each milestone fires once, on the Stop
@@ -276,6 +289,12 @@ SetTimer(StartHeartbeat, -1500)     ; first beat shortly after launch, then repe
 ; dashboard), then the creator-code prompt. Answering/skipping the first chains into
 ; the second (see ChooseSource / SkipSource -> ContinueToPromo).
 SetTimer(MaybeAskSource, -1800)
+
+; Update check: a few seconds after launch (after the license check + onboarding
+; have had their turn), then hourly. If a newer macro.ahk has shipped to `main`
+; while this session is open, show a red "restart to update" banner. Best-effort
+; and never blocks the UI meaningfully (small ranged fetch, short timeouts).
+SetTimer(StartUpdateChecks, -4000)
 
 ; ============================================================
 ;  UI  (WebView2 window + HTML/CSS/JS)
@@ -1310,6 +1329,75 @@ SendEvent(ev) {
 }
 
 ; ============================================================
+;  Update check ("restart to update" banner)
+; ============================================================
+
+; First check shortly after launch, then arm the hourly re-check. Split from
+; CheckForUpdate for the same reason as StartHeartbeat/SendHeartbeat: SetTimer keys
+; on the callback, so a function used as BOTH a one-shot and a repeat collapses into
+; a single one-shot -- distinct callbacks keep both the first check and the repeat.
+StartUpdateChecks() {
+    global UpdateCheckMs
+    CheckForUpdate()
+    SetTimer(CheckForUpdate, UpdateCheckMs)
+}
+
+; Compare the AppVersion published on `main` against the running build; if `main`
+; is newer, tell the page to show the red "restart to update" banner. Best-effort:
+; any failure (offline, CDN hiccup, version not found in the fetched slice) leaves
+; the banner hidden -- we never nag on a false positive. Fires once per session,
+; then cancels the repeat so we stop fetching after the user has been told.
+CheckForUpdate() {
+    global AppVersion, UpdateNotified
+    if UpdateNotified
+        return
+    latest := FetchLatestVersion()
+    if (latest != "" && IsNewerVersion(latest, AppVersion)) {
+        UpdateNotified := true
+        SetTimer(CheckForUpdate, 0)      ; told them -> stop the hourly re-check
+        Post("update|" latest)
+    }
+}
+
+; Read the published AppVersion from the raw macro.ahk on `main`. Only a small slice
+; is needed (AppVersion sits near the top of the file), so we ask for the first 16 KB
+; with a Range header; GitHub's CDN answers 206 (partial) when honored or 200 (whole
+; file) when not -- either works. Returns "" on any failure so callers stay quiet.
+FetchLatestVersion() {
+    global UpdateSrcUrl, UpdateReq
+    try {
+        UpdateReq := ComObject("WinHttp.WinHttpRequest.5.1")
+        UpdateReq.SetTimeouts(3000, 3000, 3000, 5000)   ; resolve, connect, send, receive (ms)
+        UpdateReq.Open("GET", UpdateSrcUrl, false)
+        UpdateReq.SetRequestHeader("Cache-Control", "no-cache")
+        UpdateReq.SetRequestHeader("Range", "bytes=0-16383")   ; only need the top of the file
+        UpdateReq.Send()
+        if (UpdateReq.Status != 200 && UpdateReq.Status != 206)
+            return ""
+        ; Match the definition line ( AppVersion := "x.y.z" ), not the comments that
+        ; merely mention "AppVersion" -- only the assignment has ":=".
+        if RegExMatch(UpdateReq.ResponseText, 'AppVersion\s*:=\s*"([\d.]+)"', &m)
+            return m[1]
+    }
+    return ""
+}
+
+; True if dotted-numeric version `a` is strictly newer than `b`, compared component
+; by component so "1.0.10" > "1.0.9" (a plain string compare would get that wrong).
+; Missing / non-numeric components count as 0 (e.g. "1.1" > "1.0.9").
+IsNewerVersion(a, b) {
+    pa := StrSplit(a, "."), pb := StrSplit(b, ".")
+    n := Max(pa.Length, pb.Length)
+    Loop n {
+        va := (A_Index <= pa.Length && IsInteger(pa[A_Index])) ? Integer(pa[A_Index]) : 0
+        vb := (A_Index <= pb.Length && IsInteger(pb[A_Index])) ? Integer(pb[A_Index]) : 0
+        if (va != vb)
+            return va > vb
+    }
+    return false
+}
+
+; ============================================================
 ;  Setup (runs once) + Buy pass (repeats)
 ; ============================================================
 
@@ -1626,6 +1714,14 @@ HtmlTemplate() {
        padding:7px 10px;cursor:pointer}
   .promostrip:hover{background:#dcfce7;border-color:#86efac}
   .promostrip b{font-weight:800}
+  /* "Restart to update" banner. Shown (in red) when a newer macro.ahk has shipped
+     to `main` while this session was running (see CheckForUpdate). Sits right under
+     the title so it's seen on every tab; hidden until AHK sends "update|<version>". */
+  .updatebar{display:none;text-align:center;font-size:12px;font-weight:600;line-height:1.4;
+       color:#b91c1c;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;
+       padding:8px 12px;margin-bottom:12px}
+  .updatebar.show{display:block}
+  .updatebar b{font-weight:800}
   /* Free version: locked premium seeds + Get-access bar + unlock modal */
   /* Locked premium rows keep their FULL rarity colors + glow + sparks (they
      sell the upgrade). The only "locked" cue is a clean lock badge on the box. */
@@ -1722,6 +1818,7 @@ HtmlTemplate() {
 <body>
   <div id='promoBadge' class='promobadge' hidden onclick='openAccess()'>Use code <b id='promoBadgeCode'></b> for <b id='promoBadgePct'></b>% off</div>
   <h1>Garden Macro</h1>
+  <div id='updateBar' class='updatebar'>&#128260; A new version<span id='updateVer'></span> is available &mdash; <b>close and reopen the macro</b> to update.</div>
   <div class='tabs'>
     <button id='tabSeeds' class='tab on' onclick='switchTab("seeds")'>Seeds</button>
     <button id='tabGears' class='tab'    onclick='switchTab("gears")'>Gears</button>
@@ -2090,6 +2187,17 @@ HtmlTemplate() {
     document.getElementById('discountOverlay').hidden = false;
   }
   function closeDiscount(){ document.getElementById('discountOverlay').hidden = true; }
+
+  /* Update banner: AHK sends "update|<version>" when a newer macro.ahk has shipped to
+     `main` while this session is running. Show the red "restart to update" bar (once)
+     and grow the window to fit it. */
+  function showUpdate(v){
+    var el = document.getElementById('updateBar');
+    if (!el) return;
+    if (v){ var s = document.getElementById('updateVer'); if (s) s.textContent = ' (v' + v + ')'; }
+    el.classList.add('show');
+    requestAnimationFrame(function(){ requestAnimationFrame(fitWindow); });
+  }
   /* Copy the promo code in element `id` to the clipboard, with a graceful
      fallback for the non-secure NavigateToString origin, then flash "Copied". */
   function copyCode(btn, id){
@@ -2269,6 +2377,7 @@ HtmlTemplate() {
     else if (type === 'access') openAccess();   /* tried to Start a Pro-locked tab */
     else if (type === 'hint') { var hp = rest.split('|'); showHint(hp[0], hp[1]); }  /* post-run upsell */
     else if (type === 'discount') { var dp = rest.split('|'); showDiscount(dp[0], dp[1]); }   /* loyalty 50%-off code + milestone hours */
+    else if (type === 'update') showUpdate(rest);   /* newer build on `main` -> restart to update */
     else if (type === 'sourceask') openSourceAsk();     /* first-launch acquisition prompt (before promo) */
     else if (type === 'sourcedone') {                        /* settled: nothing more to ask */
       if (sawWall) goWelcome('sourceOverlay');               /* a wall showed -> welcome finale */
