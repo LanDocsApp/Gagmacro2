@@ -100,7 +100,7 @@ global InstallFile  := A_AppData "\GardenMacro\install.txt"  ; first-run stamp +
 ; Version shown in the window's bottom corner. Bump AppVersion on real releases;
 ; the build time is taken from this file's last-modified date, so it changes every
 ; time you save the script -> an easy "did my latest change actually load?" check.
-global AppVersion := "1.0.4"
+global AppVersion := "1.0.5"
 global BackendBase  := "https://gardenmacro.com"   ; subscription backend
 global VerifyUrl    := BackendBase "/api/desktop/verify"
 global PortalUrl    := BackendBase "/api/desktop/portal"   ; Stripe billing portal (manage/cancel)
@@ -210,10 +210,12 @@ global Seeds := [
     {name: "Grape",           rarity: "Epic"},
     {name: "Coconut",         rarity: "Epic"},
     {name: "Mango",           rarity: "Epic"},
+    {name: "Rocket Pop",      rarity: "Epic"},
     {name: "Dragon Fruit",    rarity: "Legendary"},
     {name: "Acorn",           rarity: "Legendary"},
     {name: "Cherry",          rarity: "Legendary"},
     {name: "Sunflower",       rarity: "Legendary"},
+    {name: "Fire Fern",       rarity: "Legendary"},
     {name: "Venus Fly Trap",  rarity: "Mythic"},
     {name: "Pomegranate",     rarity: "Mythic"},
     {name: "Poison Apple",    rarity: "Mythic"},
@@ -1693,6 +1695,14 @@ HtmlTemplate() {
         35%{opacity:1;transform:translateY(-3px) scale(1)}
         100%{opacity:0;transform:translateY(-11px) scale(.3)}}
   @keyframes hue{to{filter:hue-rotate(360deg)}}
+  /* 4th-of-July event seeds: static red/white/blue per-letter, replacing the rarity color */
+  .name.j4{font-weight:700;overflow:visible}
+  .name.j4 .j4-r{color:#b31942}
+  .name.j4 .j4-w{color:#fff;text-shadow:0 0 1px #0a3161,0 0 2px #0a3161,0 1px 1px rgba(10,49,97,.9)}
+  .name.j4 .j4-b{color:#0a3161}
+  .spark.j4r{background:#b31942;box-shadow:0 0 5px #e2244b}
+  .spark.j4w{background:#fff;box-shadow:0 0 5px #fff}
+  .spark.j4b{background:#0a3161;box-shadow:0 0 6px #2b6cff}
   /* Footer */
   .footer{display:flex;align-items:center;gap:10px}
   .footer label{font-size:12px;color:#888}
@@ -1709,11 +1719,12 @@ HtmlTemplate() {
   /* Limited-time discount strip, centered at the very bottom (below Start/Stop).
      Hidden for Pro users (nothing to sell) and for users already holding a creator
      promo code (Stripe codes don't stack -> don't show a rival code). */
+  /* 4th-of-July theme: navy text, faint-blue field, red dashed border, red code/percent. */
   .promostrip{text-align:center;font-size:11.5px;line-height:1.35;font-weight:600;
-       color:#15803d;background:#ecfdf5;border:1px dashed #86efac;border-radius:8px;
+       color:#0a3161;background:#f5f7ff;border:1px dashed #d1345b;border-radius:8px;
        padding:7px 10px;cursor:pointer}
-  .promostrip:hover{background:#dcfce7;border-color:#86efac}
-  .promostrip b{font-weight:800}
+  .promostrip:hover{background:#eaf0ff;border-color:#b31942}
+  .promostrip b{font-weight:800;color:#b31942}
   /* "Restart to update" banner. Shown (in red) when a newer macro.ahk has shipped
      to `main` while this session was running (see CheckForUpdate). Sits right under
      the title so it's seen on every tab; hidden until AHK sends "update|<version>". */
@@ -1886,7 +1897,7 @@ HtmlTemplate() {
     <span class='ver'>v__VERSION__</span>
   </div>
 
-  <div id='promoStrip' class='promostrip' hidden onclick='openAccess()'>&#9203; Limited time discount: use code <b>NEWSEED</b> for <b>30% off</b> Garden Macro Pro</div>
+  <div id='promoStrip' class='promostrip' hidden onclick='openAccess()'>&#127878; 4th of July sale: use code <b>USA</b> for <b>40% off</b> Garden Macro Pro</div>
 
   <div id='overlay' class='overlay' hidden>
     <div class='modal'>
@@ -2060,6 +2071,32 @@ HtmlTemplate() {
     }
   }
 
+  /* 4th-of-July event seeds: draw each letter red/white/blue and add patriotic
+     sparks. Keyed by name so it applies wherever the seed lands in the list. */
+  var JULY4 = {'Rocket Pop':1, 'Fire Fern':1};
+  function renderJuly4(nameEl, text){
+    nameEl.classList.add('j4');
+    var cols = ['j4-r','j4-w','j4-b'], ci = 0;
+    for (var c = 0; c < text.length; c++){
+      var ch = text.charAt(c);
+      if (ch === ' '){ nameEl.appendChild(document.createTextNode(' ')); continue; }
+      var g = document.createElement('span');
+      g.className = cols[ci % 3]; ci++;
+      g.textContent = ch;
+      nameEl.appendChild(g);
+    }
+    var spk = ['j4r','j4w','j4b','j4r','j4b'];
+    for (var k = 0; k < 5; k++){
+      var sp = document.createElement('i');
+      sp.className = 'spark ' + spk[k];
+      sp.style.left = (8 + Math.random() * 84) + '%';
+      sp.style.top  = (Math.random() * 100) + '%';
+      sp.style.animationDelay = (Math.random() * 1.6) + 's';
+      sp.style.animationDuration = (1.2 + Math.random() * 1.3) + 's';
+      nameEl.appendChild(sp);
+    }
+  }
+
   /* Keep the upsell copy in step with however many seeds are locked today. */
   function lockText(){
     return (PREMIUM >= SEEDS.length) ? 'All seeds are locked'
@@ -2099,10 +2136,15 @@ HtmlTemplate() {
       var box = document.createElement('span'); box.className = 'box';
       var name = document.createElement('span'); name.className = 'name';
       var cls = RARECLASS[s.r];
-      name.textContent = s.n;        /* set text first, then layer sparks on top */
-      /* Locked seeds keep their full rarity flair on purpose -- the pretty
-         premium seeds are what makes people want to unlock them. */
-      if (cls){ name.classList.add(cls); addSparks(name, cls); }
+      /* 4th-of-July event seeds render red/white/blue instead of the rarity color. */
+      if (JULY4[s.n]) {
+        renderJuly4(name, s.n);
+      } else {
+        name.textContent = s.n;        /* set text first, then layer sparks on top */
+        /* Locked seeds keep their full rarity flair on purpose -- the pretty
+           premium seeds are what makes people want to unlock them. */
+        if (cls){ name.classList.add(cls); addSparks(name, cls); }
+      }
       row.appendChild(box); row.appendChild(name);
       row.onclick = function(){
         if (isLocked(tab, n)) { openAccess(); return; }
@@ -2237,8 +2279,8 @@ HtmlTemplate() {
     } else b.hidden = true;
     applyPromoStrip();
   }
-  /* Limited-time "NEWSEED 30% off" bottom strip. Show it only to free users who
-     don't already hold a creator code (those get their own corner badge; Stripe
+  /* Limited-time "USA 40% off" 4th-of-July bottom strip. Show it only to free users
+     who don't already hold a creator code (those get their own corner badge; Stripe
      codes don't stack, so we never show a rival code on top of one). */
   function applyPromoStrip(){
     var s = document.getElementById('promoStrip');
