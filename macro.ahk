@@ -2073,7 +2073,7 @@ HtmlTemplate() {
 
   /* 4th-of-July event seeds: draw each letter red/white/blue and add patriotic
      sparks. Keyed by name so it applies wherever the seed lands in the list. */
-  var JULY4 = {'Rocket Pop':1, 'Fire Fern':1};
+  var JULY4 = {'Rocket Pop':1};
   function renderJuly4(nameEl, text){
     nameEl.classList.add('j4');
     var cols = ['j4-r','j4-w','j4-b'], ci = 0;
