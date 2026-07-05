@@ -10,7 +10,7 @@
 ;    0. Focuses Roblox + small mouse nudge
 ;    1. Clicks the shop at (697, 103), presses "e"
 ;    2. Presses "\" for keyboard UI nav, snaps to position 1
-;       (Up 5x, then Down 3x), then moves onto the first ticked seed.
+;       (Up 5x, Down 5x, then hold Up 3s), then moves onto the first ticked seed.
 ;  Steps 0-2 (Setup) run ONCE. The shop UI then stays open and the
 ;  cursor stays put, so each restock only repeats the buy pass:
 ;    3. From the first ticked seed, walk DOWN buying each ticked seed
@@ -23,7 +23,7 @@
 ;  buys from the in-game GEAR SHOP and differs only in setup: you must
 ;  already be standing in the open Gear Shop UI when you press Start, so
 ;  it skips the shop click + "e". It presses "\" for keyboard nav, then
-;  Up 5x + Down 3x to land on position 1 (the first gear), then walks down onto
+;  Up 5x + Down 5x + hold Up 3s to land on position 1 (the first gear), then walks down onto
 ;  the first ticked gear. From there the buy pass is identical to seeds.
 ;
 ;  Controls:
@@ -100,7 +100,7 @@ global InstallFile  := A_AppData "\GardenMacro\install.txt"  ; first-run stamp +
 ; Version shown in the window's bottom corner. Bump AppVersion on real releases;
 ; the build time is taken from this file's last-modified date, so it changes every
 ; time you save the script -> an easy "did my latest change actually load?" check.
-global AppVersion := "1.0.5"
+global AppVersion := "1.0.7"
 global BackendBase  := "https://gardenmacro.com"   ; subscription backend
 global VerifyUrl    := BackendBase "/api/desktop/verify"
 global PortalUrl    := BackendBase "/api/desktop/portal"   ; Stripe billing portal (manage/cancel)
@@ -1471,38 +1471,50 @@ Setup() {
         return false
 
     if (ActiveMode = "gears") {
-        ; 2b-gears. Snap to position 1 (the first gear): Up 5x to climb to the top,
-        ;           then Down 3x to settle. ~500ms between each press so the game
-        ;           reliably registers every input.
+        ; 2b-gears. Snap to position 1 (the first gear): Up 5x then Down 5x to shake
+        ;           the cursor into the list, then HOLD Up for 3s. A held key scrolls
+        ;           all the way to the very top regardless of list length.
         UiStatus("Resetting to position 1...")
         Loop 5 {
             Send "{Up}"
             if !Wait(500)
                 return false
         }
-        Loop 3 {
+        Loop 5 {
             Send "{Down}"
             if !Wait(500)
                 return false
         }
+        Send "{Up down}"                 ; hold Up...
+        if !Wait(3000) {                 ; ...for 3s (interruptible by Stop)
+            Send "{Up up}"               ; release before bailing so no key is left stuck
+            return false
+        }
+        Send "{Up up}"                   ; release Up -> now on position 1
         ; 2c-gears. Position 1 is the first gear, so reach gear FirstSel with
         ;           FirstSel-1 Down presses (same as seeds).
         downsToFirst := FirstSel - 1
     } else {
-        ; 2b-seeds. Snap to position 1: Up 5x to climb to the top of the list, then
-        ;           Down 3x to settle onto the first seed. ~500ms between each press
-        ;           so the game reliably registers every input.
+        ; 2b-seeds. Snap to position 1: Up 5x then Down 5x to shake the cursor into
+        ;           the list, then HOLD Up for 3s. A held key scrolls all the way to
+        ;           the very top regardless of list length, settling on the first seed.
         UiStatus("Resetting to position 1...")
         Loop 5 {
             Send "{Up}"
             if !Wait(500)
                 return false
         }
-        Loop 3 {
+        Loop 5 {
             Send "{Down}"
             if !Wait(500)
                 return false
         }
+        Send "{Up down}"                 ; hold Up...
+        if !Wait(3000) {                 ; ...for 3s (interruptible by Stop)
+            Send "{Up up}"               ; release before bailing so no key is left stuck
+            return false
+        }
+        Send "{Up up}"                   ; release Up -> now on position 1
         ; 2c-seeds. Position 1 is the first seed, so reach seed FirstSel with
         ;           FirstSel-1 Down presses.
         downsToFirst := FirstSel - 1
