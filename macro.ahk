@@ -68,11 +68,13 @@ global wv         := 0
 ;     are locked until the user unlocks them with a subscription paste-code (the
 ;     same Google + Stripe auth the website already uses).
 ;
-;     The lock is a drip funnel: on the install day NOTHING is locked (BaseLock 0),
-;     so a brand-new user gets the WHOLE list free for day one; every calendar day
-;     after that, `DailyLock` (2) more lock from best toward worst, until the whole
-;     list is locked. The gentle ramp keeps day-one users from getting frustrated
-;     and bouncing to a different macro before they've felt the value.
+;     The lock is a drip funnel: on the install day the best `BaseLock` (2) seeds are
+;     locked, so a brand-new user still gets almost the whole list free on day one but
+;     immediately sees that the very best seeds are Pro (the paywall exists from minute
+;     one, without spiking day-one bounce); every calendar day after that, `DailyLock`
+;     (2) more lock from best toward worst, until the whole list is locked. The gentle
+;     ramp keeps day-one users from getting frustrated and bouncing to a different macro
+;     before they've felt the value.
 ;
 ;     The free region is anchored on the seeds that existed AT INSTALL, matched by
 ;     NAME (not by list position). At install we snapshot the ordered seed names;
@@ -84,7 +86,7 @@ global wv         := 0
 ;     without re-locking a previously free seed (see ComputeFreeNames). FreeNames
 ;     + PremiumCount are computed once at startup; the page gets a per-seed locked
 ;     flag (__LOCKED__), so it never has to assume the locked seeds are "the last N".
-global BaseLock     := 0      ; best seeds locked on the install day (day 0) -> 0 = whole list free on day one
+global BaseLock     := 2      ; best seeds locked on the install day (day 0) -> the best 2 are locked from day one
 global DailyLock    := 2      ; extra best seeds locked per calendar day after install
 global PremiumCount := 0      ; locked-seed count THIS session (set at startup; UI copy)
 ; Per-restock in-game appearance chance of EACH seed of a rarity. Drives the
@@ -812,9 +814,9 @@ ComputeFreeNames() {
     freeWorst := (baseCount - BaseLock) - DailyLock * days   ; worst seeds still free
     if (freeWorst < 0)
         freeWorst := 0
-    ; Never free more than the list holds. With BaseLock 0 this is the whole list,
-    ; so day 0 (days = 0) leaves every install-era seed free; the cap only bites
-    ; once BaseLock is raised to keep a day-0 baseline locked.
+    ; Never free more than the list holds. With BaseLock 2 the best 2 seeds stay locked
+    ; even on day 0 (days = 0): the cap holds that day-0 baseline no matter how the day
+    ; math works out, so the paywall is present from the very first launch.
     maxFree := Seeds.Length - Min(BaseLock, Seeds.Length)
     if (freeWorst > maxFree)
         freeWorst := maxFree
