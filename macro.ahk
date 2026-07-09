@@ -1900,7 +1900,7 @@ HtmlTemplate() {
     </div>
     <div style='display:flex;align-items:center;gap:8px'>
       <span class='sni'>&#10227;</span>
-      <span>The macro re-buys automatically every <b>5 minutes</b> on each restock.</span>
+      <span>The macro re-buys automatically <b style='color:#dc2626;font-weight:800'>every 5 minutes</b> on each restock.</span>
     </div>
   </div>
 
