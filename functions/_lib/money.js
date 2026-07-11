@@ -404,19 +404,24 @@ export async function refundsThisMonth(env, now) {
   return { cents, count, available };
 }
 
-// ---- Per-creator paid-out (D1 disbursement ledger) --------------------------
+// ---- Per-creator paid-out + bonuses (D1 payouts ledger) ---------------------
+// Splits the ledger by kind: 'payout' rows are money disbursed (paid); 'bonus' rows are
+// credits owed on top of Stripe earnings. Owed = earned + bonus - paid.
 async function paidOutByCreator(env) {
   const map = {};
   try {
     const rows = await env.STATS.prepare(
-      `SELECT creator_id, COALESCE(SUM(amount_cents),0) AS cents, COALESCE(SUM(subscribers),0) AS subs
+      `SELECT creator_id,
+         COALESCE(SUM(CASE WHEN kind = 'bonus' THEN 0 ELSE amount_cents END), 0) AS cents,
+         COALESCE(SUM(CASE WHEN kind = 'bonus' THEN 0 ELSE subscribers  END), 0) AS subs,
+         COALESCE(SUM(CASE WHEN kind = 'bonus' THEN amount_cents ELSE 0  END), 0) AS bonus_cents
        FROM payouts GROUP BY creator_id`
     ).all();
     for (const r of (rows && rows.results) || []) {
-      map[r.creator_id] = { cents: r.cents || 0, subs: r.subs || 0 };
+      map[r.creator_id] = { cents: r.cents || 0, subs: r.subs || 0, bonusCents: r.bonus_cents || 0 };
     }
   } catch {
-    /* ledger table absent -> nothing paid out yet */
+    /* ledger table absent (or pre-migration) -> nothing paid out / no bonuses yet */
   }
   return map;
 }
@@ -463,11 +468,12 @@ export async function buildMoneySnapshot(env) {
 
   const codeRows = base.map(({ pc, agg, disc }) => {
     const isCreator = pc.purpose === "creator" && pc.creatorId;
-    const paidToCreatorCents = isCreator
-      ? paidTarget[pc.creatorId] === pc.id
-        ? (paid[pc.creatorId] || {}).cents || 0
-        : 0
-      : null;
+    // paid-out and bonuses are per-CREATOR figures; attribute both to the creator's
+    // highest-earning code (paidTarget) so per-row Net never goes spuriously negative
+    // and the column sums stay correct across a multi-code creator.
+    const carriesCreatorTotals = isCreator && paidTarget[pc.creatorId] === pc.id;
+    const paidToCreatorCents = isCreator ? (carriesCreatorTotals ? (paid[pc.creatorId] || {}).cents || 0 : 0) : null;
+    const bonusToCreatorCents = isCreator ? (carriesCreatorTotals ? (paid[pc.creatorId] || {}).bonusCents || 0 : 0) : null;
     return {
       code: pc.code,
       promotionCodeId: pc.id,
@@ -482,9 +488,12 @@ export async function buildMoneySnapshot(env) {
       grossCents: scan.available ? agg.grossCents : null,
       netSettledCents: scan.available ? agg.netCents : null,
       paidToCreatorCents,
-      // Owed = still to pay the creator (earned − paid). Only meaningful for creator
-      // codes; null for conversion/loyalty/other codes (no creator to pay).
-      owedCents: isCreator && scan.available ? Math.max(0, agg.netCents - (paidToCreatorCents || 0)) : null,
+      bonusToCreatorCents,
+      // Owed = still to pay the creator (earned + bonuses − paid). Only meaningful for
+      // creator codes; null for conversion/loyalty/other codes (no creator to pay).
+      owedCents: isCreator && scan.available
+        ? Math.max(0, agg.netCents + (bonusToCreatorCents || 0) - (paidToCreatorCents || 0))
+        : null,
     };
   });
   // Highest earners first, then by uses.

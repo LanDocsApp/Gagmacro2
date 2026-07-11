@@ -10,13 +10,14 @@
 //
 // Body { key, token, action, ... }:
 //   "list"   -> summary + history (default)
-//   "add"    -> record a payout { subscribers, amount (dollars), note }
+//   "add"    -> record an entry { kind:"payout"|"bonus", subscribers, amount (dollars), note }
+//               kind='payout' (default) = money disbursed; kind='bonus' = a credit owed.
 //   "delete" -> remove a payout by { id }
 //
 // All three return the fresh summary:
 //   { creator:{ id, name, codes }, totalSubscriptions, subsAvailable,
-//     paidSubscribers, pendingSubscribers, paidCents,
-//     payouts:[{ id, subscribers, amountCents, note, at }], at }
+//     paidSubscribers, pendingSubscribers, paidCents, bonusCents,
+//     payouts:[{ id, subscribers, amountCents, note, kind, at }], at }
 // totalSubscriptions/pendingSubscribers are null when Stripe is unreachable
 // (the paid count from the ledger is always available). Payouts are per CREATOR
 // (slug), aggregated across all their codes. Requires migration 0004.
@@ -49,19 +50,26 @@ async function summary(env, creator) {
 
   let paidSubscribers = 0;
   let paidCents = 0;
+  let bonusCents = 0;
   let payouts = [];
   try {
+    // Split disbursements (kind='payout') from bonuses (kind='bonus'): only the former
+    // count as "paid". Bonuses are credits owed, surfaced separately.
     const agg = await env.STATS.prepare(
-      `SELECT COALESCE(SUM(subscribers), 0) AS s, COALESCE(SUM(amount_cents), 0) AS c
+      `SELECT
+         COALESCE(SUM(CASE WHEN kind = 'bonus' THEN 0 ELSE subscribers  END), 0) AS paid_s,
+         COALESCE(SUM(CASE WHEN kind = 'bonus' THEN 0 ELSE amount_cents END), 0) AS paid_c,
+         COALESCE(SUM(CASE WHEN kind = 'bonus' THEN amount_cents ELSE 0  END), 0) AS bonus_c
        FROM payouts WHERE creator_id = ?1`
     )
       .bind(creator.id)
       .first();
-    paidSubscribers = (agg && agg.s) || 0;
-    paidCents = (agg && agg.c) || 0;
+    paidSubscribers = (agg && agg.paid_s) || 0;
+    paidCents = (agg && agg.paid_c) || 0;
+    bonusCents = (agg && agg.bonus_c) || 0;
 
     const rows = await env.STATS.prepare(
-      `SELECT id, subscribers, amount_cents, note, created_at
+      `SELECT id, subscribers, amount_cents, note, created_at, kind
        FROM payouts WHERE creator_id = ?1 ORDER BY created_at DESC LIMIT 100`
     )
       .bind(creator.id)
@@ -71,6 +79,7 @@ async function summary(env, creator) {
       subscribers: r.subscribers || 0,
       amountCents: r.amount_cents || 0,
       note: r.note || "",
+      kind: r.kind || "payout",
       at: r.created_at,
     }));
   } catch {
@@ -84,6 +93,7 @@ async function summary(env, creator) {
     paidSubscribers,
     pendingSubscribers: available ? Math.max(0, total - paidSubscribers) : null,
     paidCents,
+    bonusCents,
     payouts,
     at: Date.now(),
   });
@@ -116,18 +126,21 @@ export async function onRequestPost({ request, env }) {
   if (!env.STATS) return json({ error: "stats database not bound" }, 500);
 
   if (action === "add") {
+    // kind: 'payout' (money disbursed, default) or 'bonus' (a credit owed to the creator).
+    const kind = String(body.kind || "payout").trim().toLowerCase() === "bonus" ? "bonus" : "payout";
     const subscribers = Math.max(0, Math.round(Number(body.subscribers) || 0));
     const amountCents = Math.max(0, Math.round((Number(body.amount) || 0) * 100));
     const note = String(body.note || "").slice(0, 200);
-    if (subscribers === 0 && amountCents === 0) {
+    // A bonus is money-only (no subscriber count); a payout needs at least one of the two.
+    if (amountCents === 0 && (kind === "bonus" || subscribers === 0)) {
       return json({ error: "nothing to record" }, 400);
     }
     try {
       await env.STATS.prepare(
-        `INSERT INTO payouts (creator_id, subscribers, amount_cents, note, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5)`
+        `INSERT INTO payouts (creator_id, subscribers, amount_cents, note, created_at, kind)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)`
       )
-        .bind(creator.id, subscribers, amountCents, note, Date.now())
+        .bind(creator.id, kind === "bonus" ? 0 : subscribers, amountCents, note, Date.now(), kind)
         .run();
     } catch (e) {
       return json({ error: "could not record", detail: String((e && e.message) || e) }, 500);

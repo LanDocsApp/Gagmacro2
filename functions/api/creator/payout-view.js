@@ -7,12 +7,13 @@
 //
 // Body { token }. Returns:
 //   { name, codes, currency,
-//     earned:  { subs, moneyCents },   // from Stripe: redemptions + net-settled month-1 revenue
-//     paidOut: { subs, moneyCents },   // from the D1 payouts ledger (what you've disbursed)
+//     earned:  { subs, moneyCents },   // Stripe net-settled month-1 revenue + manual bonuses
+//     paidOut: { subs, moneyCents },   // from the D1 payouts ledger (kind='payout' = disbursed)
 //     pending: { subs, moneyCents },   // earned - paidOut (clamped >= 0)
-//     redemptions: [{ at, code, amountCents, status }],   // NO PII (no email/name/ids)
+//     bonus:   { moneyCents },         // manual credits owed (D1 payouts kind='bonus')
+//     redemptions: [{ at, code, amountCents, status }],   // NO PII; bonuses appear as status='bonus'
 //     available, at }
-// earned/pending read null ("—") when Stripe is unreachable; paidOut (pure D1) always shows.
+// earned/pending read null ("—") when Stripe is unreachable; paidOut/bonus (pure D1) always show.
 
 import { json } from "../../_lib/http.js";
 import { verifyToken } from "../../_lib/crypto.js";
@@ -35,22 +36,44 @@ export async function onRequestPost({ request, env }) {
   const creator = getCreator(payload.id);
   if (!creator) return json({ error: "unknown creator" }, 404);
 
-  // Paid-out from the D1 ledger — always available, independent of Stripe.
+  // D1 ledger — always available, independent of Stripe. Two kinds of row:
+  //   kind='payout' -> money already paid OUT (reduces what's owed)
+  //   kind='bonus'  -> a credit OWED on top of Stripe earnings (raises earned/pending)
   let paidSubs = 0;
   let paidCents = 0;
+  let bonusCents = 0;
+  let bonusRows = [];
   try {
     if (env.STATS) {
       const agg = await env.STATS.prepare(
-        `SELECT COALESCE(SUM(subscribers),0) AS s, COALESCE(SUM(amount_cents),0) AS c
+        `SELECT
+           COALESCE(SUM(CASE WHEN kind = 'bonus' THEN 0 ELSE subscribers  END), 0) AS paid_s,
+           COALESCE(SUM(CASE WHEN kind = 'bonus' THEN 0 ELSE amount_cents END), 0) AS paid_c,
+           COALESCE(SUM(CASE WHEN kind = 'bonus' THEN amount_cents ELSE 0  END), 0) AS bonus_c
          FROM payouts WHERE creator_id = ?1`
       )
         .bind(creator.id)
         .first();
-      paidSubs = (agg && agg.s) || 0;
-      paidCents = (agg && agg.c) || 0;
+      paidSubs = (agg && agg.paid_s) || 0;
+      paidCents = (agg && agg.paid_c) || 0;
+      bonusCents = (agg && agg.bonus_c) || 0;
+
+      // Individual bonus entries -> shown as "Bonus" line items in the earnings list.
+      const br = await env.STATS.prepare(
+        `SELECT amount_cents, note, created_at FROM payouts
+         WHERE creator_id = ?1 AND kind = 'bonus' ORDER BY created_at DESC LIMIT 100`
+      )
+        .bind(creator.id)
+        .all();
+      bonusRows = ((br && br.results) || []).map((r) => ({
+        at: r.created_at,
+        code: (r.note && String(r.note).trim()) || "Bonus",
+        amountCents: r.amount_cents || 0,
+        status: "bonus",
+      }));
     }
   } catch {
-    /* ledger absent -> 0 paid out */
+    /* ledger absent (or pre-migration) -> 0 paid / 0 bonus */
   }
 
   // Earned (Stripe). Defensive: any failure -> nulls, never a 500.
@@ -61,17 +84,23 @@ export async function onRequestPost({ request, env }) {
     /* keep nulls */
   }
 
+  // Total earned = Stripe net-settled earnings + manual bonuses. Bonuses don't add subs.
+  const earnedCents = earn.earnedMoneyCents != null ? earn.earnedMoneyCents + bonusCents : null;
   const pendSubs = earn.earnedSubs != null ? Math.max(0, earn.earnedSubs - paidSubs) : null;
-  const pendCents = earn.earnedMoneyCents != null ? Math.max(0, earn.earnedMoneyCents - paidCents) : null;
+  const pendCents = earnedCents != null ? Math.max(0, earnedCents - paidCents) : null;
+
+  // Merge bonus entries into the (PII-free) redemptions list, newest first.
+  const redemptions = (earn.redemptions || []).concat(bonusRows).sort((a, b) => b.at - a.at);
 
   return json({
     name: creator.name,
     codes: creator.codes,
     currency: earn.currency,
-    earned: { subs: earn.earnedSubs, moneyCents: earn.earnedMoneyCents },
+    earned: { subs: earn.earnedSubs, moneyCents: earnedCents },
     paidOut: { subs: paidSubs, moneyCents: paidCents },
     pending: { subs: pendSubs, moneyCents: pendCents },
-    redemptions: earn.redemptions,
+    bonus: { moneyCents: bonusCents },
+    redemptions,
     available: earn.available,
     at: Date.now(),
   });

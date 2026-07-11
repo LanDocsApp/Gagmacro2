@@ -38,7 +38,8 @@
     .pay .stat.pending .n { color:#b45309; }
     .pay .stat .kk { font-size:11px; color:var(--muted); margin-top:3px; font-variant-numeric:tabular-nums; }
     .payform { display:flex; flex-wrap:wrap; gap:8px; margin-top:18px; }
-    .payform input { flex:1 1 90px; min-width:80px; font-size:13px; background:var(--soft); border:1px solid var(--line); border-radius:10px; padding:11px 12px; }
+    .payform input, .payform select { flex:1 1 90px; min-width:80px; font-size:13px; background:var(--soft); border:1px solid var(--line); border-radius:10px; padding:11px 12px; }
+    .payform select { flex:0 0 auto; cursor:pointer; }
     .payform input.notein { flex:2 1 160px; font-family:inherit; }
     .del { background:none; border:none; color:var(--muted); cursor:pointer; font-size:13px; padding:2px 7px; border-radius:6px; line-height:1; }
     .del:hover { background:#fef2f2; color:#b91c1c; }
@@ -107,7 +108,7 @@
       <!-- Admin disbursement ledger: only the owner (with STATS_KEY) records payments. -->
       <div id="adminPay" class="pay hidden">
         <h2>Record a payout</h2>
-        <p class="sub" style="margin-bottom:10px;">Log a payment you've made to this creator. Only you can see this.</p>
+        <p class="sub" style="margin-bottom:10px;">Log a payment you've made to this creator, or add a <b>bonus</b> they're owed (raises their Pending, not Paid out). Only you can see this.</p>
         <div id="ledgerWrap" class="hidden">
           <table>
             <thead><tr><th>Date</th><th class="num">Subs</th><th class="num">Amount</th><th>Note</th><th></th></tr></thead>
@@ -115,6 +116,10 @@
           </table>
         </div>
         <div class="payform">
+          <select id="pKind" title="Entry type">
+            <option value="payout">Payout</option>
+            <option value="bonus">Bonus</option>
+          </select>
           <input id="pAmt" type="number" min="0" step="0.01" placeholder="Amount $" />
           <input id="pIn" type="number" min="0" step="1" placeholder="Subs covered" />
           <input id="pNote" class="notein" type="text" placeholder="Note (optional)" maxlength="200" />
@@ -255,7 +260,9 @@
       if (rows.length) {
         el("redemptions").innerHTML = rows.map(function (r) {
           var d = new Date(r.at);
-          var st = r.status === "refunded" ? "<span style='color:#b91c1c'>refunded</span>" : "paid";
+          var st = r.status === "refunded" ? "<span style='color:#b91c1c'>refunded</span>"
+                 : r.status === "bonus" ? "<span style='color:#15803d'>bonus</span>"
+                 : "paid";
           return "<tr><td>" + d.toLocaleDateString() + "</td>" +
             "<td><span class='tag'>" + escHtml(r.code) + "</span></td>" +
             "<td class='num'>" + money(r.amountCents, p.currency) + "</td>" +
@@ -301,10 +308,13 @@
       if (rows.length) {
         el("ledger").innerHTML = rows.map(function (r) {
           var d = new Date(r.at);
+          var isBonus = r.kind === "bonus";
+          var subsCell = isBonus ? "—" : fmt(r.subscribers);
+          var noteCell = (isBonus ? "<span class='tag' style='background:#fef9c3;color:#854d0e'>bonus</span> " : "") + escHtml(r.note);
           return "<tr><td>" + d.toLocaleDateString() + "</td>" +
-            "<td class='num'>" + fmt(r.subscribers) + "</td>" +
+            "<td class='num'>" + subsCell + "</td>" +
             "<td class='num'>" + (r.amountCents ? money(r.amountCents, payCurrency) : "—") + "</td>" +
-            "<td>" + escHtml(r.note) + "</td>" +
+            "<td>" + noteCell + "</td>" +
             "<td class='num'><button class='del' data-id='" + r.id + "' title='Delete'>✕</button></td></tr>";
         }).join("");
         el("ledgerWrap").classList.remove("hidden");
@@ -318,13 +328,15 @@
     async function addPayout() {
       var key = adminKey();
       if (!key) return;
-      var subscribers = Number(el("pIn").value || 0);
+      var kind = el("pKind") ? el("pKind").value : "payout";
+      var subscribers = kind === "bonus" ? 0 : Number(el("pIn").value || 0);
       var amount = Number(el("pAmt").value || 0);
       var note = el("pNote").value.trim();
-      if (!subscribers && !amount) { el("pAmt").focus(); return; }
+      // A bonus is money-only; a payout can be money and/or a subscriber count.
+      if (!amount && (kind === "bonus" || !subscribers)) { el("pAmt").focus(); return; }
       el("payAdd").disabled = true;
       try {
-        var r = await payApi({ key: key, token: currentToken, action: "add", subscribers: subscribers, amount: amount, note: note });
+        var r = await payApi({ key: key, token: currentToken, action: "add", kind: kind, subscribers: subscribers, amount: amount, note: note });
         if (r.ok) {
           renderLedger(await r.json());
           el("pIn").value = ""; el("pAmt").value = ""; el("pNote").value = "";
@@ -358,6 +370,11 @@
     el("adminKey").addEventListener("keydown", function (e) { if (e.key === "Enter") el("adminUnlock").click(); });
     el("payAdd").addEventListener("click", addPayout);
     el("pNote").addEventListener("keydown", function (e) { if (e.key === "Enter") addPayout(); });
+    if (el("pKind")) el("pKind").addEventListener("change", function () {
+      var bonus = el("pKind").value === "bonus";
+      el("pIn").disabled = bonus;
+      el("pIn").placeholder = bonus ? "n/a" : "Subs covered";
+    });
     el("ledger").addEventListener("click", function (e) {
       var b = e.target.closest && e.target.closest(".del");
       if (b && confirm("Delete this payout entry?")) deletePayout(Number(b.getAttribute("data-id")));
