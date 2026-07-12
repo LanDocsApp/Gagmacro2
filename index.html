@@ -273,14 +273,6 @@ a { color: inherit; text-decoration: none; }
 .spark.sp { background: #fff; box-shadow: 0 0 5px #fff; animation: twinkle 1.6s ease-in-out infinite, hue 3s linear infinite; }
 @keyframes twinkle { 0%{opacity:0;transform:translateY(2px) scale(.3)} 35%{opacity:1;transform:translateY(-3px) scale(1)} 100%{opacity:0;transform:translateY(-11px) scale(.3)} }
 @keyframes hue { to { filter: hue-rotate(360deg); } }
-/* July 4th event seeds — static red / white / blue per-letter (stays visible with animations off) */
-.win-name.j4 { font-weight: 700; overflow: visible; }
-.win-name.j4 .j4-r { color: #b31942; }
-.win-name.j4 .j4-w { color: #fff; text-shadow: 0 0 1px #0a3161, 0 0 2px #0a3161, 0 1px 1px rgba(10,49,97,.9); }
-.win-name.j4 .j4-b { color: #0a3161; }
-.spark.j4r { background: #b31942; box-shadow: 0 0 5px #e2244b; }
-.spark.j4w { background: #fff; box-shadow: 0 0 5px #fff; }
-.spark.j4b { background: #0a3161; box-shadow: 0 0 6px #2b6cff; }
 .win-foot { display: flex; align-items: center; gap: 10px; }
 .win-foot label { font-size: 12px; color: #888; }
 .win-btn { border: 1px solid #d8d8d8; border-radius: 7px; padding: 9px 16px; font-size: 13px; font-weight: 500; cursor: pointer; font-family: inherit; background: #fff; color: #1a1a1a; }
@@ -639,8 +631,8 @@ html { scroll-behavior: smooth; }
     {n:'Tulip',r:'Uncommon'},{n:'Tomato',r:'Uncommon'},{n:'Apple',r:'Uncommon'},
     {n:'Bamboo',r:'Rare'},{n:'Corn',r:'Rare'},{n:'Cactus',r:'Rare'},{n:'Pineapple',r:'Rare'},
     {n:'Mushroom',r:'Epic'},{n:'Green Bean',r:'Epic'},{n:'Banana',r:'Epic'},{n:'Grape',r:'Epic'},
-    {n:'Coconut',r:'Epic'},{n:'Mango',r:'Epic'},{n:'Rocket Pop',r:'Epic'},
-    {n:'Dragon Fruit',r:'Legendary'},{n:'Acorn',r:'Legendary'},{n:'Cherry',r:'Legendary'},{n:'Sunflower',r:'Legendary'},{n:'Fire Fern',r:'Legendary'},
+    {n:'Coconut',r:'Epic'},{n:'Mango',r:'Epic'},
+    {n:'Dragon Fruit',r:'Legendary'},{n:'Acorn',r:'Legendary'},{n:'Cherry',r:'Legendary'},{n:'Sunflower',r:'Legendary'},
     {n:'Venus Fly Trap',r:'Mythic'},{n:'Pomegranate',r:'Mythic'},{n:'Poison Apple',r:'Mythic'},
     {n:'Venom Spitter',r:'Mythic'},
     {n:"Moon Bloom",r:'Super'},{n:"Hypno Bloom",r:'Super'},{n:"Dragon's Breath",r:'Super'}
@@ -675,31 +667,6 @@ html { scroll-behavior: smooth; }
     }
   }
 
-  // 4th-of-July event seeds: render each letter in red/white/blue and add
-  // patriotic sparks. Keyed by name so it survives the live re-sync from macro.ahk.
-  var JULY4 = { 'Rocket Pop': 1 };
-  function renderJuly4(nameEl, text) {
-    nameEl.classList.add('j4');
-    var cols = ['j4-r', 'j4-w', 'j4-b'], ci = 0;
-    for (var c = 0; c < text.length; c++) {
-      var ch = text.charAt(c);
-      if (ch === ' ') { nameEl.appendChild(document.createTextNode(' ')); continue; }
-      var g = document.createElement('span');
-      g.className = cols[ci % 3]; ci++;
-      g.textContent = ch;
-      nameEl.appendChild(g);
-    }
-    var spk = ['j4r', 'j4w', 'j4b', 'j4r', 'j4b'];
-    for (var k = 0; k < 5; k++) {
-      var sp = document.createElement('i');
-      sp.className = 'spark ' + spk[k];
-      sp.style.left = (8 + Math.random() * 84) + '%';
-      sp.style.top = (Math.random() * 100) + '%';
-      sp.style.animationDelay = (Math.random() * 1.6) + 's';
-      sp.style.animationDuration = (1.2 + Math.random() * 1.3) + 's';
-      nameEl.appendChild(sp);
-    }
-  }
   function render() {
     listEl.innerHTML = '';
     // Two columns: fill straight down the left, then continue down the right.
@@ -710,12 +677,8 @@ html { scroll-behavior: smooth; }
       var box = document.createElement('span'); box.className = 'win-box';
       var name = document.createElement('span'); name.className = 'win-name';
       var cls = RARECLASS[s.r];
-      if (JULY4[s.n]) {
-        renderJuly4(name, s.n);
-      } else {
-        name.textContent = s.n;
-        if (cls) { name.classList.add(cls); addSparks(name, cls); }
-      }
+      name.textContent = s.n;
+      if (cls) { name.classList.add(cls); addSparks(name, cls); }
       row.appendChild(box); row.appendChild(name);
       row.onclick = function () {
         if (selected[n]) { delete selected[n]; row.classList.remove('sel'); }

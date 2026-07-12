@@ -102,7 +102,7 @@ global InstallFile  := A_AppData "\GardenMacro\install.txt"  ; first-run stamp +
 ; Version shown in the window's bottom corner. Bump AppVersion on real releases;
 ; the build time is taken from this file's last-modified date, so it changes every
 ; time you save the script -> an easy "did my latest change actually load?" check.
-global AppVersion := "1.0.9"
+global AppVersion := "1.1.0"
 global BackendBase  := "https://gardenmacro.com"   ; subscription backend
 global VerifyUrl    := BackendBase "/api/desktop/verify"
 global PingUrl      := BackendBase "/api/ping"              ; anonymous usage stats
@@ -211,12 +211,10 @@ global Seeds := [
     {name: "Grape",           rarity: "Epic"},
     {name: "Coconut",         rarity: "Epic"},
     {name: "Mango",           rarity: "Epic"},
-    {name: "Rocket Pop",      rarity: "Epic"},
     {name: "Dragon Fruit",    rarity: "Legendary"},
     {name: "Acorn",           rarity: "Legendary"},
     {name: "Cherry",          rarity: "Legendary"},
     {name: "Sunflower",       rarity: "Legendary"},
-    {name: "Fire Fern",       rarity: "Legendary"},
     {name: "Venus Fly Trap",  rarity: "Mythic"},
     {name: "Pomegranate",     rarity: "Mythic"},
     {name: "Poison Apple",    rarity: "Mythic"},
@@ -341,12 +339,7 @@ BuildUi() {
     html := StrReplace(html, "__VERSION__", VersionLabel())
     html := StrReplace(html, "__PROMO__", PromoCode)   ; "" if none/skipped -> badge stays hidden
     html := StrReplace(html, "__PROMOPCT__", PromoPct) ; the code's discount percent (0 if none) -> badge "N% off"
-    ; A saved access code means the user is PROBABLY Pro (pending the async license
-    ; check). Hold the limited-time strip hidden until that check resolves so Pro
-    ; members never see it flash; with no saved code the user is definitely free, so
-    ; the strip can show from the first frame (no pop-in / resize). See applyPromoStrip.
-    hasToken := (FileExist(TokenFile) && ReadToken(TokenFile) != "") ? "1" : "0"
-    html := StrReplace(html, "__HASTOKEN__", hasToken)
+    hasToken := (FileExist(TokenFile) && ReadToken(TokenFile) != "") ? "1" : "0"  ; returning user? -> skip the promo wall
     ; A first-launch onboarding wall arrives ~1.8s after load (see MaybeAskSource), so the
     ; fully-rendered app would flash until then. If a wall IS going to show, tell the page to
     ; paint a plain cover from the very first frame; the real wall cross-dissolves in over it.
@@ -882,17 +875,11 @@ CheckSavedLicense() {
     global TokenFile, Unlocked
     if Unlocked
         return
-    ; No saved code -> the user is free; reveal the limited-time strip the page was
-    ; holding hidden (it only holds when a saved code might unlock Pro). See BuildUi.
-    if !FileExist(TokenFile) {
-        Post("profree")
+    if !FileExist(TokenFile)
         return
-    }
     token := ReadToken(TokenFile)
-    if (token = "") {
-        Post("profree")
+    if (token = "")
         return
-    }
     res := VerifyToken(token)
     if (res.status = "active") {
         Unlocked := true
@@ -904,7 +891,6 @@ CheckSavedLicense() {
         ; user; instead the next launch re-verifies and unlocks again. A genuinely
         ; cancelled code just keeps returning inactive (and re-unlocks automatically if
         ; the user resubscribes, since it's tied to their account, not a one-time grant).
-        Post("profree")                 ; confirmed not Pro -> let the strip show
     } else {
         ; Offline / server unreachable / status undetermined: trust the saved code for
         ; this session, like the launcher does, so paying users aren't locked out.
@@ -1665,14 +1651,6 @@ HtmlTemplate() {
         35%{opacity:1;transform:translateY(-3px) scale(1)}
         100%{opacity:0;transform:translateY(-11px) scale(.3)}}
   @keyframes hue{to{filter:hue-rotate(360deg)}}
-  /* 4th-of-July event seeds: static red/white/blue per-letter, replacing the rarity color */
-  .name.j4{font-weight:700;overflow:visible}
-  .name.j4 .j4-r{color:#b31942}
-  .name.j4 .j4-w{color:#fff;text-shadow:0 0 1px #0a3161,0 0 2px #0a3161,0 1px 1px rgba(10,49,97,.9)}
-  .name.j4 .j4-b{color:#0a3161}
-  .spark.j4r{background:#b31942;box-shadow:0 0 5px #e2244b}
-  .spark.j4w{background:#fff;box-shadow:0 0 5px #fff}
-  .spark.j4b{background:#0a3161;box-shadow:0 0 6px #2b6cff}
   /* Footer */
   .footer{display:flex;align-items:center;gap:10px}
   .footer label{font-size:12px;color:#888}
@@ -1686,15 +1664,6 @@ HtmlTemplate() {
       font-family:'Consolas','JetBrains Mono',monospace}
   .ver{margin-left:auto;font-size:11px;color:#bbb;white-space:nowrap;
        font-family:'Consolas','JetBrains Mono',monospace}
-  /* Limited-time discount strip, centered at the very bottom (below Start/Stop).
-     Hidden for Pro users (nothing to sell) and for users already holding a creator
-     promo code (Stripe codes don't stack -> don't show a rival code). */
-  /* 4th-of-July theme: navy text, faint-blue field, red dashed border, red code/percent. */
-  .promostrip{text-align:center;font-size:11.5px;line-height:1.35;font-weight:600;
-       color:#0a3161;background:#f5f7ff;border:1px dashed #d1345b;border-radius:8px;
-       padding:7px 10px;cursor:pointer}
-  .promostrip:hover{background:#eaf0ff;border-color:#b31942}
-  .promostrip b{font-weight:800;color:#b31942}
   /* "Restart to update" banner. Shown (in red) when a newer macro.ahk has shipped
      to `main` while this session was running (see CheckForUpdate). Sits right under
      the title so it's seen on every tab; hidden until AHK sends "update|<version>". */
@@ -1865,8 +1834,6 @@ HtmlTemplate() {
     <span class='ver'>v__VERSION__</span>
   </div>
 
-  <div id='promoStrip' class='promostrip' hidden onclick='openAccess()'>&#127878; 4th of July sale: use code <b>USA</b> for <b>40% off</b> Garden Macro Pro</div>
-
   <div id='overlay' class='overlay' hidden>
     <div class='modal'>
       <div class='mh'>
@@ -1990,8 +1957,6 @@ HtmlTemplate() {
   var PREMIUM = __PREMIUM__;          /* number of locked seeds (for the upsell copy) */
   var PROMO = '__PROMO__';            /* entered promo code (UPPER), '' if none -> no corner badge */
   var PROMO_PCT = __PROMOPCT__;       /* that code's discount percent (0 if none) -> badge "N% off" */
-  var PENDING_PRO = !!__HASTOKEN__;   /* a saved code exists -> Pro likely; hold the limited-time strip
-                                         hidden until the license check confirms free/Pro (no flash) */
   var WILL_ONBOARD = !!__ONBOARD__;   /* a first-launch wall is coming ~1.8s after load -> paint a cover
                                          from frame 1 so the app never flashes before onboarding */
   var unlocked = false;              /* premium (seeds) unlocked this session? */
@@ -2040,32 +2005,6 @@ HtmlTemplate() {
     }
   }
 
-  /* 4th-of-July event seeds: draw each letter red/white/blue and add patriotic
-     sparks. Keyed by name so it applies wherever the seed lands in the list. */
-  var JULY4 = {'Rocket Pop':1};
-  function renderJuly4(nameEl, text){
-    nameEl.classList.add('j4');
-    var cols = ['j4-r','j4-w','j4-b'], ci = 0;
-    for (var c = 0; c < text.length; c++){
-      var ch = text.charAt(c);
-      if (ch === ' '){ nameEl.appendChild(document.createTextNode(' ')); continue; }
-      var g = document.createElement('span');
-      g.className = cols[ci % 3]; ci++;
-      g.textContent = ch;
-      nameEl.appendChild(g);
-    }
-    var spk = ['j4r','j4w','j4b','j4r','j4b'];
-    for (var k = 0; k < 5; k++){
-      var sp = document.createElement('i');
-      sp.className = 'spark ' + spk[k];
-      sp.style.left = (8 + Math.random() * 84) + '%';
-      sp.style.top  = (Math.random() * 100) + '%';
-      sp.style.animationDelay = (Math.random() * 1.6) + 's';
-      sp.style.animationDuration = (1.2 + Math.random() * 1.3) + 's';
-      nameEl.appendChild(sp);
-    }
-  }
-
   /* Keep the upsell copy in step with however many seeds are locked today. */
   function lockText(){
     return (PREMIUM >= SEEDS.length) ? 'All seeds are locked'
@@ -2105,15 +2044,10 @@ HtmlTemplate() {
       var box = document.createElement('span'); box.className = 'box';
       var name = document.createElement('span'); name.className = 'name';
       var cls = RARECLASS[s.r];
-      /* 4th-of-July event seeds render red/white/blue instead of the rarity color. */
-      if (JULY4[s.n]) {
-        renderJuly4(name, s.n);
-      } else {
-        name.textContent = s.n;        /* set text first, then layer sparks on top */
-        /* Locked seeds keep their full rarity flair on purpose -- the pretty
-           premium seeds are what makes people want to unlock them. */
-        if (cls){ name.classList.add(cls); addSparks(name, cls); }
-      }
+      name.textContent = s.n;          /* set text first, then layer sparks on top */
+      /* Locked seeds keep their full rarity flair on purpose -- the pretty
+         premium seeds are what makes people want to unlock them. */
+      if (cls){ name.classList.add(cls); addSparks(name, cls); }
       row.appendChild(box); row.appendChild(name);
       row.onclick = function(){
         if (isLocked(tab, n)) { openAccess(); return; }
@@ -2246,18 +2180,6 @@ HtmlTemplate() {
       document.getElementById('promoBadgePct').textContent = PROMO_PCT;
       b.hidden = false;
     } else b.hidden = true;
-    applyPromoStrip();
-  }
-  /* Limited-time "USA 40% off" 4th-of-July bottom strip. Show it only to free users
-     who don't already hold a creator code (those get their own corner badge; Stripe
-     codes don't stack, so we never show a rival code on top of one). */
-  function applyPromoStrip(){
-    var s = document.getElementById('promoStrip');
-    if (!s) return;
-    var before = s.hidden;
-    s.hidden = unlocked || !!PROMO || PENDING_PRO;   /* hidden while a saved code is still being verified */
-    if (s.hidden !== before)                 /* visibility changed -> resize to fit */
-      requestAnimationFrame(function(){ requestAnimationFrame(fitWindow); });
   }
   /* Source ("where did you hear about us?") wall. AHK sends "sourceask" on first
      launch, BEFORE the promo prompt. Picking a channel (or Skip) -> AHK records +
@@ -2356,11 +2278,9 @@ HtmlTemplate() {
   }
   function unlockPremium(){
     unlocked = true;
-    PENDING_PRO = false;                 /* license check settled (Pro) -> strip stays hidden */
     closeAccess();
     var bar = document.getElementById('premiumBar');
     if (bar) bar.hidden = true;          /* access granted -> no upsell bar needed */
-    applyPromoStrip();                   /* Pro now -> drop the limited-time strip */
     applyGearLock();                     /* Pro -> the Gears tab is now usable */
     document.getElementById('tabAccount').hidden = false;  /* Pro -> show the Account tab */
     renderAll();
@@ -2379,7 +2299,6 @@ HtmlTemplate() {
     if (type === 'status') { /* status line removed from UI */ }
     else if (type === 'state') setRunning(rest === '1');
     else if (type === 'unlock') unlockPremium();
-    else if (type === 'profree') { PENDING_PRO = false; applyPromoStrip(); }  /* license check settled (free) -> reveal strip */
     else if (type === 'licensemsg') setLicenseMsg(rest);
     else if (type === 'pastecode') {            /* AHK read the clipboard -> fill the code field */
       var inp = document.getElementById('codeInput');
@@ -2406,10 +2325,8 @@ HtmlTemplate() {
     /* Measure to the footer normally; on the Account tab the footer is hidden,
        so measure to the account card instead. */
     var f = document.getElementById('footer');
-    var strip = document.getElementById('promoStrip');
     var ref;
-    if (strip && !strip.hidden) ref = strip;   /* limited-time strip sits below the footer */
-    else if (f && !f.hidden)    ref = f;
+    if (f && !f.hidden) ref = f;
     else ref = document.querySelector('#accountPane .acard');
     if (!ref) return;
     var cssH = ref.getBoundingClientRect().bottom + 16;   /* + body bottom padding */
