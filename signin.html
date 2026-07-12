@@ -121,10 +121,13 @@
       <h1>Welcome back</h1>
       <p class="who">Signed in as <b id="email"></b></p>
       <a class="btn ink" href="/api/checkout">Get your access code →</a>
+      <!-- Shown only to active subscribers, via the /api/me check below. -->
+      <a id="manageBtn" class="btn" href="/api/portal" hidden>Manage subscription →</a>
       <a class="btn" href="/api/auth/google/login">Switch account</a>
     </div>
 
     <a class="home" href="/index.html">← Back to home</a>
+    <p class="legal">Need help? Email <a href="mailto:janmarko659@gmail.com">janmarko659@gmail.com</a></p>
     <p class="legal">By continuing you agree to our <a href="/privacy.html">Privacy Policy</a>.</p>
   </div>
 
@@ -144,6 +147,14 @@
       document.getElementById("email").textContent = email;
       document.getElementById("signedOut").hidden = true;
       document.getElementById("signedIn").hidden = false;
+
+      // The display cookie only tells us who's signed in. Real subscription
+      // status comes from the server (signed session cookie -> Stripe), so ask
+      // /api/me and reveal "Manage subscription" only for active subscribers.
+      fetch("/api/me", { credentials: "same-origin" })
+        .then(r => (r.ok ? r.json() : null))
+        .then(d => { if (d && d.active) document.getElementById("manageBtn").hidden = false; })
+        .catch(() => {});
     }
 
     const params = new URLSearchParams(location.search);
