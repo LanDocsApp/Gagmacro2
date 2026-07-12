@@ -215,6 +215,7 @@ global Seeds := [
     {name: "Acorn",           rarity: "Legendary"},
     {name: "Cherry",          rarity: "Legendary"},
     {name: "Sunflower",       rarity: "Legendary"},
+    {name: "Fire Fern",       rarity: "Legendary"},
     {name: "Venus Fly Trap",  rarity: "Mythic"},
     {name: "Pomegranate",     rarity: "Mythic"},
     {name: "Poison Apple",    rarity: "Mythic"},
