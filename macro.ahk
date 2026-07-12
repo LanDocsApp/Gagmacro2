@@ -450,6 +450,8 @@ OnWebMessage(sender, args) {
             OpenHelpPage()
         case "opentutorial":
             OpenTutorialPage()
+        case "paste":
+            PasteAccessCode()
         case "activate":
             p := InStr(msg, "|")            ; rest-of-line: the pasted code
             ActivateCode(p ? SubStr(msg, p + 1) : "")
@@ -943,6 +945,18 @@ OpenTutorialPage() {
         Run(TutorialUrl)
     catch
         try Run("explorer.exe " TutorialUrl)
+}
+
+; "Paste" button in the unlock popup. The page is served via NavigateToString (a
+; non-secure origin) where the browser clipboard API is blocked, so read the
+; Windows clipboard here and push the text into the code field on the page.
+PasteAccessCode() {
+    code := Trim(A_Clipboard)
+    if (code = "") {
+        Post("licensemsg|Your clipboard is empty. Copy your access code first.")
+        return
+    }
+    Post("pastecode|" code)
 }
 
 ; Verify a pasted code. On a confirmed active subscription: save it and unlock
@@ -1869,6 +1883,7 @@ HtmlTemplate() {
       <button class='btn green block' onclick='send("openaccess")'>Open sign-in page to get access &rarr;</button>
       <div class='prow'>
         <input id='codeInput' type='text' placeholder='Paste your access code' spellcheck='false' autocomplete='off'>
+        <button class='btn' onclick='pasteCode()'>Paste</button>
         <button class='btn green' onclick='activate()'>Unlock</button>
       </div>
       <div id='licenseMsg' class='lmsg'></div>
@@ -2329,6 +2344,10 @@ HtmlTemplate() {
     goWelcome('promoOverlay');                 /* valid code -> welcome finale */
   }
   function setLicenseMsg(t){ document.getElementById('licenseMsg').textContent = t; }
+  /* Paste button: the page runs from NavigateToString (a non-secure origin) where
+     navigator.clipboard.readText() is blocked, so ask AHK to read the Windows
+     clipboard and send it back as 'pastecode|<text>' (handled below). */
+  function pasteCode(){ send('paste'); }
   function activate(){
     var code = document.getElementById('codeInput').value.trim();
     if (!code){ setLicenseMsg('Paste your access code first.'); return; }
@@ -2362,6 +2381,11 @@ HtmlTemplate() {
     else if (type === 'unlock') unlockPremium();
     else if (type === 'profree') { PENDING_PRO = false; applyPromoStrip(); }  /* license check settled (free) -> reveal strip */
     else if (type === 'licensemsg') setLicenseMsg(rest);
+    else if (type === 'pastecode') {            /* AHK read the clipboard -> fill the code field */
+      var inp = document.getElementById('codeInput');
+      if (inp){ inp.value = rest; inp.focus(); }
+      setLicenseMsg('');
+    }
     else if (type === 'access') openAccess();   /* tried to Start a Pro-locked tab */
     else if (type === 'hint') { var hp = rest.split('|'); showHint(hp[0], hp[1]); }  /* post-run upsell */
     else if (type === 'discount') { var dp = rest.split('|'); showDiscount(dp[0], dp[1]); }   /* loyalty 50%-off code + milestone hours */
