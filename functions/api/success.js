@@ -65,14 +65,34 @@ export async function onRequestGet({ request, env }) {
     iat: Date.now(),
   });
 
-  return html(renderPage({ base, email: session.email, active, pasteCode }));
+  const portalNote = url.searchParams.get("portal");
+  return html(renderPage({ base, email: session.email, active, pasteCode, portalNote }));
 }
 
-function renderPage({ base, email, active, pasteCode }) {
+function renderPage({ base, email, active, pasteCode, portalNote }) {
   const banner = active
     ? `<div class="status ok">✓ Subscription active — you're all set.</div>`
     : `<div class="status warn">We couldn't confirm an active subscription yet.
          <a href="${base}/api/checkout">Subscribe</a> or refresh in a moment if you just paid.</div>`;
+
+  // Message shown when the user just came back from (or failed to reach) the
+  // Stripe billing portal via the "Manage subscription" button below.
+  const portalBanner =
+    portalNote === "error"
+      ? `<div class="status warn">Couldn't open the billing page just now. Please try again in a moment.</div>`
+      : portalNote === "none"
+      ? `<div class="status warn">We couldn't find a subscription linked to your account yet.</div>`
+      : "";
+
+  // The "profile" area: from here the user can update payment or cancel. This is
+  // the only cancel path now — the desktop macro sends people to this page.
+  const manage = active
+    ? `<div class="manage">
+      <h2>Manage your subscription</h2>
+      <p>Update your payment method, view past invoices, or cancel anytime.</p>
+      <a class="btn-manage" href="${base}/api/portal">Manage subscription →</a>
+    </div>`
+    : "";
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -99,6 +119,11 @@ function renderPage({ base, email, active, pasteCode }) {
     .btn:hover { background:var(--green-dark); }
     ol { margin:24px 0 0 18px; color:var(--muted); font-size:14px; }
     ol li { margin-bottom:6px; }
+    .manage { margin-top:28px; padding-top:24px; border-top:1px solid var(--line); }
+    .manage h2 { font-size:16px; letter-spacing:-.2px; margin-bottom:4px; }
+    .manage p { color:var(--muted); font-size:13.5px; margin-bottom:14px; }
+    .btn-manage { display:inline-flex; align-items:center; gap:6px; font-weight:600; font-size:14px; color:var(--ink); background:#fff; border:1px solid var(--line); border-radius:10px; padding:10px 16px; text-decoration:none; transition:border-color .15s, background .15s, color .15s; }
+    .btn-manage:hover { background:var(--soft); border-color:var(--green); color:var(--green-dark); }
     .foot { margin-top:24px; font-size:12.5px; color:var(--muted); }
   </style>
 </head>
@@ -108,6 +133,7 @@ function renderPage({ base, email, active, pasteCode }) {
     <h1>You're in${email ? ", " + escapeHtml(email.split("@")[0]) : ""} 🎉</h1>
     <p class="sub">Copy your access code below and paste it into the Garden Macro launcher.</p>
     ${banner}
+    ${portalBanner}
     <label for="code">Your paste-code</label>
     <div class="code-row">
       <div class="code" id="code">${escapeHtml(pasteCode)}</div>
@@ -118,6 +144,7 @@ function renderPage({ base, email, active, pasteCode }) {
       <li>When it asks for your access code, paste this in.</li>
       <li>That's it — it stays signed in and updates itself.</li>
     </ol>
+    ${manage}
     <p class="foot">Lost this code? Just <a href="${base}/signin.html">sign in</a> again to get it back.</p>
   </div>
   <script>

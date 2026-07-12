@@ -102,10 +102,9 @@ global InstallFile  := A_AppData "\GardenMacro\install.txt"  ; first-run stamp +
 ; Version shown in the window's bottom corner. Bump AppVersion on real releases;
 ; the build time is taken from this file's last-modified date, so it changes every
 ; time you save the script -> an easy "did my latest change actually load?" check.
-global AppVersion := "1.0.8"
+global AppVersion := "1.0.9"
 global BackendBase  := "https://gardenmacro.com"   ; subscription backend
 global VerifyUrl    := BackendBase "/api/desktop/verify"
-global PortalUrl    := BackendBase "/api/desktop/portal"   ; Stripe billing portal (manage/cancel)
 global PingUrl      := BackendBase "/api/ping"              ; anonymous usage stats
 global TutorialUrl  := "https://www.youtube.com/watch?v=2-K89sp8H4o"  ; "Video setup" link -> YouTube walkthrough
 global TokenFile    := A_AppData "\GardenMacro\token.txt"   ; saved paste-code
@@ -451,8 +450,6 @@ OnWebMessage(sender, args) {
             OpenHelpPage()
         case "opentutorial":
             OpenTutorialPage()
-        case "manage":
-            OpenManageSubscription()
         case "activate":
             p := InStr(msg, "|")            ; rest-of-line: the pasted code
             ActivateCode(p ? SubStr(msg, p + 1) : "")
@@ -946,60 +943,6 @@ OpenTutorialPage() {
         Run(TutorialUrl)
     catch
         try Run("explorer.exe " TutorialUrl)
-}
-
-; "Manage subscription" (Account tab, Pro only) -> open the Stripe billing portal
-; in the browser. POST the saved access code to the backend, which resolves the
-; user's Stripe customer and returns a one-time portal URL (update card, view
-; invoices, cancel). Minimize so the browser page is in full view.
-OpenManageSubscription() {
-    global TokenFile, MainGui
-    token := ReadToken(TokenFile)
-    if (token = "") {
-        ; No saved code on this machine -> fall back to the website sign-in page.
-        OpenAccessPage()
-        return
-    }
-    res := GetPortalUrl(token)
-    if (res.url != "") {
-        try
-            Run(res.url)
-        catch
-            try Run("explorer.exe " res.url)
-        try MainGui.Minimize()
-    } else {
-        Post("accountmsg|Couldn't open the billing page (" res.err "). Try again, or manage it on the website.")
-    }
-}
-
-; POST { "token": <code> } to the portal endpoint; on HTTP 200 pull the portal
-; URL out of the JSON reply. Mirrors VerifyToken's request style.
-GetPortalUrl(token) {
-    global PortalUrl
-    body := '{"token":"' JsonEscape(Trim(token)) '"}'
-    try {
-        req := ComObject("WinHttp.WinHttpRequest.5.1")
-        req.SetTimeouts(5000, 5000, 5000, 15000)    ; resolve, connect, send, receive (ms)
-        req.Open("POST", PortalUrl, false)
-        req.SetRequestHeader("Content-Type", "application/json")
-        req.Send(body)
-        if (req.Status = 200)
-            return { url: ExtractJsonField(req.ResponseText, "url"), err: "" }
-        ; Non-200: surface Stripe's reason if the backend included one.
-        detail := ExtractJsonField(req.ResponseText, "detail")
-        if (detail = "")
-            detail := ExtractJsonField(req.ResponseText, "error")
-        return { url: "", err: "HTTP " req.Status (detail != "" ? " - " detail : "") }
-    } catch as e {
-        return { url: "", err: e.Message }
-    }
-}
-
-; Pull a string field's value out of a small JSON object reply.
-ExtractJsonField(text, field) {
-    if RegExMatch(text, '"' field '"\s*:\s*"([^"]*)"', &m)
-        return m[1]
-    return ""
 }
 
 ; Verify a pasted code. On a confirmed active subscription: save it and unlock
@@ -1879,9 +1822,7 @@ HtmlTemplate() {
   <div id='accountPane' hidden>
     <div class='acard'>
       <div class='astatus'><span class='adot'></span> Garden Macro Pro is active</div>
-      <p class='adesc'>Manage your subscription on Stripe &mdash; update your payment method, view past invoices, or cancel anytime.</p>
-      <button class='btn green block' onclick='manageSub()'>Manage subscription &rarr;</button>
-      <div id='accountMsg' class='lmsg'></div>
+      <p class='adesc'>To manage your subscription visit the <b>GardenMacro</b> website.</p>
     </div>
   </div>
 
@@ -2407,13 +2348,6 @@ HtmlTemplate() {
     pushSel('seeds');
     requestAnimationFrame(function(){ requestAnimationFrame(fitWindow); });
   }
-  /* Account tab (Pro only): open the Stripe billing portal to manage / cancel. */
-  function setAccountMsg(t){ var e = document.getElementById('accountMsg'); if (e) e.textContent = t; }
-  function manageSub(){
-    setAccountMsg('Opening Stripe in your browser...');
-    send('manage');
-    setTimeout(function(){ setAccountMsg(''); }, 6000);   /* self-clear; AHK overwrites on error */
-  }
   function setRunning(on){
     document.getElementById('startBtn').disabled = on;
     document.getElementById('stopBtn').disabled  = !on;
@@ -2428,7 +2362,6 @@ HtmlTemplate() {
     else if (type === 'unlock') unlockPremium();
     else if (type === 'profree') { PENDING_PRO = false; applyPromoStrip(); }  /* license check settled (free) -> reveal strip */
     else if (type === 'licensemsg') setLicenseMsg(rest);
-    else if (type === 'accountmsg') setAccountMsg(rest);
     else if (type === 'access') openAccess();   /* tried to Start a Pro-locked tab */
     else if (type === 'hint') { var hp = rest.split('|'); showHint(hp[0], hp[1]); }  /* post-run upsell */
     else if (type === 'discount') { var dp = rest.split('|'); showDiscount(dp[0], dp[1]); }   /* loyalty 50%-off code + milestone hours */
