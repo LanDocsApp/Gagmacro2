@@ -194,6 +194,7 @@
       <div class="grid">
         <div class="card"><div class="label">Active subscribers</div><div class="value" id="m-active">…</div><div class="vsub" id="m-active-s"></div></div>
         <div class="card"><div class="label">MRR</div><div class="value" id="m-mrr">…</div><div class="vsub" id="m-mrr-s"></div></div>
+        <div class="card"><div class="label">ARR</div><div class="value" id="m-arr">…</div><div class="vsub" id="m-arr-s"></div></div>
         <div class="card"><div class="label">New this month</div><div class="value" id="m-new">…</div></div>
         <div class="card"><div class="label">Churned this month</div><div class="value" id="m-churn">…</div></div>
         <div class="card"><div class="label">Avg sub length</div><div class="value" id="m-life">…</div><div class="vsub" id="m-life-s"></div></div>
@@ -390,6 +391,7 @@
     "o-hours": "Total macro runtime summed across every session, all time.",
     "m-active": "Distinct real subscribers with an active subscription right now. Excludes free 100%-off comps (youtuber grants) and ignored test accounts.",
     "m-mrr": "Recurring monthly revenue from paying subs. Excludes comps, subs scheduled to cancel (won't renew), and test accounts — so it can differ from Stripe's raw MRR.",
+    "m-arr": "Annual recurring revenue — MRR × 12. A projection of a full year at your current run-rate, not money already collected. Same exclusions as MRR (comps, subs set to cancel, and test accounts).",
     "m-new": "Distinct real subscribers whose subscription started this calendar month (UTC). Comps and test accounts excluded.",
     "m-churn": "Distinct real (paying) subscribers whose subscription fully ended this month. Free comps and test accounts don't count, and a sub merely scheduled to cancel isn't churned until it actually ends.",
     "m-life": "Average time a subscription lasts. Shows 'observed' once enough real subs have ended; otherwise an estimate from your churn rate, or — until any real sub churns.",
@@ -542,6 +544,8 @@
     setMoneyCard("o-mrr", money(mrr, cur));
     setMoneyCard("m-active", active == null ? "—" : nf(active));
     setMoneyCard("m-mrr", money(mrr, cur));
+    setMoneyCard("m-arr", money(mrr == null ? null : mrr * 12, cur));   // ARR = MRR × 12 run-rate
+    $("m-arr-s").textContent = mrr == null ? "" : "MRR × 12 run-rate";
     var payNote = subs.mrrSubs == null ? "" : subs.mrrSubs + " paying" + (active != null && active > subs.mrrSubs ? " · " + (active - subs.mrrSubs) + " ending" : "");
     $("m-mrr-s").textContent = payNote;
     $("m-active-s").textContent = active == null ? "" : "real subs (free & test excluded)";
