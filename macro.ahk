@@ -2034,13 +2034,13 @@ HtmlTemplate() {
         <h2 id='modalTitle'>Unlock the best seeds</h2>
         <button class='mx' onclick='closeAccess()'>&times;</button>
       </div>
-      <p class='mdesc'>Premium seeds and the Gears macro need Garden Macro Pro. Subscribe once, then paste your code to unlock them here.</p>
-      <ol class='msteps'>
+      <p class='mdesc' id='modalDesc'>Premium seeds and the Gears macro need Garden Macro Pro. Subscribe once, then paste your code to unlock them here.</p>
+      <ol class='msteps' id='modalSteps'>
         <li>Open the sign-in page and subscribe with Google.</li>
         <li>Copy the access code it shows you.</li>
         <li>Paste it below and click Unlock.</li>
       </ol>
-      <button class='btn green block' onclick='send("openaccess")'>Open sign-in page to get access &rarr;</button>
+      <button id='openSigninBtn' class='btn green block' onclick='send("openaccess")'>Open sign-in page to get access &rarr;</button>
       <div class='prow'>
         <input id='codeInput' type='text' placeholder='Paste your access code' spellcheck='false' autocomplete='off'>
         <button class='btn' onclick='pasteCode()'>Paste</button>
@@ -2300,7 +2300,30 @@ HtmlTemplate() {
   }
 
   /* Premium / unlock flow (seeds only) */
-  function openAccess(){
+  /* The access box is shared. Called plain for the normal "subscribe first" flow (upsell
+     hint, loyalty, locked Start), or openAccess(true) from a flash claim -- where the browser
+     was ALREADY sent straight to checkout, so we drop the "open sign-in page" step and just
+     tell them to finish in the browser and paste the code. The normal copy is snapshotted
+     from the HTML once, so flash mode can restore it when the box is next opened normally. */
+  var _accessCopy = null;
+  function openAccess(flash){
+    var titleEl = document.getElementById('modalTitle');
+    var descEl  = document.getElementById('modalDesc');
+    var stepsEl = document.getElementById('modalSteps');
+    var signBtn = document.getElementById('openSigninBtn');
+    if (!_accessCopy)
+      _accessCopy = { title: titleEl.textContent, desc: descEl.textContent, steps: stepsEl.innerHTML };
+    if (flash){
+      titleEl.textContent = 'Finish unlocking Pro';
+      descEl.textContent  = 'Checkout just opened in your browser. Finish it there, then copy the access code it gives you and paste it below.';
+      stepsEl.innerHTML   = '<li>Finish checkout in the browser tab that opened.</li><li>Copy the access code it shows you.</li><li>Paste it below and click Unlock.</li>';
+      signBtn.hidden = true;
+    } else {
+      titleEl.textContent = _accessCopy.title;
+      descEl.textContent  = _accessCopy.desc;
+      stepsEl.innerHTML   = _accessCopy.steps;
+      signBtn.hidden = false;
+    }
     document.getElementById('overlay').hidden = false;
     var inp = document.getElementById('codeInput');
     setTimeout(function(){ inp.focus(); }, 30);
@@ -2387,8 +2410,8 @@ HtmlTemplate() {
      OpenFlashCheckout, which opens /api/checkout?offer=<variant> and minimizes the window).
      The box is SUPPRESSED for creator-code holders (PROMO set) -- their discount doesn't stack
      so they never see the flash anyway (see OfferActive), but guard it here too to be sure. */
-  function ctaFlash(){ send('ev|flash_cta|' + flashVariant); closeFlash(); if (!PROMO) openAccess(); send('flashclaim'); }
-  function barFlash(){ send('ev|flash_cta|' + flashVariant); if (!PROMO) openAccess(); send('flashclaim'); }
+  function ctaFlash(){ send('ev|flash_cta|' + flashVariant); closeFlash(); if (!PROMO) openAccess(true); send('flashclaim'); }
+  function barFlash(){ send('ev|flash_cta|' + flashVariant); if (!PROMO) openAccess(true); send('flashclaim'); }
 
   /* Update banner: AHK sends "update|<version>" when a newer macro.ahk has shipped to
      `main` while this session is running. Show the red "restart to update" bar (once)
