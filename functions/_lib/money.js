@@ -131,7 +131,7 @@ export async function loadPromoCodes(env) {
       for (const pc of data) {
         const code = String(pc.code || "").toUpperCase();
         const coupon = pc.coupon || (pc.promotion && pc.promotion.coupon) || {};
-        const { purpose, creatorId } = codePurpose(code);
+        const { purpose, creatorId, variant } = codePurpose(code);
         byId.set(pc.id, {
           id: pc.id,
           code,
@@ -143,6 +143,7 @@ export async function loadPromoCodes(env) {
           active: !!pc.active,
           purpose,
           creatorId,
+          variant, // flash A/B arm (1/2/3), else null
         });
       }
       if (!res || !res.has_more || !data.length) break;
@@ -480,6 +481,7 @@ export async function buildMoneySnapshot(env) {
       couponId: pc.couponId,
       purpose: pc.purpose,
       creatorId: pc.creatorId,
+      variant: pc.variant, // flash A/B arm (1/2/3), else null
       discountLabel: pc.duration === "once" ? disc + " · 1st mo" : disc,
       percentOff: pc.percentOff,
       amountOffCents: pc.amountOffCents,

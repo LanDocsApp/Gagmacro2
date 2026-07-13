@@ -51,7 +51,15 @@ export async function onRequestGet({ request, env }) {
     exp: now + SESSION_TTL_MS,
   });
 
-  const headers = new Headers({ Location: `${base}/signin.html`, "Cache-Control": "no-store" });
+  // If a flash-deal checkout is pending (the macro opened /api/checkout?offer=N while
+  // signed out, which stashed the variant in the gag_offer cookie), send the user STRAIGHT
+  // back into checkout after login so the discount auto-applies — instead of dropping them
+  // on the sign-in page. Otherwise, the normal landing.
+  const pendingOffer = (cookies["gag_offer"] || "").trim();
+  const dest = /^[123]$/.test(pendingOffer)
+    ? `${base}/api/checkout?offer=${pendingOffer}`
+    : `${base}/signin.html`;
+  const headers = new Headers({ Location: dest, "Cache-Control": "no-store" });
   headers.append(
     "Set-Cookie",
     cookie(SESSION_COOKIE, session, { maxAge: SESSION_TTL_S, httpOnly: true, sameSite: "Lax" })

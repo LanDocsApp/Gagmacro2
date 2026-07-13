@@ -182,6 +182,29 @@ global SourceValid := Map(                                 ; accepted channel ke
 global SourceAsked := false       ; has the first-launch acquisition-source prompt been answered?
 global Source      := ""          ; chosen channel key (e.g. "reddit"), "" if skipped
 
+; --- Flash deal: a limited-time discount on the FIRST month of Pro, A/B tested
+;     across three discount depths (75% / 65% / 50% off first month). Every install is randomly assigned a
+;     variant (1/2/3) ONCE and it never changes, so the split stays even and each user
+;     always sees the same price. For 24h after first launch the macro shows a live
+;     countdown (a persistent banner + a one-time popup) and opens the sign-in page with
+;     ?offer=<variant> so the matching Stripe promotion code AUTO-APPLIES at checkout --
+;     no code to paste. Suppressed for Pro users and anyone holding a creator code (Stripe
+;     discounts don't stack). Conversion + net revenue per arm show on the stats
+;     dashboard's "Flash deal" panel. KEEP IN SYNC: the variant->code mapping lives in
+;     functions/_lib/creators.js (FLASH_CODES); OfferUsd below must reflect those
+;     percentages applied to the US price.
+global OfferFile     := A_AppData "\GardenMacro\offer.txt"   ; "<variant 1|2|3>|<window-start YYYYMMDDHHMMSS>"
+global OfferVariant  := 0                                    ; this install's arm (0 = not assigned yet)
+global OfferStamp    := ""                                   ; when the 24h window started (first launch on this build)
+global OfferWindowMs := 24 * 60 * 60 * 1000                  ; deal is live for 24h after first launch
+; OfferUsd = the (rounded) first-month price shown in the deal per variant. The real
+; charge is the Stripe %-off coupon applied to the $5.93 US price (75%->$1.48, 65%->$2.08,
+; 50%->$2.97); we show clean $1.50 / $2 / $3. Keep in sync if the FLASH_CODES percentages
+; change (75/65/50 for variants 1/2/3).
+global OfferUsd      := Map(1, "$1.50", 2, "$2", 3, "$3")
+global OfferShownSession := false                            ; banner/popup already shown this session?
+global WillOnboard   := false                                ; a first-launch onboarding wall runs this launch?
+
 ; --- Seed list in the SAME top-to-bottom order as the in-game shop ---
 ;
 ;  ADDING A NEW SEED:  drop it in at the position that matches the in-game shop
@@ -268,6 +291,7 @@ PremiumCount := CountLocked()
 LoadUsage()
 LoadPromo()
 LoadSource()
+LoadOrCreateOffer()   ; assign (or restore) this install's flash-deal A/B price variant
 
 BuildUi()
 
@@ -299,12 +323,17 @@ SetTimer(MaybeAskSource, -1800)
 ; and never blocks the UI meaningfully (small ranged fetch, short timeouts).
 SetTimer(StartUpdateChecks, -4000)
 
+; Flash deal: show the 24h countdown (banner + a one-time popup) shortly after launch,
+; once onboarding has had its turn. No-op if the user is Pro, holds a creator code, or
+; the 24h window has already elapsed (see MaybeShowFlashOffer / OfferActive).
+SetTimer(MaybeShowFlashOffer, -2600)
+
 ; ============================================================
 ;  UI  (WebView2 window + HTML/CSS/JS)
 ; ============================================================
 BuildUi() {
     global MainGui, controller, wv, PremiumCount, Seeds, Gears, PromoCode, PromoPct, TokenFile
-    global SourceAsked, PromoAsked
+    global SourceAsked, PromoAsked, WillOnboard
 
     dllPath := A_ScriptDir "\lib\WebView2Loader.dll"
     dataDir := A_AppData "\GardenMacro\WebView2"   ; writable user-data folder
@@ -349,8 +378,11 @@ BuildUi() {
     ;   source wall shows <=> source not yet answered
     ;   promo  wall shows <=> source done, promo not asked, and not (likely) Pro -- a saved
     ;                         token means a returning user (already onboarded / probably Pro).
-    willOnboard := (!SourceAsked) || (!PromoAsked && hasToken = "0")
-    html := StrReplace(html, "__ONBOARD__", willOnboard ? "1" : "0")
+    ; Published as a global so MaybeShowFlashOffer knows whether an onboarding wall is
+    ; running this launch -- if so it shows the flash BANNER only (the popup would pop
+    ; under the full-window wall), otherwise it also opens the flash popup.
+    WillOnboard := (!SourceAsked) || (!PromoAsked && hasToken = "0")
+    html := StrReplace(html, "__ONBOARD__", WillOnboard ? "1" : "0")
     wv.NavigateToString(html)
 }
 
@@ -442,6 +474,8 @@ OnWebMessage(sender, args) {
             StopMacro()
         case "openaccess":
             OpenAccessPage()
+        case "flashclaim":
+            OpenFlashCheckout()
         case "openhelp":
             OpenHelpPage()
         case "opentutorial":
@@ -462,10 +496,11 @@ OnWebMessage(sender, args) {
         case "sourceskip":
             SkipSource()
         case "ev":
-            ; "ev|<name>" -> forward a one-off funnel event from the WebView (popup
-            ; shown/copied/dismissed). The backend allowlists which names it accepts.
+            ; "ev|<name>[|<variant>]" -> forward a one-off funnel event from the WebView
+            ; (popup shown/copied/dismissed). The optional 3rd field is the flash-deal A/B
+            ; arm (1/2/3), tagged onto flash_* events. The backend allowlists the names.
             if parts.Length >= 2 && parts[2] != ""
-                SendEvent(parts[2])
+                SendEvent(parts[2], parts.Length >= 3 ? parts[3] : "")
         case "fit":
             if parts.Length >= 2 && IsInteger(parts[2])
                 FitWindowHeight(Integer(parts[2]))
@@ -776,6 +811,87 @@ MaybeShowLoyaltyDiscount() {
     return true
 }
 
+; ---- Flash deal (24h post-install first-month discount, A/B priced) ----
+
+; Restore the persisted flash-deal variant + window start, or create them on first run
+; of this build. Every install gets a stable 1/2/3 arm (kept forever) so the A/B split
+; is even and a user always sees the same price; the window start is when this build
+; first ran, so EXISTING users also get a fresh 24h deal (not just brand-new installs).
+LoadOrCreateOffer() {
+    global OfferFile, OfferVariant, OfferStamp
+    if FileExist(OfferFile) {
+        raw := ""
+        try raw := Trim(FileRead(OfferFile, "UTF-8"), " `t`r`n" Chr(0xFEFF))
+        parts := StrSplit(raw, "|")
+        v := parts.Length >= 1 ? parts[1] : ""
+        if (v = "1" || v = "2" || v = "3") {
+            OfferVariant := Integer(v)
+            if (parts.Length >= 2 && IsInteger(parts[2]) && StrLen(parts[2]) >= 8) {
+                OfferStamp := parts[2]
+            } else {
+                OfferStamp := A_Now     ; legacy variant-only file -> start the window now + persist
+                SaveOffer()
+            }
+            return
+        }
+    }
+    OfferVariant := Random(1, 3)
+    OfferStamp := A_Now
+    SaveOffer()
+}
+
+; Persist the variant + window start (no BOM; create the folder if needed).
+SaveOffer() {
+    global OfferFile, OfferVariant, OfferStamp
+    try {
+        SplitPath(OfferFile, , &dir)
+        if (dir != "" && !DirExist(dir))
+            DirCreate(dir)
+        f := FileOpen(OfferFile, "w", "UTF-8-RAW")
+        f.Write(OfferVariant "|" OfferStamp)
+        f.Close()
+    }
+}
+
+; Seconds left in the 24h flash window (0 once expired). Anchored to OfferStamp (this
+; build's first launch), so it survives restarts and expires exactly 24h in.
+OfferSecondsLeft() {
+    global OfferWindowMs, OfferStamp
+    if (OfferStamp = "")
+        return 0
+    elapsedS := DateDiff(A_Now, OfferStamp, "Seconds")   ; both are YYYYMMDDHHMMSS timestamps
+    if (elapsedS < 0)
+        elapsedS := 0
+    leftS := (OfferWindowMs // 1000) - elapsedS
+    return leftS > 0 ? leftS : 0
+}
+
+; Is the flash deal live for this user right now? Not Pro, no creator code (Stripe
+; discounts don't stack), a variant assigned, and still inside the 24h window.
+OfferActive() {
+    global Unlocked, PromoCode, OfferVariant
+    if (Unlocked || PromoCode != "" || OfferVariant = 0)
+        return false
+    return OfferSecondsLeft() > 0
+}
+
+; Show the flash-deal countdown: always the persistent banner, plus a one-time modal
+; popup on launches where onboarding isn't running (so it never pops under a full-window
+; wall). Fires the flash_shown funnel impression once per session, tagged with the arm.
+MaybeShowFlashOffer() {
+    global OfferVariant, OfferUsd, OfferShownSession, WillOnboard, MainGui
+    if (OfferShownSession || !OfferActive())
+        return
+    OfferShownSession := true
+    secs := OfferSecondsLeft()
+    usd  := OfferUsd.Has(OfferVariant) ? OfferUsd[OfferVariant] : "$3"
+    popup := WillOnboard ? "0" : "1"
+    if (popup = "1")
+        try MainGui.Restore()               ; un-minimize so the popup is actually seen
+    Post("flash|" OfferVariant "|" usd "|" secs "|" popup)
+    SendEvent("flash_shown", OfferVariant)  ; funnel: the flash countdown was shown (A/B denominator)
+}
+
 ; Current seed names, in list order.
 SeedNames() {
     global Seeds
@@ -905,10 +1021,31 @@ CheckSavedLicense() {
 ; "Get access" -> open the sign-in / subscribe page in the default browser.
 ; Minimize the macro window so the browser sign-in page is in full view.
 OpenAccessPage() {
-    global BackendBase, MainGui
+    global BackendBase, MainGui, OfferVariant
     ; Count this as a funnel step: an install that clicked through to the pay page.
     SendEvent("get_access")
     url := BackendBase "/signin.html"
+    ; During the 24h flash window, carry the price variant so the discount auto-applies
+    ; at checkout (the sign-in page stashes it in a cookie across the Google login).
+    if OfferActive()
+        url .= "?offer=" OfferVariant
+    try
+        Run(url)
+    catch
+        try Run("explorer.exe " url)
+    try MainGui.Minimize()
+}
+
+; Flash-deal "Claim" -> open the browser STRAIGHT to Stripe checkout with the discount
+; applied. /api/checkout redirects to Google login first if needed, then (via the
+; callback's gag_offer handling) back into checkout, so the coupon still applies. No
+; in-app unlock modal. The ?offer=<variant> is what selects the coupon at checkout.
+OpenFlashCheckout() {
+    global BackendBase, MainGui, OfferVariant
+    SendEvent("get_access")                  ; funnel: clicked through to the pay page
+    url := BackendBase "/api/checkout"
+    if OfferActive()
+        url .= "?offer=" OfferVariant
     try
         Run(url)
     catch
@@ -1263,11 +1400,13 @@ SendHeartbeat() {
 ; user clicks "Get access". Lets the stats dashboard count distinct installs that
 ; reached the sign-in page. Same fire-and-forget style as SendHeartbeat: async,
 ; never waited on, kept alive in a global so it isn't collected mid-flight.
-SendEvent(ev) {
+SendEvent(ev, variant := "") {
     global PingUrl, DeviceId, AppVersion, EventReq
     if (DeviceId = "" || ev = "")
         return
-    body := '{"id":"' JsonEscape(DeviceId) '","v":"' JsonEscape(AppVersion) '","ev":"' JsonEscape(ev) '"}'
+    ; Flash-deal events carry the A/B price arm (1/2/3) in "var"; other events omit it.
+    varField := (variant != "" && variant != 0) ? ',"var":"' JsonEscape(variant "") '"' : ""
+    body := '{"id":"' JsonEscape(DeviceId) '","v":"' JsonEscape(AppVersion) '","ev":"' JsonEscape(ev) '"' varField '}'
     try {
         EventReq := ComObject("WinHttp.WinHttpRequest.5.1")
         EventReq.SetTimeouts(3000, 3000, 3000, 8000)
@@ -1675,6 +1814,21 @@ HtmlTemplate() {
        padding:8px 12px;margin-bottom:12px}
   .updatebar.show{display:block}
   .updatebar b{font-weight:800}
+  /* Flash-deal countdown banner: a green deal bar under the title, shown for 24h after
+     install (see MaybeShowFlashOffer). Hidden until AHK sends "flash|..."; the page
+     ticks the timer down itself and hides the bar at zero. Clicking it opens checkout. */
+  .flashbar{display:none;align-items:center;gap:12px;
+       background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:8px 10px 8px 13px;margin-bottom:12px}
+  .flashbar.show{display:flex}
+  .flashbar .fbinfo{display:flex;flex-direction:column;line-height:1.25;min-width:0}
+  .flashbar .fblabel{font-size:10px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:#b91c1c}
+  .flashbar .fbmain{font-size:12.5px;color:#444}
+  .flashbar .fbprice{font-weight:800;color:#dc2626}
+  .flashbar .fbtime{margin-left:auto;font-family:'Consolas','JetBrains Mono',monospace;
+       font-size:24px;font-weight:800;color:#dc2626;letter-spacing:.5px}
+  .flashbar .fbbtn{flex-shrink:0;background:#dc2626;color:#fff;border:none;border-radius:6px;
+       padding:9px 20px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit}
+  .flashbar .fbbtn:hover{background:#b91c1c}
   /* Free version: locked premium seeds + Get-access bar + unlock modal */
   /* Locked premium rows keep their FULL rarity colors + glow + sparks (they
      sell the upgrade). The only "locked" cue is a clean lock badge on the box. */
@@ -1753,6 +1907,17 @@ HtmlTemplate() {
         border-radius:9px;padding:11px 12px;font-size:21px;font-weight:800;letter-spacing:2px;
         text-transform:uppercase;font-family:'Consolas','JetBrains Mono',monospace;
         -webkit-user-select:text;user-select:text}
+  /* Flash-deal popup (red): big price + big live countdown */
+  .flashmodal{text-align:center;position:relative}
+  .flashmodal .mx{position:absolute;top:-2px;right:0}
+  .flasheyebrow{font-size:11px;font-weight:800;letter-spacing:1.4px;text-transform:uppercase;color:#dc2626;margin-bottom:14px}
+  .flashlead{font-size:13px;color:#555;margin:0}
+  .flashbig{font-size:54px;font-weight:800;color:#dc2626;line-height:1.02;letter-spacing:-1.5px;margin:2px 0}
+  .flashsub{font-size:12.5px;color:#888;margin:0 0 16px}
+  .flashtimer{font-family:'Consolas','JetBrains Mono',monospace;font-size:40px;font-weight:800;color:#dc2626;
+        background:#fef2f2;border:1.5px solid #fecaca;border-radius:10px;padding:12px 8px;margin:0 0 16px;letter-spacing:1px}
+  .btn.red{background:#dc2626;color:#fff;border-color:#dc2626}
+  .btn.red:hover{background:#b91c1c;border-color:#b91c1c}
   /* Promo-code corner badge: "USE CODE LION FOR 20% OFF" (only if a code was entered) */
   .promobadge{position:fixed;top:13px;right:14px;z-index:40;cursor:pointer;
         font-size:10.5px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;
@@ -1772,6 +1937,14 @@ HtmlTemplate() {
   <div id='promoBadge' class='promobadge' hidden onclick='openAccess()'>Use code <b id='promoBadgeCode'></b> for <b id='promoBadgePct'></b>% off</div>
   <h1>Garden Macro</h1>
   <div id='updateBar' class='updatebar'>&#128260; A new version<span id='updateVer'></span> is available &mdash; <b>close and reopen the macro</b> to update.</div>
+  <div id='flashBar' class='flashbar'>
+    <span class='fbinfo'>
+      <span class='fblabel'>Limited time deal</span>
+      <span class='fbmain'>Get Pro for just <b class='fbprice' id='flashUsd'>$1.50</b></span>
+    </span>
+    <span class='fbtime' id='flashTime'>24:00:00</span>
+    <button class='fbbtn' onclick='barFlash()'>Claim</button>
+  </div>
   <div class='tabs'>
     <button id='tabSeeds' class='tab on' onclick='switchTab("seeds")'>Seeds</button>
     <button id='tabGears' class='tab'    onclick='switchTab("gears")'>Gears</button>
@@ -1896,6 +2069,19 @@ HtmlTemplate() {
       </div>
       <button class='btn green block' onclick='ctaDiscount()'>Get Pro &mdash; 50% off &rarr;</button>
       <a class='hintDismiss' onclick='dismissDiscount()'>Maybe later</a>
+    </div>
+  </div>
+
+  <div id='flashOverlay' class='overlay' hidden>
+    <div class='modal flashmodal'>
+      <button class='mx' onclick='dismissFlash()'>&times;</button>
+      <div class='flasheyebrow'>Limited time deal</div>
+      <p class='flashlead'>Get Pro for just</p>
+      <div class='flashbig' id='flashPopUsd'>$1.50</div>
+      <p class='flashsub'>first month</p>
+      <div class='flashtimer'><span id='flashPopTime'>24:00:00</span></div>
+      <button class='btn red block' onclick='ctaFlash()'>Claim</button>
+      <a class='hintDismiss' onclick='dismissFlash()'>Maybe later</a>
     </div>
   </div>
 
@@ -2136,6 +2322,54 @@ HtmlTemplate() {
   }
   function closeDiscount(){ document.getElementById('discountOverlay').hidden = true; }
 
+  /* Flash deal: AHK sends "flash|<variant>|<usd>|<secondsLeft>|<popup 0|1>" shortly after
+     launch, for 24h after install. <usd> is the first-month price shown (e.g. "$1.50").
+     Show the red countdown banner (always) + optionally the modal popup, then tick the timer
+     down locally and hide everything at zero. Clicking Claim goes STRAIGHT to Stripe checkout
+     with the discount applied (or Google login first) -- no in-app unlock modal. */
+  var flashVariant = 0, flashTimer = null, flashEnd = 0;
+  function fmtDur(s){
+    function p(n){ return (n < 10 ? '0' : '') + n; }
+    var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60;
+    return p(h) + ':' + p(m) + ':' + p(x);
+  }
+  function showFlash(variant, usd, secs, popup){
+    flashVariant = parseInt(variant, 10) || 0;
+    secs = parseInt(secs, 10) || 0;
+    if (secs <= 0) return;
+    flashEnd = Date.now() + secs * 1000;
+    document.getElementById('flashUsd').textContent = usd;
+    document.getElementById('flashBar').classList.add('show');
+    tickFlash();
+    if (flashTimer) clearInterval(flashTimer);
+    flashTimer = setInterval(tickFlash, 1000);
+    if (popup === '1' || popup === 1){
+      document.getElementById('flashPopUsd').textContent = usd;
+      document.getElementById('flashOverlay').hidden = false;
+    }
+    requestAnimationFrame(function(){ requestAnimationFrame(fitWindow); });
+  }
+  function tickFlash(){
+    var left = Math.round((flashEnd - Date.now()) / 1000);
+    if (left <= 0){ endFlash(); return; }
+    var t = fmtDur(left);
+    document.getElementById('flashTime').textContent = t;
+    var pt = document.getElementById('flashPopTime'); if (pt) pt.textContent = t;
+  }
+  function endFlash(){
+    if (flashTimer){ clearInterval(flashTimer); flashTimer = null; }
+    var bar = document.getElementById('flashBar'); if (bar) bar.classList.remove('show');
+    closeFlash();
+    requestAnimationFrame(function(){ requestAnimationFrame(fitWindow); });
+  }
+  function closeFlash(){ var o = document.getElementById('flashOverlay'); if (o) o.hidden = true; }
+  function dismissFlash(){ send('ev|flash_dismiss|' + flashVariant); closeFlash(); }
+  /* Both CTAs (popup button + banner) = clicked through; log flash_cta then go STRAIGHT to
+     checkout (AHK opens /api/checkout?offer=<variant> so the coupon auto-applies -- no unlock
+     modal). 'flashclaim' -> OpenFlashCheckout in macro.ahk. */
+  function ctaFlash(){ send('ev|flash_cta|' + flashVariant); closeFlash(); send('flashclaim'); }
+  function barFlash(){ send('ev|flash_cta|' + flashVariant); send('flashclaim'); }
+
   /* Update banner: AHK sends "update|<version>" when a newer macro.ahk has shipped to
      `main` while this session is running. Show the red "restart to update" bar (once)
      and grow the window to fit it. */
@@ -2301,7 +2535,7 @@ HtmlTemplate() {
     var rest = (i < 0) ? ''   : data.substring(i + 1);
     if (type === 'status') { /* status line removed from UI */ }
     else if (type === 'state') setRunning(rest === '1');
-    else if (type === 'unlock') unlockPremium();
+    else if (type === 'unlock') { unlockPremium(); endFlash(); }  /* Pro now -> drop the flash deal */
     else if (type === 'licensemsg') setLicenseMsg(rest);
     else if (type === 'pastecode') {            /* AHK read the clipboard -> fill the code field */
       var inp = document.getElementById('codeInput');
@@ -2311,6 +2545,7 @@ HtmlTemplate() {
     else if (type === 'access') openAccess();   /* tried to Start a Pro-locked tab */
     else if (type === 'hint') { var hp = rest.split('|'); showHint(hp[0], hp[1]); }  /* post-run upsell */
     else if (type === 'discount') { var dp = rest.split('|'); showDiscount(dp[0], dp[1]); }   /* loyalty 50%-off code + milestone hours */
+    else if (type === 'flash') { var xp = rest.split('|'); showFlash(xp[0], xp[1], xp[2], xp[3]); }   /* 24h flash-deal countdown (variant|usd|secs|popup) */
     else if (type === 'update') showUpdate(rest);   /* newer build on `main` -> restart to update */
     else if (type === 'sourceask') openSourceAsk();     /* first-launch acquisition prompt (before promo) */
     else if (type === 'sourcedone') {                        /* settled: nothing more to ask */

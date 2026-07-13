@@ -210,6 +210,29 @@ export async function onRequestGet({ request, env }) {
       popupEvents = {};
     }
 
+    // Flash-deal A/B price test: per-variant funnel denominators from the events table.
+    // shown/clicked are DISTINCT installs (people), grouped by the price arm in meta.offer.
+    // The conversion numerator (paid subs) + net revenue per arm come from Stripe on the
+    // Money tab (per-promotion-code), matched to these variants on the dashboard.
+    let flash = { "1": { shown: 0, clicked: 0 }, "2": { shown: 0, clicked: 0 }, "3": { shown: 0, clicked: 0 } };
+    try {
+      const fr = await env.STATS.prepare(
+        `SELECT json_extract(meta, '$.offer') AS variant,
+                COUNT(DISTINCT CASE WHEN name = 'flash_shown' THEN device_id END) AS shown,
+                COUNT(DISTINCT CASE WHEN name = 'flash_cta'   THEN device_id END) AS clicked
+         FROM events
+         WHERE name IN ('flash_shown','flash_cta')
+           AND json_extract(meta, '$.offer') IN ('1','2','3')
+         GROUP BY variant`
+      ).all();
+      for (const r of fr?.results || []) {
+        const v = String(r.variant);
+        if (flash[v]) flash[v] = { shown: r.shown || 0, clicked: r.clicked || 0 };
+      }
+    } catch {
+      // events table / json_extract unavailable -> zeros (Money tab still shows conversions).
+    }
+
     // Make every registered creator code show up in Acquisition, even with zero installs.
     try {
       const present = new Set(acqPromos.map((r) => String(r.code).toUpperCase()));
@@ -241,6 +264,7 @@ export async function onRequestGet({ request, env }) {
       acqSources,
       acqPromos,
       popupEvents,
+      flash,
       at: now,
     });
   } catch (e) {

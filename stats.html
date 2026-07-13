@@ -93,6 +93,7 @@
   .chip.creator { background: var(--blue); }
   .chip.conversion { background: var(--purple); }
   .chip.loyalty { background: var(--amber); }
+  .chip.flash { background: #0891b2; }
   .chip.other { background: var(--muted); }
 
   .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 14px 0; }
@@ -220,6 +221,14 @@
             <th class="num">Net revenue</th><th class="num">Paid creator</th><th class="num">Owed</th>
           </tr></thead>
           <tbody id="m-codes"><tr><td colspan="8" class="muted">Loading…</td></tr></tbody>
+        </table></div>
+      </div>
+      <div class="section">
+        <h2>Flash deal — A/B discount test</h2>
+        <p class="hint">First-month discount test (24h-after-install countdown). Each install is randomly shown one discount. <b>Shown</b> = distinct installs shown the countdown · <b>Clicked</b> = clicked through · <b>Subscribed</b> = Stripe redemptions of that arm's code · <b>Conversion</b> = Subscribed ÷ Shown · <b>Rev / install</b> = net first-month revenue ÷ Shown. Pick the winner by <b>Rev / install</b> (profit), not conversion — the biggest discount usually converts best but earns least. Highlighted row = best $/install so far. Data appears once users update the macro.</p>
+        <div class="tblwrap"><table class="tbl">
+          <thead><tr><th>Discount</th><th class="num">Shown</th><th class="num">Clicked</th><th class="num">Subscribed</th><th class="num">Conversion</th><th class="num">Net revenue</th><th class="num">Rev / install</th></tr></thead>
+          <tbody id="m-flash"><tr><td colspan="7" class="muted">Loading…</td></tr></tbody>
         </table></div>
       </div>
       <div class="section">
@@ -603,6 +612,7 @@
     }
 
     renderPopups(m);
+    renderFlash(m);   // A/B price test: D1 shown/clicked + Stripe subs/revenue per arm
     renderFinances(); // revenue/creator come from money; refresh the P&L when money lands
 
     const stamp = m && m.at ? new Date(m.at).toLocaleTimeString() : new Date().toLocaleTimeString();
@@ -633,6 +643,52 @@
         '<td class="num muted">' + nf(noAction) + "</td>" +
         '<td class="num">' + (r.redeemed == null ? "—" : nf(r.redeemed)) + "</td>" +
         '<td class="num">' + conv + "</td></tr>";
+    }).join("");
+  }
+
+  // Flash-deal A/B discount test: Shown/Clicked (distinct installs) from D1 events
+  // (lastData.flash, keyed by variant), Subscribed + Net revenue from Stripe
+  // (money codes tagged purpose "flash", matched by variant). Winner is chosen by
+  // net revenue PER INSTALL — the profit-max metric — not raw conversion.
+  const FLASH_PCT = { 1: "75% off", 2: "65% off", 3: "50% off" };
+  function renderFlash(m) {
+    const cur = m && m.currency;
+    const flash = (lastData && lastData.flash) || {};
+    const codes = (m && m.codes) || [];
+    const byVariant = {};
+    for (const c of codes) if (c.purpose === "flash" && c.variant) byVariant[c.variant] = c;
+
+    const rows = [1, 2, 3].map((v) => {
+      const st = flash[v] || { shown: 0, clicked: 0 };
+      const code = byVariant[v];
+      const shown = st.shown || 0;
+      const subscribed = code ? (code.uses || 0) : null;
+      const netCents = code ? code.netSettledCents : null;
+      const revPer = shown > 0 && netCents != null ? Math.round(netCents / shown) : null;
+      const conv = shown > 0 && subscribed != null ? subscribed / shown : null;
+      // Prefer the real discount label from Stripe (coupon percent_off) when present.
+      const label = code && code.percentOff != null ? code.percentOff + "% off" : FLASH_PCT[v];
+      return { v, label, shown, clicked: st.clicked || 0, subscribed, netCents, revPer, conv };
+    });
+
+    if (!rows.some((r) => r.shown > 0 || r.subscribed)) {
+      $("m-flash").innerHTML = '<tr><td colspan="7" class="muted">No flash-deal activity yet — data appears once users update the macro and start seeing the countdown.</td></tr>';
+      return;
+    }
+    // Winner = highest net revenue per install (needs installs shown on that arm).
+    let bestRev = -1, winner = null;
+    for (const r of rows) if (r.revPer != null && r.shown > 0 && r.revPer > bestRev) { bestRev = r.revPer; winner = r.v; }
+
+    $("m-flash").innerHTML = rows.map((r) => {
+      const isWin = r.v === winner;
+      return "<tr" + (isWin ? ' class="total"' : "") + "><td>" + r.label + ' <span class="muted">first month</span>' +
+        (isWin ? ' <span class="chip flash">best $/install</span>' : "") + "</td>" +
+        '<td class="num">' + nf(r.shown) + "</td>" +
+        '<td class="num">' + nf(r.clicked) + "</td>" +
+        '<td class="num">' + (r.subscribed == null ? "—" : nf(r.subscribed)) + "</td>" +
+        '<td class="num">' + (r.conv == null ? "—" : (r.conv * 100).toFixed(1) + "%") + "</td>" +
+        '<td class="num">' + money(r.netCents, cur) + "</td>" +
+        '<td class="num">' + (r.revPer == null ? "—" : money(r.revPer, cur)) + "</td></tr>";
     }).join("");
   }
 

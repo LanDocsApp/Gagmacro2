@@ -28,6 +28,9 @@ const PING_EVENTS = new Set([
   "get_access",
   "hint_shown", "hint_copied", "hint_dismiss", "hint_cta",
   "loyalty_shown", "loyalty_copied", "loyalty_dismiss", "loyalty_cta",
+  // Flash-deal A/B price test popup. The heartbeat also carries a "var" field (the
+  // 1/2/3 price arm), stored in meta.offer so /stats can group the funnel by price.
+  "flash_shown", "flash_copied", "flash_dismiss", "flash_cta",
 ]);
 
 // A session is "still going" as long as pings keep arriving within this window.
@@ -42,6 +45,7 @@ export async function onRequestPost({ request, env, waitUntil }) {
   let promo = "";
   let src = "";
   let ev = "";
+  let variant = ""; // flash-deal A/B arm (1/2/3), only meaningful on flash_* events
   try {
     const body = await request.json();
     id = String((body && body.id) || "").trim().slice(0, 64);
@@ -54,6 +58,9 @@ export async function onRequestPost({ request, env, waitUntil }) {
     // Funnel event: a one-off signal the macro tags onto a heartbeat (not periodic).
     ev = String((body && body.ev) || "").trim().toLowerCase();
     if (!PING_EVENTS.has(ev)) ev = "";
+    // Flash-deal variant tag (1/2/3) — carried on flash_* events for the A/B breakdown.
+    variant = String((body && body.var) || "").trim();
+    if (!/^[123]$/.test(variant)) variant = "";
   } catch {
     id = "";
   }
@@ -93,9 +100,13 @@ export async function onRequestPost({ request, env, waitUntil }) {
       await recordSession(env, id, version, now);
 
       // Funnel event (e.g. "Get access" clicked). Best-effort; logEvent swallows a
-      // missing `events` table so this can never break the heartbeat.
+      // missing `events` table so this can never break the heartbeat. Flash events
+      // carry the A/B price arm in meta.offer so /stats can split the funnel by price.
       if (ev) {
-        await logEvent(env, ev, { deviceId: id, ts: now, meta: version ? { v: version } : null });
+        const meta = {};
+        if (version) meta.v = version;
+        if (variant) meta.offer = variant;
+        await logEvent(env, ev, { deviceId: id, ts: now, meta: Object.keys(meta).length ? meta : null });
       }
 
       if (dev && dev.is_new) {
