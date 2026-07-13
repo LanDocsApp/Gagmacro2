@@ -102,7 +102,7 @@ global InstallFile  := A_AppData "\GardenMacro\install.txt"  ; first-run stamp +
 ; Version shown in the window's bottom corner. Bump AppVersion on real releases;
 ; the build time is taken from this file's last-modified date, so it changes every
 ; time you save the script -> an easy "did my latest change actually load?" check.
-global AppVersion := "1.1.0"
+global AppVersion := "1.1.1"
 global BackendBase  := "https://gardenmacro.com"   ; subscription backend
 global VerifyUrl    := BackendBase "/api/desktop/verify"
 global PingUrl      := BackendBase "/api/ping"              ; anonymous usage stats
@@ -323,10 +323,12 @@ SetTimer(MaybeAskSource, -1800)
 ; and never blocks the UI meaningfully (small ranged fetch, short timeouts).
 SetTimer(StartUpdateChecks, -4000)
 
-; Flash deal: show the 24h countdown (banner + a one-time popup) shortly after launch,
-; once onboarding has had its turn. No-op if the user is Pro, holds a creator code, or
-; the 24h window has already elapsed (see MaybeShowFlashOffer / OfferActive).
-SetTimer(MaybeShowFlashOffer, -2600)
+; Flash deal: the 24h countdown (banner + one-time popup) is NOT shown on a timer -- a fixed
+; delay used to race the creator-code prompt (source prompt at 1.8s, this at 2.6s) and show the
+; deal to code holders before they'd finished entering their code. Instead it's triggered once
+; onboarding has FULLY settled and a creator code is therefore known, from SkipPromo /
+; ContinueToPromo (ApplyPromo needs no trigger -- an applied code always suppresses the deal).
+; Still a no-op if the user is Pro, holds a creator code, or the window elapsed (see OfferActive).
 
 ; ============================================================
 ;  UI  (WebView2 window + HTML/CSS/JS)
@@ -878,6 +880,8 @@ OfferActive() {
 ; Show the flash-deal countdown: always the persistent banner, plus a one-time modal
 ; popup on launches where onboarding isn't running (so it never pops under a full-window
 ; wall). Fires the flash_shown funnel impression once per session, tagged with the arm.
+; Called once onboarding has settled (SkipPromo / ContinueToPromo), NOT on a timer, so the
+; creator code is already known -- OfferActive() then reliably suppresses it for code holders.
 MaybeShowFlashOffer() {
     global OfferVariant, OfferUsd, OfferShownSession, WillOnboard, MainGui
     if (OfferShownSession || !OfferActive())
@@ -1169,6 +1173,7 @@ SkipPromo() {
     PromoCode  := ""
     PromoPct   := 0
     SavePromo()
+    MaybeShowFlashOffer()   ; onboarding settled with no creator code -> now safe to show the flash
 }
 
 ; Load the saved promo state. File format: "<asked 0|1>|<CODE>". Missing -> not asked.
@@ -1251,8 +1256,10 @@ ContinueToPromo() {
     ; The promo-suppression guard lives solely in MaybeAskPromo. If it opens the promo
     ; wall, that wall replaces the source wall (openPromoAsk closes ours -> no flash);
     ; if it suppresses the prompt (already asked / Pro), close our wall to reveal the app.
-    if !MaybeAskPromo()
+    if !MaybeAskPromo() {
         Post("sourcedone")
+        MaybeShowFlashOffer()   ; onboarding settled with no code prompt -> now safe to show the flash
+    }
 }
 
 ; Load the saved source state. File format: "<asked 0|1>|<key>". Missing -> not asked.
