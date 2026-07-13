@@ -191,6 +191,18 @@ a { color: inherit; text-decoration: none; }
 .ahk-actions { display: flex; gap: 10px; flex-wrap: wrap; }
 .ahk-actions .lp-btn { flex: 1 1 auto; }
 
+/* Setup-guide video card inside the install prompt */
+.ahk-guide { display: flex; align-items: center; gap: 13px; margin: 0 0 20px; padding: 10px; border: 1px solid var(--border); border-radius: 12px; text-decoration: none; background: #fff; transition: border-color .18s, background .18s, box-shadow .18s; }
+.ahk-guide:hover { border-color: var(--fp-accent); background: color-mix(in srgb, var(--fp-accent) 5%, #fff); box-shadow: 0 6px 18px rgba(10,20,40,0.07); }
+.ahk-guide-thumb { position: relative; flex-shrink: 0; width: 128px; aspect-ratio: 16 / 9; border-radius: 8px; overflow: hidden; background: #000; }
+.ahk-guide-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ahk-guide-play { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 34px; height: 34px; border-radius: 50%; background: rgba(0,0,0,0.62); display: grid; place-items: center; transition: background .18s, transform .18s; }
+.ahk-guide:hover .ahk-guide-play { background: var(--fp-accent); transform: translate(-50%, -50%) scale(1.08); }
+.ahk-guide-play svg { margin-left: 2px; }
+.ahk-guide-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ahk-guide-title { font-size: 14.5px; font-weight: 700; color: var(--ink); }
+.ahk-guide-sub { font-size: 12.5px; color: var(--fg-3); line-height: 1.4; }
+
 /* ═══════════════════════════ HERO ═════════════════════════════ */
 .hero { position: relative; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 84px 32px 28px; }
 .fp-net { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
@@ -607,6 +619,18 @@ html { scroll-behavior: smooth; }
       <li>We'll download <code>GardenMacro.ahk</code>, then double-click it in your Downloads.</li>
       <li>Pick your seeds and hit <strong>Start</strong>.</li>
     </ol>
+    <a class="ahk-guide" href="https://www.youtube.com/watch?v=2-K89sp8H4o" target="_blank" rel="noopener">
+      <span class="ahk-guide-thumb">
+        <img src="https://img.youtube.com/vi/2-K89sp8H4o/hqdefault.jpg" alt="Garden Macro setup guide video" loading="lazy" width="128" height="72">
+        <span class="ahk-guide-play" aria-hidden="true">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="#fff"><path d="M5 3.4v9.2l7-4.6z"/></svg>
+        </span>
+      </span>
+      <span class="ahk-guide-meta">
+        <span class="ahk-guide-title">Setup guide</span>
+        <span class="ahk-guide-sub">Watch the quick video walkthrough →</span>
+      </span>
+    </a>
     <div class="ahk-actions">
       <a class="lp-btn lp-btn-accent lp-btn-lg" href="https://www.autohotkey.com/" target="_blank" rel="noopener" data-ahk-install>Install AutoHotkey v2</a>
       <button class="lp-btn lp-btn-outline lp-btn-lg" type="button" data-ahk-have>I already have it</button>
