@@ -1819,7 +1819,7 @@ HtmlTemplate() {
      ticks the timer down itself and hides the bar at zero. Clicking it opens checkout. */
   .flashbar{display:none;align-items:center;gap:12px;
        background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:8px 10px 8px 13px;margin-bottom:12px}
-  .flashbar.show{display:flex}
+  .flashbar.show{display:flex;animation:flashDrop .32s ease-out both}
   .flashbar .fbinfo{display:flex;flex-direction:column;line-height:1.25;min-width:0}
   .flashbar .fblabel{font-size:10px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:#b91c1c}
   .flashbar .fbmain{font-size:12.5px;color:#444}
@@ -1917,6 +1917,16 @@ HtmlTemplate() {
   .flashtimer{font-family:'Consolas','JetBrains Mono',monospace;font-size:40px;font-weight:800;color:#dc2626;
         background:#fef2f2;border:1.5px solid #fecaca;border-radius:10px;padding:12px 8px;margin:0 0 16px;letter-spacing:1px}
   .btn.red{background:#dc2626;color:#fff;border-color:#dc2626}
+  /* Flash entrance: ease the backdrop, modal, and banner in so nothing snaps in abruptly
+     ~3s after launch. The old instant reveal (flashOverlay.hidden=false) read as a jump-scare.
+     Scoped to #flashOverlay so the onboarding walls' in-place swap logic is untouched. */
+  @keyframes flashFade{from{opacity:0}to{opacity:1}}
+  @keyframes flashPop{from{opacity:0;transform:translateY(10px) scale(.94)}to{opacity:1;transform:none}}
+  @keyframes flashDrop{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}
+  #flashOverlay:not([hidden]){animation:flashFade .3s ease-out both}
+  #flashOverlay .modal{animation:flashPop .4s cubic-bezier(.2,.85,.25,1) both}
+  @media (prefers-reduced-motion:reduce){
+    #flashOverlay:not([hidden]),#flashOverlay .modal,.flashbar.show{animation-duration:.01ms}}
   .btn.red:hover{background:#b91c1c;border-color:#b91c1c}
   /* Promo-code corner badge: "USE CODE LION FOR 20% OFF" (only if a code was entered) */
   .promobadge{position:fixed;top:13px;right:14px;z-index:40;cursor:pointer;
@@ -2364,11 +2374,14 @@ HtmlTemplate() {
   }
   function closeFlash(){ var o = document.getElementById('flashOverlay'); if (o) o.hidden = true; }
   function dismissFlash(){ send('ev|flash_dismiss|' + flashVariant); closeFlash(); }
-  /* Both CTAs (popup button + banner) = clicked through; log flash_cta then go STRAIGHT to
-     checkout (AHK opens /api/checkout?offer=<variant> so the coupon auto-applies -- no unlock
-     modal). 'flashclaim' -> OpenFlashCheckout in macro.ahk. */
-  function ctaFlash(){ send('ev|flash_cta|' + flashVariant); closeFlash(); send('flashclaim'); }
-  function barFlash(){ send('ev|flash_cta|' + flashVariant); send('flashclaim'); }
+  /* Both CTAs (popup button + banner) = clicked through: log flash_cta, then pop the access
+     box open so the paste-code field is already waiting when the user returns from Stripe with
+     the code /api/success hands them, and finally redirect to checkout ('flashclaim' ->
+     OpenFlashCheckout, which opens /api/checkout?offer=<variant> and minimizes the window).
+     The box is SUPPRESSED for creator-code holders (PROMO set) -- their discount doesn't stack
+     so they never see the flash anyway (see OfferActive), but guard it here too to be sure. */
+  function ctaFlash(){ send('ev|flash_cta|' + flashVariant); closeFlash(); if (!PROMO) openAccess(); send('flashclaim'); }
+  function barFlash(){ send('ev|flash_cta|' + flashVariant); if (!PROMO) openAccess(); send('flashclaim'); }
 
   /* Update banner: AHK sends "update|<version>" when a newer macro.ahk has shipped to
      `main` while this session is running. Show the red "restart to update" bar (once)
