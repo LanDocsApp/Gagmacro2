@@ -221,8 +221,10 @@ global Seeds := [
     {name: "Poison Apple",    rarity: "Mythic"},
     {name: "Venom Spitter",   rarity: "Mythic"},
     {name: "Moon Bloom",      rarity: "Super"},
+    {name: "Sun Bloom",       rarity: "Super"},
     {name: "Hypno Bloom",     rarity: "Super"},
-    {name: "Dragon's Breath", rarity: "Super"}
+    {name: "Dragon's Breath", rarity: "Super"},
+    {name: "Star Fruit",      rarity: "Super"}
 ]
 
 ; --- Gear list in the SAME top-to-bottom order as the in-game GEAR SHOP ---
