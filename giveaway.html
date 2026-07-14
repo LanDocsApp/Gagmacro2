@@ -38,10 +38,11 @@
     body {
       font-family: var(--font-sans); color: var(--fg); background: var(--bg-soft);
       line-height: 1.5; min-height: 100vh; padding: 28px 20px 56px;
+      display: flex; flex-direction: column;
       -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
     }
     a { color: inherit; }
-    .wrap { max-width: 620px; margin: 0 auto; }
+    .wrap { max-width: 620px; width: 100%; margin: 0 auto; }
 
     /* Header */
     .top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
@@ -70,7 +71,7 @@
                  filter: drop-shadow(0 14px 26px rgba(0,0,0,0.18)); }
     /* Custom image (with its own background): no glow, no shadow — render flat and large,
        at its natural aspect ratio (not squeezed into the 248px seed box). */
-    .seed.seed-plain { height: auto; margin: 16px 0 4px; }
+    .seed.seed-plain { height: auto; margin: 16px 0 34px; }
     .seed.seed-plain img { filter: none; width: 100%; max-width: 540px; height: auto; }
 
     .prize-title { font-size: 30px; font-weight: 800; letter-spacing: -0.025em; color: var(--ink); margin-top: 8px; line-height: 1.1; }
@@ -160,7 +161,7 @@
     .confirm .tick { width: 56px; height: 56px; margin: 0 auto 16px; border-radius: 50%; background: var(--accent-soft); border: 1px solid var(--accent-line); display: grid; place-items: center; }
     .confirm .tick svg { width: 30px; height: 30px; stroke: var(--accent); }
 
-    .foot { text-align: center; margin-top: 40px; font-size: 12px; color: var(--fg-4); line-height: 1.7; }
+    .foot { text-align: center; margin-top: auto; padding-top: 40px; font-size: 12px; color: var(--fg-4); line-height: 1.7; }
     .foot a { color: var(--fg-3); text-decoration: underline; }
     .rules { font-size: 11.5px; color: var(--fg-4); }
 
@@ -198,12 +199,12 @@
     <div id="app">
       <div class="skeleton">Loading giveaway...</div>
     </div>
-
-    <p class="foot">
-      <span class="rules" id="rulesLine">One entry per Google account. The winner is drawn at random, weighted by entries, and contacted by email.</span><br>
-      Not affiliated with Roblox or YouTube. Need help? <a href="mailto:janmarko659@gmail.com">janmarko659@gmail.com</a>
-    </p>
   </div>
+
+  <p class="foot">
+    <span class="rules" id="rulesLine">One entry per Google account. The winner is drawn at random, weighted by entries, and contacted by email.</span><br>
+    Not affiliated with Roblox or YouTube. Need help? <a href="mailto:janmarko659@gmail.com">janmarko659@gmail.com</a>
+  </p>
 
   <!-- Entry wizard modal (hidden until "Enter giveaway" is pressed) -->
   <div class="overlay" id="overlay" hidden>
