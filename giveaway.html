@@ -136,6 +136,9 @@
     }
     input[type=text]::placeholder { letter-spacing: normal; text-transform: none; font-weight: 500; color: var(--fg-4); }
     input[type=text]:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    /* Username field: a normal name, not a code — plain sans, no uppercasing/spacing. */
+    input[type=text].input-plain { font-family: var(--font-sans); font-weight: 500; letter-spacing: normal; text-transform: none; }
+    input[type=text].input-plain::placeholder { font-weight: 500; }
 
     .err { background: var(--err-bg); color: var(--err-fg); border: 1px solid var(--err-line); border-radius: 9px; padding: 9px 12px; font-size: 13px; margin-top: 10px; }
 
@@ -223,9 +226,12 @@
     var wizScreen = "subscribe";
     var subClicked = false;   // the Subscribe link was actually pressed (mandatory)
     var subChecked = false;   // the "I subscribed" box is ticked (mandatory)
+    var gagUsername = "";     // Grow a Garden (Roblox) username, for prize delivery (mandatory)
     var wantBonus = null;     // answer to "want 2 more entries?"
     var macroCode = "";       // validated macro code (empty if none)
     var codeValidated = false;
+
+    function validUsername(u) { return /^[A-Za-z0-9_]{3,20}$/.test(String(u || "").trim()); }
 
     function esc(s) {
       return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
@@ -315,6 +321,7 @@
         // Fresh run through the steps.
         wizScreen = "subscribe";
         subClicked = false; subChecked = false;
+        gagUsername = me.username || "";
         wantBonus = null; macroCode = ""; codeValidated = false;
       }
       overlay.hidden = false;
@@ -369,6 +376,7 @@
 
       // Live entry wizard.
       if (wizScreen === "subscribe") return screenSubscribe(g);
+      if (wizScreen === "username")  return screenUsername(g);
       if (wizScreen === "bonus")     return screenBonus(g);
       if (wizScreen === "code")      return screenCode(g);
       return screenPro(g, me);
@@ -394,10 +402,26 @@
       return "";
     }
 
-    // Step 2 -- offer 2 more entries.
-    function screenBonus(g) {
+    // Step 2 -- Grow a Garden username (mandatory: this is where the prize is delivered).
+    function screenUsername(g) {
+      var canGo = validUsername(gagUsername);
       return backBtn() +
         '<div class="wz-eyebrow">Step 2</div>' +
+        '<div class="wz-title">Your Grow a Garden username</div>' +
+        '<div class="wz-text">Enter your Roblox username so we can deliver the ' + esc(g.title) +
+          ' straight into your account if you win. Type it exactly as it appears in game.</div>' +
+        '<input type="text" id="userInput" class="input-plain mt14" maxlength="20" placeholder="Roblox username" ' +
+          'spellcheck="false" autocomplete="off" autocapitalize="off" value="' + esc(gagUsername) + '">' +
+        '<div id="userMsg"></div>' +
+        '<div class="wz-actions"><button class="btn primary block' + (canGo ? "" : " disabled") + '" id="userContinue"' +
+          (canGo ? "" : " disabled") + '>Continue</button></div>' +
+        '<div class="wz-hint" id="userHint">' + (canGo ? "" : "Enter your exact Roblox username to continue.") + '</div>';
+    }
+
+    // Step 3 -- offer 2 more entries.
+    function screenBonus(g) {
+      return backBtn() +
+        '<div class="wz-eyebrow">Step 3</div>' +
         '<div class="wz-title">Want 2 more entries?</div>' +
         '<div class="wz-text">Enter the free macro code to add 2 extra entries to this giveaway.</div>' +
         '<div class="wz-actions">' +
@@ -406,10 +430,10 @@
         '</div>';
     }
 
-    // Step 2b -- enter + validate the macro code.
+    // Step 3b -- enter + validate the macro code.
     function screenCode(g) {
       return backBtn() +
-        '<div class="wz-eyebrow">Step 2</div>' +
+        '<div class="wz-eyebrow">Step 3</div>' +
         '<div class="wz-title">Enter the macro code</div>' +
         '<div class="wz-text">Open the macro and copy the code from the bottom corner of the window. ' +
           'Do not have the macro yet? <a class="lnk" href="/launcher.ahk" download>Download it free</a>.</div>' +
@@ -454,7 +478,9 @@
       var out = '<div class="confirm">' + tickSvg() +
         '<div class="wz-title" style="text-align:center">You are entered</div>' +
         '<div class="wz-text" style="text-align:center">You are in with ' + me.weight + (me.weight === 1 ? " entry" : " entries") +
-        '. We will email ' + esc(me.email) + ' if you win.</div></div>';
+        '. We will email ' + esc(me.email) + ' if you win' +
+        (me.username ? ' and deliver the prize to Roblox user <b>' + esc(me.username) + '</b>' : '') +
+        '.</div></div>';
       if (!me.isPro) {
         out += '<div class="wz-text" style="margin-top:20px">Want the best odds? Garden Macro Pro gives you ' + g.weights.pro + ' entries.</div>' +
           promoCodeChip() +
@@ -500,6 +526,24 @@
       var subContinue = el("subContinue");
       if (subContinue) subContinue.onclick = function () {
         if (!(subClicked && subChecked)) return;
+        navTo("username");
+      };
+
+      var userInput = el("userInput");
+      if (userInput) {
+        userInput.oninput = function () {
+          gagUsername = userInput.value;
+          var b = el("userContinue"), ok = validUsername(gagUsername);
+          if (b) { b.disabled = !ok; b.classList.toggle("disabled", !ok); }
+          var h = el("userHint"); if (h) h.textContent = ok ? "" : "Enter your exact Roblox username to continue.";
+        };
+        userInput.onkeydown = function (e) { if (e.key === "Enter") { var b = el("userContinue"); if (b && !b.disabled) b.click(); } };
+      }
+      var userContinue = el("userContinue");
+      if (userContinue) userContinue.onclick = function () {
+        if (userContinue.disabled) return;
+        gagUsername = (userInput ? userInput.value : gagUsername).trim();
+        if (!validUsername(gagUsername)) return;
         navTo(me.isPro ? "pro" : "bonus");
       };
 
@@ -546,9 +590,10 @@
 
     function goBack() {
       var me = state.me || {};
-      if (wizScreen === "bonus") navTo("subscribe");
+      if (wizScreen === "username") navTo("subscribe");
+      else if (wizScreen === "bonus") navTo("username");
       else if (wizScreen === "code") navTo("bonus");
-      else if (wizScreen === "pro") navTo(me.isPro ? "subscribe" : (codeValidated ? "code" : "bonus"));
+      else if (wizScreen === "pro") navTo(me.isPro ? "username" : (codeValidated ? "code" : "bonus"));
     }
 
     function validateCode() {
@@ -577,7 +622,7 @@
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ g: state.id, subscribed: true, code: codeValidated ? macroCode : "" })
+        body: JSON.stringify({ g: state.id, subscribed: true, username: gagUsername, code: codeValidated ? macroCode : "" })
       })
         .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, status: r.status, d: d }; }); })
         .then(function (res) {
@@ -601,6 +646,7 @@
       var msgs = {
         badcode: "That macro code is invalid. Check the bottom corner of the macro.",
         subscribe: "Please confirm you subscribed to White Lion first.",
+        username: "Please go back and enter your Grow a Garden username.",
         ended: "This giveaway has ended.",
         no_giveaway: "This giveaway could not be found.",
         network: "Network error, please try again."

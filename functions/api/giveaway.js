@@ -61,7 +61,7 @@ export async function onRequestGet({ request, env }) {
     if (env.STATS) {
       try {
         entry = await env.STATS.prepare(
-          `SELECT weight, has_macro, subscribed FROM giveaway_entries
+          `SELECT weight, has_macro, subscribed, username FROM giveaway_entries
            WHERE giveaway_id = ?1 AND google_sub = ?2`
         )
           .bind(g.id, session.sub)
@@ -92,6 +92,7 @@ export async function onRequestGet({ request, env }) {
       entered: !!entry,
       hasMacro: entry ? !!entry.has_macro : false,
       weight: entry ? entry.weight : 0,
+      username: entry ? entry.username || "" : "",
       won,
     };
   }

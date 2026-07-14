@@ -109,7 +109,7 @@
         <div id="winnerBox"></div>
         <div class="actions" id="actions"></div>
         <div class="tablewrap"><table id="tbl"><thead><tr>
-          <th>#</th><th>Name</th><th>Email</th><th>Tickets</th><th>Tier</th><th>Entered</th><th></th>
+          <th>#</th><th>Name</th><th>Roblox username</th><th>Email</th><th>Tickets</th><th>Tier</th><th>Entered</th><th></th>
         </tr></thead><tbody id="tbody"></tbody></table></div>
         <p class="sub" style="margin-top:12px">
           Tip: “Draw winner” picks one at random weighted by tickets. You can also pick any entrant manually with “Set”.
@@ -179,7 +179,7 @@
       // Entries table.
       var rows = data.entries || [];
       if (!rows.length) {
-        $("tbody").innerHTML = '<tr><td colspan="7"><div class="empty">No entries yet.</div></td></tr>';
+        $("tbody").innerHTML = '<tr><td colspan="8"><div class="empty">No entries yet.</div></td></tr>';
         return;
       }
       var winSub = data.winner ? data.winner.sub : null;
@@ -189,6 +189,7 @@
         return '<tr>' +
           '<td>' + (i + 1) + '</td>' +
           '<td>' + (esc(e.name) || '<span style="color:var(--fg-4)">—</span>') + (isWin ? ' <span class="pill win">winner</span>' : '') + '</td>' +
+          '<td class="email">' + (e.username ? esc(e.username) : '<span style="color:var(--fg-4)">—</span>') + '</td>' +
           '<td class="email">' + (e.email ? '<a href="' + mailto(e) + '">' + esc(e.email) + '</a>' : '<span style="color:var(--fg-4)">—</span>') + '</td>' +
           '<td class="w">' + e.weight + '</td>' +
           '<td>' + tier + '</td>' +
@@ -207,6 +208,7 @@
       return '<div class="winner"><div class="row"><div>' +
         '<div class="h">Drawn winner · ' + fmtDate(w.drawnAt) + '</div>' +
         '<div class="name">' + (esc(w.name) || "(no name)") + (w.weight ? ' · ' + w.weight + ' tickets' : '') + '</div>' +
+        '<div class="email">Deliver to Roblox user: <b>' + (w.username ? esc(w.username) : "(none provided)") + '</b></div>' +
         '<div class="email">' + (w.email ? '<a href="' + mailto(w) + '">' + esc(w.email) + '</a>' : "(no email on file)") + '</div>' +
         '</div>' +
         (w.email ? '<a class="btn ink sm" href="' + mailto(w) + '">Email winner →</a>' : '') +
@@ -216,7 +218,9 @@
     function mailto(x) {
       var g = data && data.giveaway ? data.giveaway.title : "the giveaway";
       var subj = "You won: " + g + "!";
-      var body = "Hi" + (x.name ? " " + x.name : "") + ",\n\nCongratulations — you won " + g + " in the Garden Macro giveaway!\n\nReply here and we'll arrange your prize. (Make sure you're still subscribed to White Lion on YouTube.)\n\nThanks for entering!";
+      var body = "Hi" + (x.name ? " " + x.name : "") + ",\n\nCongratulations — you won " + g + " in the Garden Macro giveaway!\n\n" +
+        (x.username ? "We'll deliver your prize in Grow a Garden to Roblox user: " + x.username + ". Reply to confirm this username is correct" : "Reply here") +
+        " and we'll arrange your prize. (Make sure you're still subscribed to White Lion on YouTube.)\n\nThanks for entering!";
       return "mailto:" + encodeURIComponent(x.email) + "?subject=" + encodeURIComponent(subj) + "&body=" + encodeURIComponent(body);
     }
 

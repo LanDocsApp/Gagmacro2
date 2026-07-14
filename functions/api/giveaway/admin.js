@@ -15,7 +15,7 @@ import { getGiveaway, listGiveaways } from "../../_lib/giveaways.js";
 // Read every entry for a giveaway with the fields the owner needs to pick + contact.
 async function loadEntries(env, gid) {
   const rows = await env.STATS.prepare(
-    `SELECT google_sub, email, name, weight, has_macro, is_pro, created_at, updated_at
+    `SELECT google_sub, email, name, username, weight, has_macro, is_pro, created_at, updated_at
      FROM giveaway_entries WHERE giveaway_id = ?1 ORDER BY created_at ASC`
   )
     .bind(gid)
@@ -24,6 +24,7 @@ async function loadEntries(env, gid) {
     sub: r.google_sub,
     email: r.email || "",
     name: r.name || "",
+    username: r.username || "",
     weight: r.weight || 1,
     hasMacro: !!r.has_macro,
     isPro: !!r.is_pro,
@@ -35,12 +36,12 @@ async function loadEntries(env, gid) {
 async function loadWinner(env, gid) {
   try {
     const w = await env.STATS.prepare(
-      `SELECT google_sub, email, name, weight, drawn_at FROM giveaway_winners WHERE giveaway_id = ?1`
+      `SELECT google_sub, email, name, username, weight, drawn_at FROM giveaway_winners WHERE giveaway_id = ?1`
     )
       .bind(gid)
       .first();
     if (!w || !w.google_sub) return null;
-    return { sub: w.google_sub, email: w.email || "", name: w.name || "", weight: w.weight || null, drawnAt: w.drawn_at };
+    return { sub: w.google_sub, email: w.email || "", name: w.name || "", username: w.username || "", weight: w.weight || null, drawnAt: w.drawn_at };
   } catch {
     return null;
   }
@@ -115,12 +116,12 @@ function weightedPick(entries) {
 
 async function saveWinner(env, gid, entry) {
   await env.STATS.prepare(
-    `INSERT INTO giveaway_winners (giveaway_id, google_sub, email, name, weight, drawn_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+    `INSERT INTO giveaway_winners (giveaway_id, google_sub, email, name, username, weight, drawn_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
      ON CONFLICT(giveaway_id) DO UPDATE SET
-       google_sub = ?2, email = ?3, name = ?4, weight = ?5, drawn_at = ?6`
+       google_sub = ?2, email = ?3, name = ?4, username = ?5, weight = ?6, drawn_at = ?7`
   )
-    .bind(gid, entry.sub, entry.email || null, entry.name || null, entry.weight || null, Date.now())
+    .bind(gid, entry.sub, entry.email || null, entry.name || null, entry.username || null, entry.weight || null, Date.now())
     .run();
 }
 

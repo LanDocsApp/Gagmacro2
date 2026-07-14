@@ -1,10 +1,11 @@
 // POST /api/giveaway/enter — enter (or update) the signed-in account's giveaway entry.
 //
-// Body: { g: "<giveaway id>", subscribed: true, code?: "<macro code>" }
+// Body: { g: "<giveaway id>", subscribed: true, username: "<roblox name>", code?: "<macro code>" }
 //
 // Rules:
 //   - Must be signed in (Google session)         -> 1 entry per account (anti-cheat).
 //   - Honor gate: `subscribed` must be true       -> the White Lion subscribe was confirmed.
+//   - `username` is required                       -> the Roblox/Grow a Garden name we deliver the prize to.
 //   - `code` matching the macro code adds tickets  -> proves they have the free macro (+2).
 //   - Pro is detected from the Google account (resolveActive) — no code to paste for Pro (10 tickets).
 //
@@ -35,6 +36,11 @@ export async function onRequestPost({ request, env }) {
   // Honor-system subscribe gate — the page won't let them click Enter without ticking it,
   // but enforce server-side too.
   if (body.subscribed !== true) return json({ error: "subscribe" }, 400);
+
+  // Grow a Garden (Roblox) username — required, this is where the prize is delivered.
+  // Roblox names are 3-20 chars of letters/numbers/underscore. Enforce server-side too.
+  const username = String(body.username || "").trim();
+  if (!/^[A-Za-z0-9_]{3,20}$/.test(username)) return json({ error: "username" }, 400);
 
   // Macro code (optional). Wrong-but-provided is a soft error so the page can nudge them;
   // an empty code is fine (they just enter at the base weight).
@@ -68,22 +74,24 @@ export async function onRequestPost({ request, env }) {
   try {
     await env.STATS.prepare(
       `INSERT INTO giveaway_entries
-         (giveaway_id, google_sub, email, name, weight, has_macro, is_pro, subscribed, created_at, updated_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, ?8, ?8)
+         (giveaway_id, google_sub, email, name, username, weight, has_macro, is_pro, subscribed, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1, ?9, ?9)
        ON CONFLICT(giveaway_id, google_sub) DO UPDATE SET
          email      = ?3,
          name       = ?4,
-         weight     = ?5,
-         has_macro  = ?6,
-         is_pro     = ?7,
+         username   = ?5,
+         weight     = ?6,
+         has_macro  = ?7,
+         is_pro     = ?8,
          subscribed = 1,
-         updated_at = ?8`
+         updated_at = ?9`
     )
       .bind(
         g.id,
         session.sub,
         session.email || null,
         session.name || null,
+        username,
         weight,
         hasMacro ? 1 : 0,
         isPro ? 1 : 0,

@@ -36,18 +36,18 @@ export function computeWeight({ hasMacro, isPro }) {
 // that the countdown targets. The `image` is optional (a data: URI or same-origin path);
 // the page renders a clean placeholder when it's absent, so it's safe to leave visuals for later.
 export const GIVEAWAYS = {
-  venusflytrap: {
-    id: "venusflytrap",
-    title: "Venus Fly Trap Seed",
-    tagline: "One lucky winner gets a Venus Fly Trap Seed",
-    prize: "1x Venus Fly Trap Seed, delivered straight into your Grow a Garden account.",
-    endsAt: "2026-07-28T18:00:00Z",
-    image: "/VenusFlyTrapSeed.webp",
+  moonbloom: {
+    id: "moonbloom",
+    title: "10x Moon Bloom Seed",
+    tagline: "One lucky winner gets 10x Moon Bloom Seed",
+    prize: "10x Moon Bloom Seed, delivered straight into your Grow a Garden account.",
+    endsAt: "2026-07-19T18:00:00Z",
+    image: "/MoonBloomSeed.webp",
   },
 };
 
 // The giveaway the public page shows when no ?g= is given.
-export const DEFAULT_GIVEAWAY = "venusflytrap";
+export const DEFAULT_GIVEAWAY = "moonbloom";
 
 // Return a giveaway (defaulted) with parsed timing fields, or null if the registry is empty.
 export function getGiveaway(id) {
