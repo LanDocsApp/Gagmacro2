@@ -7,6 +7,22 @@
   <link rel="apple-touch-icon" href="/favicon.svg" />
   <title>Giveaway - Garden Macro</title>
   <meta name="description" content="Win free Grow a Garden seeds. Sign in, subscribe to White Lion, and enter." />
+
+  <!-- Social share preview (Open Graph + Twitter). Static because giveaway.html serves one
+       giveaway at a time; update the title/description/image if you swap the prize. -->
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Garden Macro" />
+  <meta property="og:title" content="Win 10x Moon Bloom Seeds" />
+  <meta property="og:description" content="Enter the giveaway and have a chance to win 10x Moon Bloom Seeds in Grow a Garden. Free to enter." />
+  <meta property="og:url" content="https://gardenmacro.com/giveaway" />
+  <meta property="og:image" content="https://gardenmacro.com/og-giveaway.png?v=1" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Win 10x Moon Bloom Seeds" />
+  <meta name="twitter:description" content="Enter the giveaway and have a chance to win 10x Moon Bloom Seeds in Grow a Garden. Free to enter." />
+  <meta name="twitter:image" content="https://gardenmacro.com/og-giveaway.png?v=1" />
+
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
@@ -69,7 +85,7 @@
                  filter: blur(20px); }
     .seed img, .seed .seed-svg { position: relative; z-index: 1; width: 248px; height: 248px; object-fit: contain;
                  filter: drop-shadow(0 14px 26px rgba(0,0,0,0.18)); }
-    /* Custom image (with its own background): no glow, no shadow — render flat and large,
+    /* Custom image (with its own background): no glow, no shadow, render flat and large,
        at its natural aspect ratio (not squeezed into the 248px seed box). */
     .seed.seed-plain { height: auto; margin: 16px 0 34px; }
     .seed.seed-plain img { filter: none; width: 100%; max-width: 540px; height: auto; }
@@ -77,6 +93,9 @@
     .prize-title { font-size: 30px; font-weight: 800; letter-spacing: -0.025em; color: var(--ink); margin-top: 8px; line-height: 1.1; }
     .prize-sub { font-size: 14.5px; color: var(--fg-2); margin: 8px auto 0; max-width: 440px; }
     .enter-cta { margin-top: 28px; }
+    /* Quiet social-proof line under the CTA. Static text, no dots, no animation. */
+    .entrants { margin-top: 16px; font-size: 13px; font-weight: 500; color: var(--fg-3); }
+    .entrants b { font-weight: 700; color: var(--fg-2); font-variant-numeric: tabular-nums; }
 
     /* ---- Buttons ---- */
     .btn {
@@ -141,7 +160,7 @@
     }
     input[type=text]::placeholder { letter-spacing: normal; text-transform: none; font-weight: 500; color: var(--fg-4); }
     input[type=text]:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-    /* Username field: a normal name, not a code — plain sans, no uppercasing/spacing. */
+    /* Username field: a normal name, not a code, so plain sans, no uppercasing/spacing. */
     input[type=text].input-plain { font-family: var(--font-sans); font-weight: 500; letter-spacing: normal; text-transform: none; }
     input[type=text].input-plain::placeholder { font-weight: 500; }
 
@@ -283,6 +302,7 @@
       if (!(g.ended && !g.winnerDrawn)) {
         html += '<div class="enter-cta"><button class="btn primary big" id="openEntry">' + label + '</button></div>';
       }
+      html += entrantsLine(g);
       html += '</div>';
 
       app.innerHTML = html;
@@ -294,6 +314,17 @@
 
     function unit(id, label) {
       return '<div class="u"><div class="n" id="' + id + '">00</div><div class="l">' + label + '</div></div>';
+    }
+
+    // Quiet count of how many have entered (uses g.entrants from /api/giveaway). Hidden once
+    // the giveaway is over. Reads "Be the first to enter" while empty so the line is never blank.
+    function entrantsLine(g) {
+      if (g.ended || g.winnerDrawn) return "";
+      var n = g.entrants || 0;
+      var txt = n <= 0
+        ? "Be the first to enter"
+        : "<b>" + n + "</b> " + (n === 1 ? "person has" : "people have") + " entered";
+      return '<div class="entrants">' + txt + "</div>";
     }
 
     function seedHtml(g) {
