@@ -103,6 +103,10 @@ global InstallFile  := A_AppData "\GardenMacro\install.txt"  ; first-run stamp +
 ; the build time is taken from this file's last-modified date, so it changes every
 ; time you save the script -> an easy "did my latest change actually load?" check.
 global AppVersion := "1.1.1"
+; Giveaway code shown under the version line in the footer. Players type this on the
+; giveaway page (gardenmacro.com/giveaway) to prove they have the macro -> +2 entries.
+; A single shared code by design; keep it in sync with functions/_lib/giveaways.js MACRO_CODE.
+global GiveawayCode := "3QIHX"
 global BackendBase  := "https://gardenmacro.com"   ; subscription backend
 global VerifyUrl    := BackendBase "/api/desktop/verify"
 global PingUrl      := BackendBase "/api/ping"              ; anonymous usage stats
@@ -335,7 +339,7 @@ SetTimer(StartUpdateChecks, -4000)
 ; ============================================================
 BuildUi() {
     global MainGui, controller, wv, PremiumCount, Seeds, Gears, PromoCode, PromoPct, TokenFile
-    global SourceAsked, PromoAsked, WillOnboard
+    global SourceAsked, PromoAsked, WillOnboard, GiveawayCode
 
     dllPath := A_ScriptDir "\lib\WebView2Loader.dll"
     dataDir := A_AppData "\GardenMacro\WebView2"   ; writable user-data folder
@@ -371,6 +375,7 @@ BuildUi() {
     html := StrReplace(html, "__LOCKED__", BuildLockedJs())
     html := StrReplace(html, "__PREMIUM__", PremiumCount)
     html := StrReplace(html, "__VERSION__", VersionLabel())
+    html := StrReplace(html, "__GIVEAWAY__", GiveawayCode)  ; giveaway entry code, shown under the version
     html := StrReplace(html, "__PROMO__", PromoCode)   ; "" if none/skipped -> badge stays hidden
     html := StrReplace(html, "__PROMOPCT__", PromoPct) ; the code's discount percent (0 if none) -> badge "N% off"
     hasToken := (FileExist(TokenFile) && ReadToken(TokenFile) != "") ? "1" : "0"  ; returning user? -> skip the promo wall
@@ -1819,8 +1824,12 @@ HtmlTemplate() {
   .btn:disabled{opacity:.35;cursor:default}
   .hk{font-size:11px;font-weight:600;opacity:.55;margin-left:6px;
       font-family:'Consolas','JetBrains Mono',monospace}
-  .ver{margin-left:auto;font-size:11px;color:#bbb;white-space:nowrap;
+  .verwrap{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:1px;line-height:1.25}
+  .ver{font-size:11px;color:#bbb;white-space:nowrap;
        font-family:'Consolas','JetBrains Mono',monospace}
+  .give{font-size:10px;color:#9aa0a6;white-space:nowrap;
+        font-family:'Consolas','JetBrains Mono',monospace}
+  .give b{color:#16a34a;font-weight:700;letter-spacing:.05em}
   /* "Restart to update" banner. Shown (in red) when a newer macro.ahk has shipped
      to `main` while this session was running (see CheckForUpdate). Sits right under
      the title so it's seen on every tab; hidden until AHK sends "update|<version>". */
@@ -2032,7 +2041,10 @@ HtmlTemplate() {
   <div id='footer' class='footer'>
     <button id='startBtn' class='btn primary' onclick='send("start")'>Start <span class='hk'>F1</span></button>
     <button id='stopBtn'  class='btn'         onclick='send("stop")'>Stop <span class='hk'>F2</span></button>
-    <span class='ver'>v__VERSION__</span>
+    <div class='verwrap'>
+      <span class='ver'>v__VERSION__</span>
+      <span class='give' title='Enter this code at gardenmacro.com/giveaway for +2 giveaway entries'>Giveaway code: <b>__GIVEAWAY__</b></span>
+    </div>
   </div>
 
   <div id='overlay' class='overlay' hidden>

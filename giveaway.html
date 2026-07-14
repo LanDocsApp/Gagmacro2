@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/favicon.svg" />
+  <title>Giveaway — Garden Macro</title>
+  <meta name="description" content="Win free Grow a Garden seeds. Sign in, subscribe to White Lion, and enter." />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
+  <style>
+    /* ---- Design tokens (shared with signin.html / index.html). Restyle here. ---- */
+    :root {
+      --accent:        #16a34a;
+      --accent-hover:  #15803d;
+      --accent-soft:   #f0fdf4;
+      --accent-line:   #bbf7d0;
+      --bg:            #ffffff;
+      --bg-soft:       #fafafa;
+      --bg-muted:      #f5f5f5;
+      --border:        #e0e0e0;
+      --border-strong: #cccccc;
+      --ink:           #0a0a0a;
+      --fg:            #111111;
+      --fg-2:          #555555;
+      --fg-3:          #777777;
+      --fg-4:          #888888;
+      --warn-bg:       #fff8e1;
+      --warn-fg:       #92510a;
+      --warn-line:     #ffe082;
+      --err-bg:        #ffebee;
+      --err-fg:        #b71c1c;
+      --err-line:      #ef9a9a;
+      --radius:        14px;
+      --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+      --font-mono: 'JetBrains Mono', 'Consolas', monospace;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--font-sans); color: var(--fg); background: var(--bg-soft);
+      line-height: 1.5; min-height: 100vh; padding: 32px 20px 56px;
+      -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+    }
+    a { color: inherit; }
+    .wrap { max-width: 560px; margin: 0 auto; }
+
+    /* Header */
+    .top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+    .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+    .brand svg { width: 30px; height: 30px; border-radius: 8px; }
+    .brand span { font-weight: 700; font-size: 15px; color: var(--ink); letter-spacing: -0.01em; }
+    .top-link { font-size: 13px; color: var(--fg-3); text-decoration: none; }
+    .top-link:hover { color: var(--fg); }
+
+    /* Cards */
+    .card {
+      background: #fff; border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 26px 24px; box-shadow: 0 20px 50px rgba(0,0,0,0.05), 0 2px 5px rgba(0,0,0,0.03);
+    }
+    .card + .card { margin-top: 16px; }
+
+    .eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); }
+    .eyebrow.pro { color: #b45309; }
+    h1 { font-size: 27px; font-weight: 800; letter-spacing: -0.02em; color: var(--ink); margin: 8px 0 6px; line-height: 1.1; }
+    .tagline { color: var(--fg-2); font-size: 15px; }
+
+    /* Prize visual */
+    .prize-art {
+      margin: 20px 0; height: 150px; border-radius: 12px; overflow: hidden;
+      display: grid; place-items: center; position: relative;
+      background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
+    }
+    .prize-art img { width: 100%; height: 100%; object-fit: cover; }
+    .prize-art .sprout { width: 62px; height: 62px; opacity: .92; }
+    .prize-art .glow { position: absolute; inset: 0; background: radial-gradient(circle at 50% 30%, rgba(255,255,255,.35), transparent 60%); }
+    .prize-desc { font-size: 14px; color: var(--fg-2); text-align: center; margin-top: 2px; }
+
+    /* Countdown */
+    .count-label { text-align: center; font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--fg-4); margin: 22px 0 10px; }
+    .count { display: flex; justify-content: center; gap: 10px; }
+    .count .u { min-width: 62px; background: var(--bg-muted); border: 1px solid var(--border); border-radius: 10px; padding: 10px 6px; text-align: center; }
+    .count .n { font-family: var(--font-mono); font-size: 26px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+    .count .l { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-4); margin-top: 3px; }
+    .ended-badge { text-align: center; font-weight: 700; color: var(--err-fg); font-size: 18px; padding: 14px 0; }
+
+    /* Entrant count pill */
+    .entrants { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 18px; font-size: 13.5px; color: var(--fg-2); }
+    .entrants .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); animation: pulse 2s infinite; }
+    .entrants b { color: var(--fg); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+
+    /* Steps / entry panel */
+    .steps-h { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-4); margin-bottom: 14px; }
+    .step { display: flex; gap: 12px; padding: 14px 0; border-top: 1px solid var(--border); }
+    .step:first-of-type { border-top: none; padding-top: 0; }
+    .step .num { flex: 0 0 26px; height: 26px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent-line);
+                 display: grid; place-items: center; font-weight: 700; font-size: 13px; }
+    .step .num.done { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .step .body { flex: 1; min-width: 0; }
+    .step .t { font-weight: 600; font-size: 14.5px; color: var(--fg); }
+    .step .d { font-size: 13px; color: var(--fg-3); margin-top: 2px; }
+    .step .chips { margin-top: 4px; }
+    .tag { display: inline-block; font-size: 11px; font-weight: 700; color: var(--accent); background: var(--accent-soft); border: 1px solid var(--accent-line); border-radius: 999px; padding: 2px 8px; }
+
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 9px;
+      font: 600 14px var(--font-sans); padding: 11px 16px; border-radius: 9px;
+      border: 1px solid var(--border-strong); background: #fff; color: #3c4043;
+      cursor: pointer; text-decoration: none; transition: background .15s, border-color .15s, color .15s, opacity .15s;
+    }
+    .btn:hover { background: var(--bg-muted); }
+    .btn.block { display: flex; width: 100%; }
+    .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .btn.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+    .btn.ink { background: var(--ink); color: #fff; border-color: var(--ink); }
+    .btn.ink:hover { background: #333; }
+    .btn.yt { background: #ff0000; color: #fff; border-color: #ff0000; }
+    .btn.yt:hover { background: #d90000; border-color: #d90000; }
+    .btn:disabled, .btn.disabled { opacity: .5; cursor: not-allowed; pointer-events: none; }
+    .btn.sm { padding: 8px 12px; font-size: 13px; }
+    .btn .gicon { width: 17px; height: 17px; }
+    .mt10 { margin-top: 10px; } .mt14 { margin-top: 14px; } .mt6 { margin-top: 6px; }
+
+    .check { display: flex; align-items: flex-start; gap: 9px; margin-top: 10px; cursor: pointer; font-size: 13.5px; color: var(--fg); }
+    .check input { margin-top: 3px; width: 16px; height: 16px; accent-color: var(--accent); flex: 0 0 auto; }
+
+    input[type=text] {
+      width: 100%; font: 600 15px var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase;
+      padding: 11px 13px; border: 1px solid var(--border-strong); border-radius: 9px; background: #fff; color: var(--ink);
+    }
+    input[type=text]::placeholder { letter-spacing: normal; text-transform: none; font-weight: 500; color: var(--fg-4); }
+    input[type=text]:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+    .warn { background: var(--warn-bg); color: var(--warn-fg); border: 1px solid var(--warn-line); border-radius: 9px; padding: 9px 12px; font-size: 12.5px; line-height: 1.45; margin-top: 10px; }
+    .err  { background: var(--err-bg);  color: var(--err-fg);  border: 1px solid var(--err-line);  border-radius: 9px; padding: 9px 12px; font-size: 13px; margin-top: 10px; }
+
+    .entry-count { text-align: center; margin: 18px 0 4px; }
+    .entry-count .big { font-family: var(--font-mono); font-size: 30px; font-weight: 700; color: var(--accent); }
+    .entry-count .sub { font-size: 12.5px; color: var(--fg-3); }
+
+    .pro-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+                background: var(--accent-soft); border: 1px solid var(--accent-line); border-radius: 10px; padding: 12px 14px; margin-top: 14px; }
+    .pro-line .txt { font-size: 13.5px; color: var(--fg); }
+    .pro-line .txt b { color: var(--accent-hover); }
+
+    /* Confirmation */
+    .confirm { text-align: center; padding: 8px 0; }
+    .confirm .tick { width: 56px; height: 56px; margin: 0 auto 14px; border-radius: 50%; background: var(--accent-soft); border: 1px solid var(--accent-line); display: grid; place-items: center; }
+    .confirm .tick svg { width: 30px; height: 30px; stroke: var(--accent); }
+    .confirm h2 { font-size: 21px; font-weight: 800; color: var(--ink); letter-spacing: -0.01em; }
+    .confirm p { color: var(--fg-2); font-size: 14px; margin-top: 6px; }
+
+    .promo { border-top: 1px solid var(--border); margin-top: 20px; padding-top: 18px; text-align: center; }
+    .promo .h { font-weight: 700; font-size: 14px; color: var(--ink); }
+    .promo .p { font-size: 13px; color: var(--fg-3); margin: 4px 0 12px; }
+
+    .otherlink { text-align: center; margin-top: 16px; font-size: 13px; }
+    .otherlink a { color: var(--accent-hover); font-weight: 600; text-decoration: none; }
+    .otherlink a:hover { text-decoration: underline; }
+
+    .foot { text-align: center; margin-top: 26px; font-size: 12px; color: var(--fg-4); line-height: 1.7; }
+    .foot a { color: var(--fg-3); text-decoration: underline; }
+    .rules { margin-top: 8px; font-size: 11.5px; color: var(--fg-4); }
+
+    .skeleton { color: var(--fg-4); text-align: center; padding: 40px 0; font-size: 14px; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <a class="brand" href="/index.html">
+        <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <rect width="64" height="64" rx="14" fill="#16a34a"></rect>
+          <path d="M32 52 V30" stroke="#fff" stroke-width="3.6" stroke-linecap="round"></path>
+          <path d="M32 36 C22 36 17 28 18 19 C28 20 33 27 32 36 Z" fill="#fff"></path>
+          <path d="M32 40 C42 40 47 32 46 23 C36 24 31 31 32 40 Z" fill="#fff"></path>
+        </svg>
+        <span>Garden Macro</span>
+      </a>
+      <a class="top-link" href="/index.html">← Home</a>
+    </div>
+
+    <div id="app">
+      <div class="skeleton">Loading giveaway…</div>
+    </div>
+
+    <p class="foot">
+      <span class="rules" id="rulesLine">One entry per Google account. Winner is drawn at random (weighted by entries) and contacted by email.</span><br>
+      Not affiliated with Roblox or YouTube. Need help? <a href="mailto:janmarko659@gmail.com">janmarko659@gmail.com</a>
+    </p>
+  </div>
+
+  <!-- Prize art SVG reused when a giveaway has no image. -->
+  <template id="sproutTpl">
+    <div class="glow"></div>
+    <svg class="sprout" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M32 56 V30" stroke="#fff" stroke-width="4" stroke-linecap="round"></path>
+      <path d="M32 38 C20 38 14 28 15 17 C27 18 33 27 32 38 Z" fill="#fff"></path>
+      <path d="M32 42 C44 42 50 32 49 21 C37 22 31 31 32 42 Z" fill="#fff"></path>
+    </svg>
+  </template>
+
+  <script>
+    "use strict";
+    var params = new URLSearchParams(location.search);
+    var GID = (params.get("g") || "").trim();
+    var app = document.getElementById("app");
+    var state = null;        // last /api/giveaway payload
+    var subChecked = false;  // honor-gate checkbox
+    var countdownTimer = null;
+
+    function esc(s) {
+      return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+        return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+      });
+    }
+    function el(id) { return document.getElementById(id); }
+
+    // ---- Load + render ----------------------------------------------------
+    function load() {
+      var q = GID ? "?g=" + encodeURIComponent(GID) : "";
+      fetch("/api/giveaway" + q, { credentials: "same-origin", cache: "no-store" })
+        .then(function (r) { return r.ok ? r.json() : Promise.reject(r); })
+        .then(function (d) { state = d; GID = d.id; render(); })
+        .catch(function () {
+          app.innerHTML = '<div class="card"><p class="prize-desc">Couldn\'t load this giveaway. Please refresh.</p></div>';
+        });
+    }
+
+    // Poll the entrant count + winner status without disrupting the form.
+    function refreshCount() {
+      if (!state) return;
+      fetch("/api/giveaway?g=" + encodeURIComponent(GID), { credentials: "same-origin", cache: "no-store" })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (d) {
+          if (!d) return;
+          var prevDrawn = state.winnerDrawn;
+          state.entrants = d.entrants;
+          state.winnerDrawn = d.winnerDrawn;
+          var c = el("entrantsN");
+          if (c) c.textContent = Number(d.entrants || 0).toLocaleString();
+          if (d.winnerDrawn && !prevDrawn) render(); // a winner was just drawn -> re-render
+        })
+        .catch(function () {});
+    }
+
+    function render() {
+      var g = state;
+      var isPremium = g.kind === "premium";
+      var art = g.image
+        ? '<img src="' + esc(g.image) + '" alt="' + esc(g.title) + '">'
+        : document.getElementById("sproutTpl").innerHTML;
+
+      var html = '<div class="card">' +
+        '<div class="eyebrow ' + (isPremium ? "pro" : "") + '">' + (isPremium ? "Pro giveaway" : "Giveaway") + '</div>' +
+        '<h1>' + esc(g.title) + '</h1>' +
+        (g.tagline ? '<div class="tagline">' + esc(g.tagline) + '</div>' : "") +
+        '<div class="prize-art">' + art + '</div>' +
+        (g.prize ? '<div class="prize-desc">' + esc(g.prize) + '</div>' : "");
+
+      // Countdown / ended.
+      if (g.ended) {
+        html += '<div class="ended-badge">This giveaway has ended</div>';
+      } else {
+        html += '<div class="count-label">Ends in</div>' +
+          '<div class="count" id="count">' +
+          unit("cd-d", "Days") + unit("cd-h", "Hours") + unit("cd-m", "Mins") + unit("cd-s", "Secs") +
+          '</div>';
+      }
+
+      // Live entrants.
+      html += '<div class="entrants"><span class="dot"></span> <b id="entrantsN">' +
+        Number(g.entrants || 0).toLocaleString() + '</b>&nbsp;entered so far</div>';
+      html += '</div>'; // /card
+
+      // Entry panel.
+      html += '<div class="card" id="panel">' + entryPanel(g) + '</div>';
+
+      // Cross-link to the other giveaway.
+      var others = (g.others || []).filter(function (o) { return !o.ended; });
+      if (others.length) {
+        var o = others[0];
+        html += '<div class="otherlink"><a href="/giveaway.html?g=' + esc(o.id) + '">' +
+          "Also running: " + esc(o.title) + (o.kind === "premium" ? " (Pro only)" : "") + " →</a></div>";
+      }
+
+      app.innerHTML = html;
+      wire(g);
+      if (!g.ended) startCountdown(g.endsAt);
+    }
+
+    function unit(id, label) {
+      return '<div class="u"><div class="n" id="' + id + '">–</div><div class="l">' + label + '</div></div>';
+    }
+
+    // ---- Entry panel states ----------------------------------------------
+    function entryPanel(g) {
+      var me = g.me || { signedIn: false };
+      var isPremium = g.kind === "premium";
+
+      // Winner drawn -> announce.
+      if (g.winnerDrawn) {
+        if (me.signedIn && me.won) {
+          return '<div class="confirm">' + tickSvg() +
+            '<h2>You won! 🎉</h2><p>Check the inbox for <b>' + esc(me.email) + '</b> — we\'ll email you about your prize. ' +
+            'If you didn\'t actually subscribe to White Lion, the prize goes to someone who did.</p></div>';
+        }
+        return '<div class="confirm">' + tickSvg() +
+          '<h2>A winner has been drawn</h2><p>The lucky winner has been emailed. Thanks for entering — more giveaways are on the way.</p></div>' +
+          promoBlock(g);
+      }
+
+      // Not signed in.
+      if (!me.signedIn) {
+        return '<div class="steps-h">How to enter</div>' +
+          gateSteps(g, false) +
+          '<button class="btn ink block mt14" id="signinBtn">' + googleIcon() + ' Sign in with Google to enter</button>' +
+          '<div class="rules" style="text-align:center;margin-top:10px">1 entry per account. We only use your email to contact you if you win.</div>';
+      }
+
+      // Signed in + already entered.
+      if (me.entered) {
+        var canBumpMacro = !me.hasMacro && !me.isPro;
+        var canGoPro = !me.isPro;
+        var out = '<div class="confirm">' + tickSvg() +
+          '<h2>You\'ve entered the giveaway — good luck!</h2>' +
+          '<p>You\'re in with <b>' + me.weight + ' ' + (me.weight === 1 ? "entry" : "entries") + '</b>. ' +
+          'We\'ll email <b>' + esc(me.email) + '</b> if you win.</p></div>';
+        if (canBumpMacro || canGoPro) {
+          out += '<div class="promo"><div class="h">Want better odds?</div>' +
+            '<div class="p">Boost your entries before the timer runs out.</div>';
+          if (canBumpMacro) {
+            out += '<div style="text-align:left">' + macroCodeStep(g, true) + '</div>';
+          }
+          if (canGoPro) {
+            out += '<a class="btn primary block mt10" href="/api/checkout">Go Pro for ' + g.weights.pro + ' entries →</a>' +
+              '<a class="btn block mt10" href="/launcher.ahk" download>Download the free macro</a>';
+          }
+          out += '</div>';
+        } else {
+          out += promoBlock(g);
+        }
+        return out;
+      }
+
+      // Premium giveaway, signed in but not Pro -> gate to Pro.
+      if (isPremium && !me.isPro) {
+        return '<div class="steps-h">Pro members only</div>' +
+          '<p class="prize-desc" style="text-align:left">This is a <b>Pro</b> giveaway with bigger prizes. ' +
+          'Go Pro to enter — and you\'ll get ' + g.weights.pro + ' entries in every giveaway.</p>' +
+          '<a class="btn primary block mt14" href="/api/checkout">Go Pro to enter →</a>' +
+          '<div class="rules" style="text-align:center;margin-top:10px">Already Pro on another account? ' +
+          '<a href="/api/auth/google/login" style="color:var(--accent-hover)">switch account</a>.</div>';
+      }
+
+      // Signed in, can enter (normal giveaway, or premium + Pro).
+      return '<div class="steps-h">Complete these to enter</div>' +
+        gateSteps(g, true) +
+        proLine(g) +
+        entryPreview(g) +
+        '<div id="enterErr"></div>' +
+        '<button class="btn primary block mt14 disabled" id="enterBtn" disabled>Enter giveaway</button>';
+    }
+
+    // The subscribe (+ macro code) steps, shared by signed-out preview and the live form.
+    function gateSteps(g, live) {
+      var me = g.me || {};
+      var subDone = live && me.entered; // (entered users never reach here, but keep it honest)
+      var s = "";
+
+      // Step 1 — subscribe honor gate.
+      s += '<div class="step">' +
+        '<div class="num">1</div>' +
+        '<div class="body">' +
+          '<div class="t">Subscribe to White Lion on YouTube</div>' +
+          '<div class="d">Our giveaways are powered by the channel — subscribing is how you enter.</div>' +
+          '<a class="btn yt sm mt6" href="' + esc(g.subscribeUrl) + '" target="_blank" rel="noopener" id="subBtn">' +
+            ytIcon() + ' Subscribe to White Lion</a>';
+      if (live) {
+        s += '<label class="check"><input type="checkbox" id="subCheck"> ' +
+          'I subscribed to White Lion on YouTube</label>' +
+          '<div class="warn">Be honest — if you didn\'t actually subscribe, you won\'t receive the prize even if you\'re drawn.</div>';
+      }
+      s += '</div></div>';
+
+      // Step 2 — macro code (+2). Skipped visually for Pro (they already get max).
+      if (!(live && me.isPro)) {
+        s += '<div class="step">' +
+          '<div class="num">2</div>' +
+          '<div class="body">' +
+            '<div class="t">Have the macro? Enter its code <span class="tag">+2 entries</span></div>' +
+            '<div class="d">The code is shown at the <b>bottom of the macro window</b>, under the version. ' +
+            'Don\'t have it yet? <a href="/launcher.ahk" download style="color:var(--accent-hover);font-weight:600">Download the free macro</a>.</div>';
+        if (live) {
+          s += macroCodeStep(g, false);
+        }
+        s += '</div></div>';
+      }
+      return s;
+    }
+
+    // The macro-code input row (used inline in step 2 and in the post-entry "better odds" block).
+    function macroCodeStep(g, standalone) {
+      var wrapOpen = standalone ? '<div class="mt10">' : '<div class="mt10">';
+      return wrapOpen +
+        '<div style="display:flex;gap:8px">' +
+          '<input type="text" id="codeInput" maxlength="16" placeholder="Enter macro code" spellcheck="false" autocomplete="off">' +
+          (standalone ? '<button class="btn primary sm" id="codeApplyBtn" style="white-space:nowrap">Add +2</button>' : "") +
+        '</div>' +
+        '<div id="codeMsg"></div>' +
+      '</div>';
+    }
+
+    function proLine(g) {
+      var me = g.me || {};
+      if (me.isPro) {
+        return '<div class="pro-line"><div class="txt">✓ <b>You\'re Pro</b> — you get the maximum ' + g.weights.pro + ' entries.</div></div>';
+      }
+      return '<div class="pro-line">' +
+        '<div class="txt"><b>Go Pro</b> for ' + g.weights.pro + ' entries + Pro-only giveaways.</div>' +
+        '<a class="btn primary sm" href="/api/checkout">Get it →</a></div>';
+    }
+
+    function entryPreview(g) {
+      var me = g.me || {};
+      var n = me.isPro ? g.weights.pro : g.weights.base; // base until they add the code
+      var note = me.isPro ? "as a Pro member" : "Enter your macro code for +2";
+      return '<div class="entry-count"><div class="big" id="previewN">' + n + '</div>' +
+        '<div class="sub" id="previewNote">' + note + '</div></div>';
+    }
+
+    function promoBlock(g) {
+      return '<div class="promo"><div class="h">Get more chances next time</div>' +
+        '<div class="p">Run the macro for +2 entries, or go Pro for ' + g.weights.pro + ' — plus Pro-only giveaways.</div>' +
+        '<a class="btn ink block" href="/launcher.ahk" download>Download the free macro</a>' +
+        '<a class="btn block mt10" href="/api/checkout">Go Pro →</a></div>';
+    }
+
+    // ---- Wiring -----------------------------------------------------------
+    function wire(g) {
+      var me = g.me || {};
+
+      var signinBtn = el("signinBtn");
+      if (signinBtn) signinBtn.onclick = function () {
+        // Come straight back to this giveaway after Google login.
+        var path = "/giveaway.html?g=" + encodeURIComponent(GID);
+        document.cookie = "gag_return=" + path + "; Max-Age=1800; Path=/; SameSite=Lax; Secure";
+        location.href = "/api/auth/google/login";
+      };
+
+      var subCheck = el("subCheck");
+      var enterBtn = el("enterBtn");
+      if (subCheck && enterBtn) {
+        subCheck.checked = subChecked;
+        updateEnter();
+        subCheck.onchange = function () { subChecked = subCheck.checked; updateEnter(); };
+      }
+
+      var codeInput = el("codeInput");
+      if (codeInput) codeInput.addEventListener("input", updatePreview);
+
+      // Inline "Add +2" (post-entry booster).
+      var codeApply = el("codeApplyBtn");
+      if (codeApply) codeApply.onclick = function () { submitEntry(true); };
+
+      if (enterBtn) enterBtn.onclick = function () { submitEntry(false); };
+
+      function updateEnter() {
+        enterBtn.disabled = !subChecked;
+        enterBtn.classList.toggle("disabled", !subChecked);
+      }
+    }
+
+    function updatePreview() {
+      var g = state, me = g.me || {};
+      var code = (el("codeInput") && el("codeInput").value || "").trim();
+      var previewN = el("previewN"), note = el("previewNote");
+      if (!previewN) return;
+      var n = me.isPro ? g.weights.pro : (code ? g.weights.macro : g.weights.base);
+      previewN.textContent = n;
+      if (note) note.textContent = me.isPro ? "as a Pro member" : (code ? "with your macro code" : "Enter your macro code for +2");
+    }
+
+    // Submit (or booster-update) the entry. `boost` = the standalone "Add +2" button.
+    function submitEntry(boost) {
+      var g = state;
+      var codeInput = el("codeInput");
+      var code = (codeInput && codeInput.value || "").trim();
+      var errBox = el("enterErr") || el("codeMsg");
+      var btn = boost ? el("codeApplyBtn") : el("enterBtn");
+      if (errBox) errBox.innerHTML = "";
+      if (btn) { btn.disabled = true; btn.textContent = boost ? "Adding…" : "Entering…"; }
+
+      fetch("/api/giveaway/enter", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ g: g.id, subscribed: true, code: code })
+      })
+        .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, status: r.status, d: d }; }); })
+        .then(function (res) {
+          if (res.ok && res.d.ok) {
+            // Refresh full state so the panel flips to the confirmation.
+            load();
+            return;
+          }
+          if (res.status === 401) { // session expired mid-flow
+            var path = "/giveaway.html?g=" + encodeURIComponent(g.id);
+            document.cookie = "gag_return=" + path + "; Max-Age=1800; Path=/; SameSite=Lax; Secure";
+            location.href = "/api/auth/google/login";
+            return;
+          }
+          showEnterErr(res.d.error);
+          if (btn) { btn.disabled = false; btn.textContent = boost ? "Add +2" : "Enter giveaway"; }
+        })
+        .catch(function () {
+          showEnterErr("network");
+          if (btn) { btn.disabled = false; btn.textContent = boost ? "Add +2" : "Enter giveaway"; }
+        });
+    }
+
+    function showEnterErr(code) {
+      var box = el("enterErr") || el("codeMsg");
+      if (!box) return;
+      var msgs = {
+        badcode: "That code doesn't match the one in the macro. Check the bottom of the macro window.",
+        subscribe: "Please confirm you subscribed to White Lion first.",
+        proonly: "This giveaway is for Pro members only.",
+        ended: "This giveaway has ended.",
+        no_giveaway: "This giveaway couldn't be found.",
+        network: "Network hiccup — please try again."
+      };
+      box.innerHTML = '<div class="err">' + esc(msgs[code] || "Something went wrong — please try again.") + '</div>';
+    }
+
+    // ---- Countdown --------------------------------------------------------
+    function startCountdown(endsAt) {
+      if (countdownTimer) clearInterval(countdownTimer);
+      function tick() {
+        var diff = endsAt - Date.now();
+        if (diff <= 0) { clearInterval(countdownTimer); load(); return; }
+        var s = Math.floor(diff / 1000);
+        var d = Math.floor(s / 86400); s -= d * 86400;
+        var h = Math.floor(s / 3600); s -= h * 3600;
+        var m = Math.floor(s / 60); s -= m * 60;
+        set("cd-d", d); set("cd-h", pad(h)); set("cd-m", pad(m)); set("cd-s", pad(s));
+      }
+      function set(id, v) { var e = el(id); if (e) e.textContent = v; }
+      function pad(n) { return (n < 10 ? "0" : "") + n; }
+      tick();
+      countdownTimer = setInterval(tick, 1000);
+    }
+
+    // ---- Icons ------------------------------------------------------------
+    function googleIcon() {
+      return '<svg class="gicon" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">' +
+        '<path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.9 2.4 30.3 0 24 0 14.6 0 6.4 5.4 2.5 13.2l7.9 6.1C12.3 13.3 17.7 9.5 24 9.5z"/>' +
+        '<path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.5 3-2.2 5.5-4.7 7.2l7.3 5.7C43.7 38 46.5 31.9 46.5 24.5z"/>' +
+        '<path fill="#FBBC05" d="M10.4 28.3c-.5-1.5-.8-3.1-.8-4.8s.3-3.3.8-4.8l-7.9-6.1C.9 16 0 19.9 0 23.5s.9 7.5 2.5 10.9l7.9-6.1z"/>' +
+        '<path fill="#34A853" d="M24 47c6.3 0 11.6-2.1 15.5-5.7l-7.3-5.7c-2 1.4-4.7 2.3-8.2 2.3-6.3 0-11.7-3.8-13.6-9.3l-7.9 6.1C6.4 42.6 14.6 47 24 47z"/></svg>';
+    }
+    function ytIcon() {
+      return '<svg width="18" height="18" viewBox="0 0 24 24" fill="#fff" aria-hidden="true">' +
+        '<path d="M23 7.5s-.2-1.6-.9-2.3c-.9-.9-1.8-.9-2.3-1C16.6 4 12 4 12 4h0s-4.6 0-7.8.2c-.5.1-1.4.1-2.3 1C1.2 5.9 1 7.5 1 7.5S.8 9.4.8 11.3v1.4c0 1.9.2 3.8.2 3.8s.2 1.6.9 2.3c.9.9 2.1.9 2.6 1 1.9.2 7.5.2 7.5.2s4.6 0 7.8-.2c.5-.1 1.4-.1 2.3-1 .7-.7.9-2.3.9-2.3s.2-1.9.2-3.8v-1.4c0-1.9-.2-3.8-.2-3.8zM9.8 15.1V8.9l6 3.1-6 3.1z"/></svg>';
+    }
+    function tickSvg() {
+      return '<div class="tick"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div>';
+    }
+
+    // ---- Go ---------------------------------------------------------------
+    load();
+    setInterval(refreshCount, 25000);
+  </script>
+</body>
+</html>

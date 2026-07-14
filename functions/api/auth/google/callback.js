@@ -51,15 +51,23 @@ export async function onRequestGet({ request, env }) {
     exp: now + SESSION_TTL_MS,
   });
 
-  // If a flash-deal checkout is pending (the macro opened /api/checkout?offer=N while
-  // signed out, which stashed the variant in the gag_offer cookie), send the user STRAIGHT
-  // back into checkout after login so the discount auto-applies — instead of dropping them
-  // on the sign-in page. Otherwise, the normal landing.
+  // Where to land after login, in priority order:
+  //   1. gag_return — a safe same-origin path the page asked to come back to (e.g. the
+  //      giveaway page set it before sending the user to Google). Lets any page do a
+  //      "sign in and come right back" round-trip.
+  //   2. gag_offer — a pending flash-deal checkout (the macro opened /api/checkout?offer=N
+  //      while signed out); send them STRAIGHT into checkout so the discount auto-applies.
+  //   3. the normal sign-in landing.
+  const ret = safeReturnPath(cookies["gag_return"]);
   const pendingOffer = (cookies["gag_offer"] || "").trim();
-  const dest = /^[123]$/.test(pendingOffer)
+  const dest = ret
+    ? `${base}${ret}`
+    : /^[123]$/.test(pendingOffer)
     ? `${base}/api/checkout?offer=${pendingOffer}`
     : `${base}/signin.html`;
   const headers = new Headers({ Location: dest, "Cache-Control": "no-store" });
+  // Consume the one-time return cookie.
+  if (cookies["gag_return"]) headers.append("Set-Cookie", cookie("gag_return", "", { maxAge: 0 }));
   headers.append(
     "Set-Cookie",
     cookie(SESSION_COOKIE, session, { maxAge: SESSION_TTL_S, httpOnly: true, sameSite: "Lax" })
@@ -74,4 +82,18 @@ export async function onRequestGet({ request, env }) {
   );
   headers.append("Set-Cookie", cookie(STATE_COOKIE, "", { maxAge: 0 }));
   return new Response(null, { status: 302, headers });
+}
+
+// Validate a post-login return target. Only same-origin ABSOLUTE PATHS are allowed —
+// it must start with a single "/" (not "//" or "/\", which browsers treat as a
+// protocol-relative URL to another host), contain no backslashes, and use a
+// conservative charset. Anything else -> null (fall through to the default landing).
+// This blocks open-redirects: the cookie can never send a user to an external site.
+function safeReturnPath(raw) {
+  const s = String(raw || "").trim();
+  if (!s || s.length > 512) return null;
+  if (s[0] !== "/" || s[1] === "/" || s[1] === "\\") return null;
+  if (s.includes("\\")) return null;
+  if (!/^\/[A-Za-z0-9\-._~/?#\[\]@!$&'()*+,;=%]*$/.test(s)) return null;
+  return s;
 }

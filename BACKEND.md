@@ -28,13 +28,19 @@ functions/
     creator/payout-view.js   POST -> { token } -> creator's read-only earned/pending/paid + redemptions
     money.js                 GET  -> (admin, STATS_KEY) Money-tab data: active subs, MRR, this-month
                                      money, per-code net-settled earnings (heavy Stripe scan, lazy-loaded)
+    giveaway.js              GET  -> public giveaway state (details + live entrant count + "me")
+    giveaway/enter.js        POST -> enter the signed-in account (honor gate + macro code + Pro weighting)
+    giveaway/admin.js        POST -> (admin, STATS_KEY) list entries, draw/set/clear the winner
   _lib/
     creators.js        creator -> promo-code registry (mirror of macro.ahk PromoValid) + code purpose tags
+    giveaways.js       giveaway registry (title/prize/kind/endsAt) + entry weights + the macro code
     money.js           shared Stripe money math: net-settled per-code earnings, MRR, churn, avg lifetime
-index.html      marketing landing
-signin.html     sign in with Google / get your code
-creator.html    per-creator stats dashboard (opened via a private signed link)
-wrangler.toml   Pages config + SUBS KV binding
+index.html          marketing landing
+signin.html         sign in with Google / get your code
+creator.html        per-creator stats dashboard (opened via a private signed link)
+giveaway.html       public giveaway entry page (countdown, live count, honor gate, macro code)
+giveaway-admin.html owner-only draw page (STATS_KEY gate; pick + email the winner)
+wrangler.toml       Pages config + SUBS KV binding
 ```
 
 ## Config
@@ -181,6 +187,41 @@ and this-month gross/net/fees/refunds. All Stripe figures degrade to `—` (HTTP
 The **Acquisition** tab on `/stats` lists every creator code (from `_lib/creators.js`),
 including codes with zero installs, so new creators show up before they've driven any.
 `/stats` is now **3 tabs** (Overview · Acquisition · Money), down from six.
+
+## Giveaways
+
+A growth loop: hand out in-game items (e.g. a Star Fruit Seed) so players sign in, subscribe
+to **White Lion's YouTube**, and install/upgrade the macro for more chances to win. Built on the
+existing pieces — Google login, the `STATS` D1 DB, and the `STATS_KEY` admin gate — so there are
+**no new services, secrets, or bindings**.
+
+- **The giveaways themselves are a hardcoded registry** in `_lib/giveaways.js` (`GIVEAWAYS`), the
+  same pattern as the creator registry. Edit + redeploy to run one — no CRUD table. Each has a
+  `title`, `prize`, `kind` (`normal` = anyone / `premium` = Pro only), and an ISO `endsAt` the
+  countdown targets. `MACRO_CODE` (currently **`3QIHX`**) and `SUBSCRIBE_URL` also live here.
+- **One entry per Google account** (the `giveaway_entries` PRIMARY KEY) — the strong anti-cheat.
+- **Subscribe gate = honor system.** YouTube can't verify a sub, so the page makes the user click
+  "Subscribe to White Lion" and tick "I subscribed" (with a warning that a fake tick forfeits the
+  prize) before **Enter** unlocks. The subscribe unlocks entry but adds no tickets by itself.
+- **Ticket weighting** (`WEIGHTS`): signed in = **1**; entered the macro code = **3** (+2, proves
+  they have the free macro — the code is shown at the macro's bottom, under the version); Pro =
+  **10**. Pro is detected automatically from the signed-in Google account (`resolveActive`) — no
+  code to paste. `has_macro` is sticky, so re-entering without the code never drops the bonus.
+- **Premium giveaways** use the same page but require an active Pro to enter (enforced in
+  `enter.js`). Non-Pro visitors get a "Go Pro to enter" CTA.
+- **"Get it" links** point at `/api/checkout`, which routes non-subscribers to Stripe Checkout and
+  existing subscribers straight to their access code (`/api/success`) — so one link serves both.
+- **Login round-trip:** the page sets a `gag_return` cookie (a validated same-origin path) before
+  sending the user to Google; `auth/google/callback.js` honors it so they land back on the giveaway
+  instead of the sign-in page. (Priority: `gag_return` > flash `gag_offer` > default landing.)
+- **Live counter + countdown** come from `GET /api/giveaway` (polled every 25s) and `endsAt`.
+- **Drawing a winner:** `giveaway-admin.html` (unlock with `STATS_KEY`, the same key as `/stats`)
+  lists every entry with its Google email, and does a **weighted random draw** (or a manual pick).
+  The winner is stored in `giveaway_winners`; the owner then emails them from their own Gmail via a
+  pre-filled `mailto:` link. Winners are never exposed on the public API (only "a winner was drawn").
+
+> One-time setup: apply **migration 0007** (`migrations/0007_add_giveaways.sql`) for the
+> `giveaway_entries` + `giveaway_winners` tables. No env vars or bindings to add.
 
 ## Local dev
 
