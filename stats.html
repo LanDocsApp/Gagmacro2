@@ -162,6 +162,17 @@
         <div class="fnote" id="o-funnote"></div>
       </div>
       <div class="section">
+        <h2>Time to upgrade</h2>
+        <p class="hint">How long installs take to go Pro — from install to the moment premium unlocks in the macro. Median is the typical wait; the spread shows how many upgrade fast vs. mull it over. Only installs that upgraded after this shipped are counted, so it fills in over time.</p>
+        <div class="grid">
+          <div class="card"><div class="label">Median time to upgrade</div><div class="value" id="o-upg-median">…</div><div class="vsub" id="o-upg-count">the typical wait</div></div>
+          <div class="card"><div class="label">Average time to upgrade</div><div class="value" id="o-upg-avg">…</div><div class="vsub">mean (skewed by slow deciders)</div></div>
+          <div class="card"><div class="label">Fastest bracket</div><div class="value" id="o-upg-fast">…</div><div class="vsub">upgraded within a day</div></div>
+        </div>
+        <div class="legend" style="margin-top:14px"><span>Distribution of how long people took:</span></div>
+        <div id="o-upg-dist"><div class="muted">No upgrades tracked yet.</div></div>
+      </div>
+      <div class="section">
         <h2>Version adoption</h2>
         <p class="hint">Current install count per app version. The launcher auto-updates, so old versions should drain fast.</p>
         <div id="o-versions"><div class="muted">Loading...</div></div>
@@ -246,7 +257,7 @@
     <div id="tab-finances" class="panel" hidden>
       <div class="grid">
         <div class="card"><div class="label">Revenue</div><div class="value" id="f-rev">…</div><div class="vsub">net settled this month</div></div>
-        <div class="card"><div class="label">Creator payouts</div><div class="value" id="f-creator">…</div><div class="vsub">earned this month</div></div>
+        <div class="card"><div class="label">Creator payouts</div><div class="value" id="f-creator">…</div><div class="vsub">paid out this month</div></div>
         <div class="card"><div class="label">Expenses</div><div class="value" id="f-exp">…</div><div class="vsub">this month</div></div>
         <div class="card"><div class="label">Net profit</div><div class="value" id="f-net">…</div><div class="vsub" id="f-margin"></div></div>
         <div class="card"><div class="label">Monthly burn</div><div class="value" id="f-burn">…</div><div class="vsub">fixed recurring cost</div></div>
@@ -254,7 +265,7 @@
       </div>
       <div class="section">
         <h2>Profit &amp; loss <span class="muted" id="f-monthlabel"></span></h2>
-        <p class="hint">This month. Revenue = net-settled Stripe money (after fees, refunds excluded). Creator payouts = what creators earned this month. Operating expenses = your logged costs (monthly counts in full, yearly is amortized to /12, one-time counts in its month).</p>
+        <p class="hint">This month. Revenue = net-settled Stripe money (after fees, refunds excluded). Creator payouts = what you actually paid creators this month (counts when you log a payout, not when it's earned). Operating expenses = your logged costs (monthly counts in full, yearly is amortized to /12, one-time counts in its month).</p>
         <div class="tblwrap"><table class="tbl"><tbody id="f-pl"></tbody></table></div>
       </div>
       <div class="section">
@@ -305,6 +316,18 @@
     const c = (cur || "usd").toUpperCase();
     try { return new Intl.NumberFormat("en-US", { style: "currency", currency: c }).format(cents / 100); }
     catch (e) { return "$" + (cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+  }
+
+  // Humanize a duration in ms into a short, readable "3h", "5d 4h", "45m" style string.
+  function fmtDur(ms) {
+    if (ms == null) return "—";
+    if (ms < 60000) return Math.max(1, Math.round(ms / 1000)) + "s";
+    const m = Math.round(ms / 60000);
+    if (m < 60) return m + "m";
+    const h = Math.floor(ms / 3600000), hm = Math.round((ms % 3600000) / 60000);
+    if (h < 24) return hm ? h + "h " + hm + "m" : h + "h";
+    const dd = Math.floor(ms / 86400000), dh = Math.round((ms % 86400000) / 3600000);
+    return dh ? dd + "d " + dh + "h" : dd + "d";
   }
 
   const SOURCE_LABELS = {
@@ -398,6 +421,9 @@
     "o-active": "Real paying subscribers right now (from Stripe). Free 100%-off comps and ignored test accounts are excluded.",
     "o-mrr": "Monthly recurring revenue — what your active real subs pay each month. Excludes free comps, subs set to cancel, and test accounts.",
     "o-hours": "Total macro runtime summed across every session, all time.",
+    "o-upg-median": "The typical wait from installing the macro to unlocking premium — half of upgraders were faster, half slower. Robust to a few people who took months. Only counts installs that upgraded after this metric shipped.",
+    "o-upg-avg": "Mean wait from install to premium unlock. Higher than the median because a handful of slow deciders (days/weeks later) pull the average up.",
+    "o-upg-fast": "Share of upgraders who went Pro within their first day of installing — your impulse/quick-convert crowd.",
     "m-active": "Distinct real subscribers with an active subscription right now. Excludes free 100%-off comps (youtuber grants) and ignored test accounts.",
     "m-mrr": "Recurring monthly revenue from paying subs. Excludes comps, subs scheduled to cancel (won't renew), and test accounts — so it can differ from Stripe's raw MRR.",
     "m-arr": "Annual recurring revenue — MRR × 12. A projection of a full year at your current run-rate, not money already collected. Same exclusions as MRR (comps, subs set to cancel, and test accounts).",
@@ -410,7 +436,7 @@
     "m-fees": "Total Stripe processing fees on this month's charges.",
     "m-refunds": "Money refunded this month. Test accounts are excluded.",
     "f-rev": "Net-settled Stripe revenue this month (after fees and currency conversion, refunds excluded). Test accounts excluded.",
-    "f-creator": "What your creators earned this month — their first-month commission on subs that redeemed a creator code. A cost whether or not you've paid it yet.",
+    "f-creator": "What you actually paid creators this month — the sum of payouts you logged (in the payout ledger) dated this month. Bonuses you haven't paid out yet don't count until you record them as a payout.",
     "f-exp": "Your logged operating costs counted for this month: monthly costs in full, yearly costs ÷ 12, and one-time costs dated this month.",
     "f-net": "Net profit this month = revenue − creator payouts − operating expenses.",
     "f-burn": "Your fixed monthly burn: all recurring expenses normalized to per-month (monthly in full + yearly ÷ 12).",
@@ -464,6 +490,30 @@
       ["Installs", f.installs], ["Get access", f.getAccess], ["Checkout", f.checkout], ["Subscribed", subscribed],
     ].map(([k, v]) => '<div class="card"><div class="label">' + k + '</div><div class="value">' + nf(v || 0) + "</div></div>").join("");
     $("o-funnote").innerHTML = "Install to subscribed: <b>" + pct(subscribed, f.installs) + "%</b> &middot; clicked Get access: <b>" + pct(f.getAccess, f.installs) + "%</b>";
+
+    // Time to upgrade: install -> first premium unlock. Median headline + mean + spread.
+    const ut = d.upgradeTime || {};
+    if (ut.count) {
+      const b = ut.buckets || {};
+      $("o-upg-median").textContent = fmtDur(ut.medianMs);
+      $("o-upg-avg").textContent = fmtDur(ut.avgMs);
+      $("o-upg-count").textContent = "across " + nf(ut.count) + " upgrade" + (ut.count === 1 ? "" : "s");
+      $("o-upg-fast").textContent = pct((b.lt1h || 0) + (b.h1to24 || 0), ut.count) + "%";
+      const rows = [
+        ["Under 1 hour", b.lt1h || 0], ["1–24 hours", b.h1to24 || 0], ["1–7 days", b.d1to7 || 0],
+        ["7–30 days", b.d7to30 || 0], ["Over 30 days", b.gt30d || 0],
+      ];
+      const bmax = Math.max(1, ...rows.map((r) => r[1]));
+      $("o-upg-dist").innerHTML = hbars(rows.map(([name, value]) => ({
+        name, value, max: bmax, meta: nf(value) + " (" + pct(value, ut.count) + "%)", color: "var(--green)",
+      })));
+    } else {
+      $("o-upg-median").textContent = "—";
+      $("o-upg-avg").textContent = "—";
+      $("o-upg-fast").textContent = "—";
+      $("o-upg-count").textContent = "no upgrades tracked yet";
+      $("o-upg-dist").innerHTML = '<div class="muted">No upgrades tracked yet — this fills in as installs go Pro.</div>';
+    }
 
     const versions = d.versions || [];
     const vtotal = versions.reduce((s, v) => s + (v.count || 0), 0);
@@ -752,7 +802,9 @@
       else { invested += c; if (e.incurredAt >= mStart) monthExp += c; }
     }
     const revenue = m && m.month ? m.month.netSettledCents : null;
-    const creator = m && m.month ? (m.month.creatorEarnedCents || 0) : null;
+    // Cash basis: creator cost hits the P&L the month you actually pay out (log a payout),
+    // not when the commission was earned. Falls back to 0 if the ledger is unavailable.
+    const creator = m && m.month ? (m.month.creatorPaidCents || 0) : null;
     const net = revenue == null ? null : revenue - (creator || 0) - monthExp;
     const margin = net != null && revenue > 0 ? Math.round((net / revenue) * 1000) / 10 : null;
 

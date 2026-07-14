@@ -26,6 +26,10 @@ import { logEvent } from "../_lib/events.js";
 // The shown/copied/dismissed/cta events power the Popup-performance funnel on /stats.
 const PING_EVENTS = new Set([
   "get_access",
+  // unlock -- the user activated a valid code (first upgrade on this install). Device-
+  // linked upgrade signal used for the install->upgrade time on /stats. The macro fires it
+  // once, at first activation -- not on later relaunches -- so the timing is the true first.
+  "unlock",
   "hint_shown", "hint_copied", "hint_dismiss", "hint_cta",
   "loyalty_shown", "loyalty_copied", "loyalty_dismiss", "loyalty_cta",
   // Flash-deal A/B price test popup. The heartbeat also carries a "var" field (the

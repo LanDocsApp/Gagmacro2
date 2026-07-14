@@ -1007,6 +1007,10 @@ CheckSavedLicense() {
     if (res.status = "active") {
         Unlocked := true
         Post("unlock|1")
+        ; NOTE: no "unlock" funnel event here on purpose. This path only ever runs when a
+        ; saved token already exists, i.e. on RELAUNCHES after the user first pasted a code.
+        ; The upgrade is logged once at that first paste (ActivateCode) so the install->
+        ; upgrade timing measures the real first upgrade, not every subsequent relaunch.
     } else if (res.status = "inactive") {
         ; Server is CERTAIN there's no active subscription -> stay locked this session.
         ; We deliberately do NOT delete the saved code. If this "inactive" were ever a
@@ -1103,6 +1107,10 @@ ActivateCode(code) {
         SaveToken(TokenFile, code)
         Unlocked := true
         Post("unlock|1")
+        ; Funnel: the user just upgraded (pasted a valid code, first activation on this
+        ; install). Device-linked so /stats can measure install -> upgrade time. Fired only
+        ; here (not on relaunch re-verify) so it marks the true first upgrade, once.
+        SendEvent("unlock")
     } else if (res.status = "inactive") {
         Post("licensemsg|That code isn't valid or has no active subscription.")
     } else {

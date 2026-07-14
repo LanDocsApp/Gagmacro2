@@ -6,6 +6,11 @@
 
 const ALLOWED = new Set([
   "get_access", "checkout", "subscribe",
+  // Device-linked premium unlock: fired by the macro (with device_id) when the user first
+  // activates a valid access code. Unlike "subscribe" (a web-only Stripe webhook step with
+  // no device_id), this can be tied back to the install, so /api/stats can measure how long
+  // each install took to upgrade (first_seen -> first unlock).
+  "unlock",
   "hint_shown", "hint_copied", "hint_dismiss", "hint_cta",
   "loyalty_shown", "loyalty_copied", "loyalty_dismiss", "loyalty_cta",
   // Flash-deal A/B price test popup (variant rides in meta.offer). See creators.js.

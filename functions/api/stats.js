@@ -10,6 +10,8 @@
 //   avgSession    = mean session length in ms (last_ping - started_at), all time
 //   totalHours    = lifetime sum of all session durations, in hours
 //   funnel        = { installs, getAccess, checkout, subscribe } conversion funnel
+//   upgradeTime   = install->upgrade timing { count, medianMs, avgMs, buckets } from the
+//                   first_seen -> first 'unlock' event delta per device (null figures if none)
 //   daily         = last 30 UTC days [{ day, installs, active, getAccess, checkout }]
 //   versions      = current install count per app version [{ version, count }]
 //   acqSources    = per source [{ source, installs, getAccess, returning }]
@@ -233,6 +235,42 @@ export async function onRequestGet({ request, env }) {
       // events table / json_extract unavailable -> zeros (Money tab still shows conversions).
     }
 
+    // Time-to-upgrade: how long each install took from first_seen (install) to its FIRST
+    // device-linked 'unlock' event (the user activating a valid code in the macro). Reported
+    // as median + mean + a bucketed distribution, so a few slow deciders can't skew the
+    // headline figure. The macro fires 'unlock' only at first activation (not on relaunch),
+    // so pre-launch subscribers with saved codes don't pollute this — it measures genuine
+    // upgrades happening after this shipped, and fills in for post-launch cohorts.
+    let upgradeTime = { count: 0, medianMs: null, avgMs: null, buckets: null };
+    try {
+      const ur = await env.STATS.prepare(
+        `SELECT (MIN(e.ts) - d.first_seen) AS delta
+         FROM events e JOIN devices d ON d.id = e.device_id
+         WHERE e.name = 'unlock'
+         GROUP BY e.device_id
+         HAVING (MIN(e.ts) - d.first_seen) > 0`
+      ).all();
+      const deltas = (ur?.results || []).map((r) => r.delta).filter((x) => x > 0).sort((a, b) => a - b);
+      const n = deltas.length;
+      if (n) {
+        const mid = Math.floor(n / 2);
+        const median = n % 2 ? deltas[mid] : Math.round((deltas[mid - 1] + deltas[mid]) / 2);
+        const avg = Math.round(deltas.reduce((s, x) => s + x, 0) / n);
+        const H = 3600000, DAY = 86400000;
+        const buckets = { lt1h: 0, h1to24: 0, d1to7: 0, d7to30: 0, gt30d: 0 };
+        for (const x of deltas) {
+          if (x < H) buckets.lt1h++;
+          else if (x < DAY) buckets.h1to24++;
+          else if (x < 7 * DAY) buckets.d1to7++;
+          else if (x < 30 * DAY) buckets.d7to30++;
+          else buckets.gt30d++;
+        }
+        upgradeTime = { count: n, medianMs: median, avgMs: avg, buckets };
+      }
+    } catch {
+      // events/devices unavailable (or no unlocks yet) -> no upgrade-time data.
+    }
+
     // Make every registered creator code show up in Acquisition, even with zero installs.
     try {
       const present = new Set(acqPromos.map((r) => String(r.code).toUpperCase()));
@@ -265,6 +303,7 @@ export async function onRequestGet({ request, env }) {
       acqPromos,
       popupEvents,
       flash,
+      upgradeTime,
       at: now,
     });
   } catch (e) {

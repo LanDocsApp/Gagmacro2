@@ -427,15 +427,40 @@ async function paidOutByCreator(env) {
   return map;
 }
 
+// ---- Creator cash actually paid out this month (D1 payouts ledger) ----------
+// The CASH-BASIS creator-cost line for the Finances P&L: the sum of disbursements
+// (kind='payout' — bonuses are credits still OWED, so excluded) whose ledger row was
+// recorded this UTC month. This is what hits the P&L the month you actually pay a
+// creator, regardless of when the underlying subscriptions were earned. NULL kind
+// (rows predating migration 0005) counts as a payout, matching paidOutByCreator.
+async function creatorPaidThisMonth(env, now) {
+  const mStart = monthStartMs(now);
+  let cents = 0;
+  let available = true;
+  try {
+    const row = await env.STATS.prepare(
+      `SELECT COALESCE(SUM(CASE WHEN kind = 'bonus' THEN 0 ELSE amount_cents END), 0) AS cents
+         FROM payouts WHERE created_at >= ?1`
+    )
+      .bind(mStart)
+      .first();
+    cents = (row && row.cents) || 0;
+  } catch {
+    available = false; // ledger table absent / pre-migration -> unknown (P&L treats as 0)
+  }
+  return { cents, available };
+}
+
 // ---- Admin Money snapshot (GET /api/money) ----------------------------------
 export async function buildMoneySnapshot(env) {
   const now = Date.now();
-  const [codes, scan, subs, refunds, paid] = await Promise.all([
+  const [codes, scan, subs, refunds, paid, paidMonth] = await Promise.all([
     loadPromoCodes(env),
     scanInvoices(env, now),
     subsSnapshot(env, now),
     refundsThisMonth(env, now),
     paidOutByCreator(env),
+    creatorPaidThisMonth(env, now),
   ]);
 
   const currency = scan.currency || subs.priceCurrency || null;
@@ -535,7 +560,10 @@ export async function buildMoneySnapshot(env) {
       feesCents: scan.available ? scan.month.feesCents : null,
       refundsCents: refunds.available ? refunds.cents : null,
       refundsCount: refunds.available ? refunds.count : null,
+      // Accrued (what creators EARNED this month) vs. cash (what you actually PAID OUT
+      // this month). The Finances P&L uses the cash figure; earned is kept for context.
       creatorEarnedCents: scan.available ? creatorEarnedMonth : null,
+      creatorPaidCents: paidMonth.available ? paidMonth.cents : null,
     },
     codes: codeRows,
     codesAvailable: scan.available && codes.available,
