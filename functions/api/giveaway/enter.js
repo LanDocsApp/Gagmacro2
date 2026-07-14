@@ -6,8 +6,7 @@
 //   - Must be signed in (Google session)         -> 1 entry per account (anti-cheat).
 //   - Honor gate: `subscribed` must be true       -> the White Lion subscribe was confirmed.
 //   - `code` matching the macro code adds tickets  -> proves they have the free macro (+2).
-//   - Premium giveaways require an active Pro.
-//   - Pro is detected from the Google account (resolveActive) — no code to paste for Pro.
+//   - Pro is detected from the Google account (resolveActive) — no code to paste for Pro (10 tickets).
 //
 // Re-entering is allowed and idempotent (upsert on giveaway_id+google_sub): a user can enter
 // first, then come back and add the macro code to bump their tickets. `has_macro` is sticky —
@@ -43,15 +42,13 @@ export async function onRequestPost({ request, env }) {
   const codeMatches = code === MACRO_CODE.toUpperCase();
   if (code && !codeMatches) return json({ error: "badcode" }, 400);
 
+  // Pro is auto-detected from the Google account and only bumps the ticket count (10).
   let isPro = false;
   try {
     isPro = (await resolveActive(env, session.sub)) === true;
   } catch {
     isPro = false;
   }
-
-  // Premium giveaway: Pro members only.
-  if (g.kind === "premium" && !isPro) return json({ error: "proonly" }, 403);
 
   // Merge with any existing entry so has_macro is sticky (never lost on re-entry).
   let prior = null;

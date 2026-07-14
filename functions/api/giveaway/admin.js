@@ -69,7 +69,6 @@ async function giveawaySummaries(env) {
     out.push({
       id: g.id,
       title: g.title,
-      kind: g.kind,
       endsAt: g.endsAtMs,
       ended: g.ended,
       entrants,
@@ -93,7 +92,7 @@ async function state(env, gid) {
   const totalTickets = entries.reduce((s, e) => s + (e.weight || 0), 0);
   return json({
     giveaways: await giveawaySummaries(env),
-    giveaway: { id: g.id, title: g.title, kind: g.kind, endsAt: g.endsAtMs, ended: g.ended },
+    giveaway: { id: g.id, title: g.title, endsAt: g.endsAtMs, ended: g.ended },
     entries,
     entrants: entries.length,
     totalTickets,

@@ -116,7 +116,6 @@
     .wz-back:hover { color: var(--fg); }
     .wz-back svg { width: 14px; height: 14px; }
     .wz-eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent); margin-bottom: 8px; }
-    .wz-eyebrow.pro { color: #b45309; }
     .wz-title { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; color: var(--ink); line-height: 1.15; }
     .wz-text { font-size: 14px; color: var(--fg-2); margin-top: 8px; line-height: 1.55; }
     .wz-text .lnk, .lnk { color: var(--accent-hover); font-weight: 600; text-decoration: none; }
@@ -367,7 +366,6 @@
 
       if (g.winnerDrawn) return winnerScreen(g, me);
       if (me.entered)    return enteredScreen(g, me);
-      if (g.kind === "premium" && !me.isPro) return premiumGate(g);
 
       // Live entry wizard.
       if (wizScreen === "subscribe") return screenSubscribe(g);
@@ -449,15 +447,6 @@
       return '<div class="promo-code">' +
         '<div><div class="label">30% off with code</div><div class="code" id="promoCode">GIVEAWAY</div></div>' +
         '<button class="copy-btn" id="copyPromo">Copy</button></div>';
-    }
-
-    // Premium giveaway, signed in but not Pro.
-    function premiumGate(g) {
-      return '<div class="wz-eyebrow pro">Pro only</div>' +
-        '<div class="wz-title">Pro members only</div>' +
-        '<div class="wz-text">This giveaway is for Garden Macro Pro members. Go Pro to enter with ' + g.weights.pro + ' entries.</div>' +
-        promoCodeChip() +
-        '<div class="wz-actions"><a class="btn primary block" href="/api/checkout">Get Garden Macro Pro</a></div>';
     }
 
     // Already entered -- confirmation (+ Pro upsell for non-Pro).
@@ -612,7 +601,6 @@
       var msgs = {
         badcode: "That macro code is invalid. Check the bottom corner of the macro.",
         subscribe: "Please confirm you subscribed to White Lion first.",
-        proonly: "This giveaway is for Pro members only.",
         ended: "This giveaway has ended.",
         no_giveaway: "This giveaway could not be found.",
         network: "Network error, please try again."

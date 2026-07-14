@@ -10,7 +10,6 @@ import { readSession, json } from "../_lib/http.js";
 import { resolveActive } from "../_lib/subscriptions.js";
 import {
   getGiveaway,
-  listGiveaways,
   MACRO_CODE,
   SUBSCRIBE_URL,
   WEIGHTS,
@@ -97,17 +96,11 @@ export async function onRequestGet({ request, env }) {
     };
   }
 
-  // Cross-link the other kind of giveaway (normal <-> premium) so a Pro can hop over.
-  const others = listGiveaways()
-    .filter((x) => x.id !== g.id)
-    .map((x) => ({ id: x.id, title: x.title, kind: x.kind, ended: x.ended }));
-
   return json({
     id: g.id,
     title: g.title,
     tagline: g.tagline || "",
     prize: g.prize || "",
-    kind: g.kind,
     image: g.image || "",
     endsAt: g.endsAtMs,
     ended: g.ended,
@@ -116,7 +109,6 @@ export async function onRequestGet({ request, env }) {
     weights: WEIGHTS,
     entrants,
     winnerDrawn,
-    others,
     me,
     at: Date.now(),
   });

@@ -31,30 +31,18 @@ export function computeWeight({ hasMacro, isPro }) {
 
 // ---- The giveaways -------------------------------------------------------
 //
-// Edit this object to run a giveaway. `endsAt` is an ISO-8601 instant (UTC "Z" recommended)
-// that the countdown targets. `kind`:
-//   'normal'  — anyone signed in + subscribed can enter (weighted).
-//   'premium' — same page, but only active Pro members can enter (better prizes).
-// The `image` is optional (a data: URI or same-origin path); the page renders a clean
-// placeholder when it's absent, so it's safe to leave the visuals for later.
+// Edit this object to run a giveaway. Anyone signed in + subscribed can enter (weighted:
+// base 1, macro code +2, Pro 10). `endsAt` is an ISO-8601 instant (UTC "Z" recommended)
+// that the countdown targets. The `image` is optional (a data: URI or same-origin path);
+// the page renders a clean placeholder when it's absent, so it's safe to leave visuals for later.
 export const GIVEAWAYS = {
   venusflytrap: {
     id: "venusflytrap",
     title: "Venus Fly Trap Seed",
     tagline: "One lucky winner gets a Venus Fly Trap Seed",
     prize: "1x Venus Fly Trap Seed, delivered straight into your Grow a Garden account.",
-    kind: "normal",
     endsAt: "2026-07-28T18:00:00Z",
     image: "/VenusFlyTrapSeed.webp",
-  },
-  "pro-drop": {
-    id: "pro-drop",
-    title: "Pro Members Mega Drop",
-    tagline: "A bigger prize — Pro members only",
-    prize: "A premium seed bundle reserved for Pro members. Bigger prizes, far better odds.",
-    kind: "premium",
-    endsAt: "2026-07-28T18:00:00Z",
-    image: "",
   },
 };
 
@@ -69,7 +57,7 @@ export function getGiveaway(id) {
   return { ...g, endsAtMs, ended: endsAtMs > 0 && endsAtMs < Date.now() };
 }
 
-// All giveaways, defaulted timing included (used to cross-link normal <-> premium).
+// All giveaways, defaulted timing included (used by the admin summaries).
 export function listGiveaways() {
   return Object.keys(GIVEAWAYS).map((id) => getGiveaway(id));
 }

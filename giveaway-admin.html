@@ -48,9 +48,6 @@
     .gsel button.active { border-color: var(--accent); background: var(--accent-soft); }
     .gsel .gname { font-weight: 700; font-size: 13.5px; color: var(--ink); }
     .gsel .gmeta { font-size: 11.5px; color: var(--fg-3); font-family: var(--font-mono); }
-    .kind { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; padding: 1px 6px; border-radius: 999px; margin-left: 6px; }
-    .kind.normal { color: var(--accent); background: var(--accent-soft); }
-    .kind.premium { color: #b45309; background: #fffbeb; }
 
     /* Stats row */
     .stats { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
@@ -153,7 +150,7 @@
       // Giveaway selector.
       $("gsel").innerHTML = (data.giveaways || []).map(function (g) {
         return '<button data-id="' + esc(g.id) + '" class="' + (g.id === current ? "active" : "") + '">' +
-          '<div class="gname">' + esc(g.title) + '<span class="kind ' + g.kind + '">' + g.kind + '</span></div>' +
+          '<div class="gname">' + esc(g.title) + '</div>' +
           '<div class="gmeta">' + g.entrants + ' entrants · ' + g.tickets + ' tickets' + (g.hasWinner ? ' · winner ✓' : '') + '</div>' +
           '</button>';
       }).join("");
