@@ -189,8 +189,9 @@ global Source      := ""          ; chosen channel key (e.g. "reddit"), "" if sk
 ; --- Flash deal: a limited-time discount on the FIRST month of Pro, A/B tested
 ;     across three discount depths (75% / 65% / 50% off first month). Every install is randomly assigned a
 ;     variant (1/2/3) ONCE and it never changes, so the split stays even and each user
-;     always sees the same price. For 24h after first launch the macro shows a live
-;     countdown (a persistent banner + a one-time popup) and opens the sign-in page with
+;     always sees the same price. For 24h starting on the user's SECOND launch (never the
+;     first -- that reads as fake urgency) the macro shows a live countdown (a persistent
+;     banner + a one-time popup) and opens the sign-in page with
 ;     ?offer=<variant> so the matching Stripe promotion code AUTO-APPLIES at checkout --
 ;     no code to paste. Suppressed for Pro users and anyone holding a creator code (Stripe
 ;     discounts don't stack). Conversion + net revenue per arm show on the stats
@@ -199,8 +200,8 @@ global Source      := ""          ; chosen channel key (e.g. "reddit"), "" if sk
 ;     percentages applied to the US price.
 global OfferFile     := A_AppData "\GardenMacro\offer.txt"   ; "<variant 1|2|3>|<window-start YYYYMMDDHHMMSS>"
 global OfferVariant  := 0                                    ; this install's arm (0 = not assigned yet)
-global OfferStamp    := ""                                   ; when the 24h window started (first launch on this build)
-global OfferWindowMs := 24 * 60 * 60 * 1000                  ; deal is live for 24h after first launch
+global OfferStamp    := ""                                   ; when the 24h window started (the second launch; empty until then)
+global OfferWindowMs := 24 * 60 * 60 * 1000                  ; deal is live for 24h after the second launch
 ; OfferUsd = the (rounded) first-month price shown in the deal per variant. The real
 ; charge is the Stripe %-off coupon applied to the $5.93 US price (75%->$1.48, 65%->$2.08,
 ; 50%->$2.97); we show clean $1.50 / $2 / $3. Keep in sync if the FLASH_CODES percentages
@@ -332,7 +333,8 @@ SetTimer(StartUpdateChecks, -4000)
 ; deal to code holders before they'd finished entering their code. Instead it's triggered once
 ; onboarding has FULLY settled and a creator code is therefore known, from SkipPromo /
 ; ContinueToPromo (ApplyPromo needs no trigger -- an applied code always suppresses the deal).
-; Still a no-op if the user is Pro, holds a creator code, or the window elapsed (see OfferActive).
+; Still a no-op on the very first launch (the 24h window doesn't start until the second --
+; see LoadOrCreateOffer), for Pro users, creator-code holders, or once it has elapsed (OfferActive).
 
 ; ============================================================
 ;  UI  (WebView2 window + HTML/CSS/JS)
@@ -820,10 +822,15 @@ MaybeShowLoyaltyDiscount() {
 
 ; ---- Flash deal (24h post-install first-month discount, A/B priced) ----
 
-; Restore the persisted flash-deal variant + window start, or create them on first run
-; of this build. Every install gets a stable 1/2/3 arm (kept forever) so the A/B split
-; is even and a user always sees the same price; the window start is when this build
-; first ran, so EXISTING users also get a fresh 24h deal (not just brand-new installs).
+; Restore the persisted flash-deal variant + window start, or create them across the
+; first two launches. Every install gets a stable 1/2/3 arm (kept forever) so the A/B
+; split is even and a user always sees the same price. The 24h window deliberately does
+; NOT start on the very first launch -- slamming a countdown deal onto a freshly-installed
+; app reads as fake urgency. Instead the arm is assigned on launch 1 with the window left
+; unstarted, and the window starts on the SECOND launch (below), so the deal first appears
+; -- with a full, genuine 24h countdown -- only once the user has come back. EXISTING
+; users (a legacy variant-only file, or one already carrying a stamp) are past that first
+; launch, so their window starts/continues as before.
 LoadOrCreateOffer() {
     global OfferFile, OfferVariant, OfferStamp
     if FileExist(OfferFile) {
@@ -834,16 +841,22 @@ LoadOrCreateOffer() {
         if (v = "1" || v = "2" || v = "3") {
             OfferVariant := Integer(v)
             if (parts.Length >= 2 && IsInteger(parts[2]) && StrLen(parts[2]) >= 8) {
-                OfferStamp := parts[2]
+                OfferStamp := parts[2]  ; window already started on an earlier launch -> keep it
             } else {
-                OfferStamp := A_Now     ; legacy variant-only file -> start the window now + persist
+                ; Arm assigned but no window-start yet -> this is the second launch (launch 1
+                ; wrote "<variant>|"), or a legacy variant-only file. Start the 24h window NOW
+                ; so the deal shows for the first time this launch, with a fresh countdown.
+                OfferStamp := A_Now
                 SaveOffer()
             }
             return
         }
     }
+    ; First launch on this install: assign the arm but leave the window unstarted, so no
+    ; flash banner/popup this launch. Persisted as "<variant>|" (empty stamp); the next
+    ; launch takes the branch above and starts the window.
     OfferVariant := Random(1, 3)
-    OfferStamp := A_Now
+    OfferStamp := ""
     SaveOffer()
 }
 
@@ -860,8 +873,9 @@ SaveOffer() {
     }
 }
 
-; Seconds left in the 24h flash window (0 once expired). Anchored to OfferStamp (this
-; build's first launch), so it survives restarts and expires exactly 24h in.
+; Seconds left in the 24h flash window (0 once expired, and 0 before it starts -- OfferStamp
+; is empty until the second launch). Anchored to OfferStamp (the second launch, when the deal
+; first appears), so it survives restarts and expires exactly 24h in.
 OfferSecondsLeft() {
     global OfferWindowMs, OfferStamp
     if (OfferStamp = "")
