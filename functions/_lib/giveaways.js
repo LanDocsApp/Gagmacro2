@@ -42,7 +42,7 @@ export const GIVEAWAYS = {
     tagline: "Win 10x Moon Bloom Seeds",
     prize: "Enter the giveaway and have a chance to win 10x Moon Bloom Seeds.",
     endsAt: "2026-07-19T18:00:00Z",
-    image: "/10X.png",
+    image: "/10X.png?v=2",
   },
 };
 
