@@ -151,6 +151,10 @@ a { color: inherit; text-decoration: none; }
 .lp-btn-accent { background: var(--fp-accent); color: #fff; border-color: var(--fp-accent); }
 .lp-btn-accent:hover { box-shadow: 0 10px 26px color-mix(in srgb, var(--fp-accent) 45%, transparent); transform: translateY(-1px); }
 .lp-btn-lg { font-size: 15.5px; padding: 12px 24px; border-radius: 10px; }
+/* Giveaway nav button: outline base with a faint accent tint so it reads as special,
+   but stays white (no clash with the solid green Download) and does not overpower it. */
+.lp-btn-give { border-color: color-mix(in srgb, var(--fp-accent) 32%, var(--border)); }
+.lp-btn-give:hover { background: color-mix(in srgb, var(--fp-accent) 8%, #fff); border-color: color-mix(in srgb, var(--fp-accent) 50%, var(--border)); }
 
 /* ═══════════════ AUTOHOTKEY INSTALL PROMPT (post-download) ═══════════════ */
 .ahk-overlay {
@@ -392,6 +396,7 @@ html { scroll-behavior: smooth; }
       <span class="name">Garden Macro</span>
     </a>
     <div class="lp-nav-actions">
+      <a class="lp-btn lp-btn-outline lp-btn-give" href="/giveaway.html">🎉 Giveaway</a>
       <a class="lp-btn lp-btn-outline" href="/signin.html">Sign in</a>
       <a class="lp-btn lp-btn-accent lp-btn-lg js-download" href="/launcher.ahk" download="GardenMacro.ahk">Download</a>
     </div>
