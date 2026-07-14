@@ -68,6 +68,8 @@
                  filter: blur(20px); }
     .seed img, .seed .seed-svg { position: relative; z-index: 1; width: 248px; height: 248px; object-fit: contain;
                  filter: drop-shadow(0 14px 26px rgba(0,0,0,0.18)); }
+    /* Custom image (with its own background): no glow, no shadow — render flat. */
+    .seed-plain img { filter: none; }
 
     .prize-title { font-size: 30px; font-weight: 800; letter-spacing: -0.025em; color: var(--ink); margin-top: 8px; line-height: 1.1; }
     .prize-sub { font-size: 14.5px; color: var(--fg-2); margin: 8px auto 0; max-width: 440px; }
@@ -292,13 +294,16 @@
     }
 
     function seedHtml(g) {
-      var inner = g.image
-        ? '<img src="' + esc(g.image) + '" alt="' + esc(g.title) + '">'
-        : '<svg class="seed-svg" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">' +
+      // Custom image already has its own background, so it renders flat (no glow, no shadow).
+      // The built-in SVG placeholder keeps the soft green glow.
+      if (g.image) {
+        return '<div class="seed seed-plain"><img src="' + esc(g.image) + '" alt="' + esc(g.title) + '"></div>';
+      }
+      var svg = '<svg class="seed-svg" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">' +
             '<path d="M32 58 V30" stroke="#16a34a" stroke-width="4" stroke-linecap="round"></path>' +
             '<path d="M32 38 C20 38 14 28 15 17 C27 18 33 27 32 38 Z" fill="#16a34a"></path>' +
             '<path d="M32 42 C44 42 50 32 49 21 C37 22 31 31 32 42 Z" fill="#16a34a"></path></svg>';
-      return '<div class="seed"><div class="seed-glow"></div>' + inner + '</div>';
+      return '<div class="seed"><div class="seed-glow"></div>' + svg + '</div>';
     }
 
     function onEnterClick() {
@@ -408,8 +413,8 @@
       return backBtn() +
         '<div class="wz-eyebrow">Step 2</div>' +
         '<div class="wz-title">Your Grow a Garden username</div>' +
-        '<div class="wz-text">Enter your Roblox username so we can deliver the ' + esc(g.title) +
-          ' straight into your account if you win. Type it exactly as it appears in game.</div>' +
+        '<div class="wz-text">Enter your Roblox username so we can send you the seeds in Grow a Garden if you win. ' +
+          'Type it exactly as it appears in game.</div>' +
         '<input type="text" id="userInput" class="input-plain mt14" maxlength="20" placeholder="Roblox username" ' +
           'spellcheck="false" autocomplete="off" autocapitalize="off" value="' + esc(gagUsername) + '">' +
         '<div id="userMsg"></div>' +

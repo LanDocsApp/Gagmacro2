@@ -38,11 +38,11 @@ export function computeWeight({ hasMacro, isPro }) {
 export const GIVEAWAYS = {
   moonbloom: {
     id: "moonbloom",
-    title: "10x Moon Bloom Seed",
-    tagline: "One lucky winner gets 10x Moon Bloom Seed",
-    prize: "10x Moon Bloom Seed, delivered straight into your Grow a Garden account.",
+    title: "Moon Bloom Seed",
+    tagline: "Win 10x Moon Bloom Seeds",
+    prize: "Enter the giveaway and have a chance to win 10x Moon Bloom Seeds.",
     endsAt: "2026-07-19T18:00:00Z",
-    image: "/MoonBloomSeed.webp",
+    image: "/10X.png",
   },
 };
 
