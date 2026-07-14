@@ -89,7 +89,9 @@
     .btn.ink:hover { background: #333; }
     .btn.yt { background: #ff0000; color: #fff; border-color: #ff0000; }
     .btn.yt:hover { background: #d90000; border-color: #d90000; }
-    .btn:disabled, .btn.disabled { opacity: .45; cursor: not-allowed; pointer-events: none; }
+    .btn:disabled, .btn.disabled { cursor: not-allowed; pointer-events: none; opacity: .55; }
+    /* Disabled cue via colour, not opacity, so the reveal animation (which holds opacity:1) can't un-gray it */
+    .btn.primary:disabled, .btn.primary.disabled { opacity: 1; background: #bfe3cb; border-color: #bfe3cb; color: #f4fff8; }
     .btn .icon { width: 18px; height: 18px; }
     .mt14 { margin-top: 14px; }
 
@@ -415,7 +417,7 @@
           'Do not have the macro yet? <a class="lnk" href="/launcher.ahk" download>Download it free</a>.</div>' +
         '<input type="text" id="codeInput" class="mt14" maxlength="16" placeholder="Enter macro code" spellcheck="false" autocomplete="off" value="' + esc(macroCode) + '">' +
         '<div id="codeMsg"></div>' +
-        '<div class="wz-actions"><button class="btn primary block" id="codeContinue">Continue</button></div>' +
+        '<div class="wz-actions"><button class="btn primary block' + (macroCode ? "" : " disabled") + '" id="codeContinue"' + (macroCode ? "" : " disabled") + '>Continue</button></div>' +
         '<button class="wz-skip" id="codeSkip">Skip, I do not have the macro</button>';
     }
 
@@ -520,8 +522,15 @@
       var bonusNo = el("bonusNo");
       if (bonusNo) bonusNo.onclick = function () { wantBonus = false; macroCode = ""; codeValidated = false; navTo("pro"); };
 
+      var codeInput = el("codeInput");
+      if (codeInput) codeInput.oninput = function () {
+        var b = el("codeContinue");
+        if (!b) return;
+        var ok = codeInput.value.trim().length > 0;
+        b.disabled = !ok; b.classList.toggle("disabled", !ok);
+      };
       var codeContinue = el("codeContinue");
-      if (codeContinue) codeContinue.onclick = validateCode;
+      if (codeContinue) codeContinue.onclick = function () { if (!codeContinue.disabled) validateCode(); };
       var codeSkip = el("codeSkip");
       if (codeSkip) codeSkip.onclick = function () { wantBonus = false; macroCode = ""; codeValidated = false; navTo("pro"); };
 
