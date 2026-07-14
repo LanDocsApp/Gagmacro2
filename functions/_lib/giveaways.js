@@ -38,14 +38,14 @@ export function computeWeight({ hasMacro, isPro }) {
 // The `image` is optional (a data: URI or same-origin path); the page renders a clean
 // placeholder when it's absent, so it's safe to leave the visuals for later.
 export const GIVEAWAYS = {
-  starfruit: {
-    id: "starfruit",
-    title: "Star Fruit Seed",
-    tagline: "One lucky winner gets a Star Fruit Seed",
-    prize: "1× Star Fruit Seed, delivered straight into your Grow a Garden account.",
+  venusflytrap: {
+    id: "venusflytrap",
+    title: "Venus Fly Trap Seed",
+    tagline: "One lucky winner gets a Venus Fly Trap Seed",
+    prize: "1× Venus Fly Trap Seed, delivered straight into your Grow a Garden account.",
     kind: "normal",
     endsAt: "2026-07-28T18:00:00Z",
-    image: "",
+    image: "/VenusFlyTrapSeed.webp",
   },
   "pro-drop": {
     id: "pro-drop",
@@ -59,7 +59,7 @@ export const GIVEAWAYS = {
 };
 
 // The giveaway the public page shows when no ?g= is given.
-export const DEFAULT_GIVEAWAY = "starfruit";
+export const DEFAULT_GIVEAWAY = "venusflytrap";
 
 // Return a giveaway (defaulted) with parsed timing fields, or null if the registry is empty.
 export function getGiveaway(id) {

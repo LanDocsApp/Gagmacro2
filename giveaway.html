@@ -145,6 +145,37 @@
     .pro-line .txt { font-size: 13.5px; color: var(--fg); }
     .pro-line .txt b { color: var(--accent-hover); }
 
+    /* Prominent Pro upsell shown on the final "ready to enter" step */
+    .pro-cta { background: var(--accent-soft); border: 1px solid var(--accent-line); border-radius: 12px;
+               padding: 16px 16px 14px; margin-top: 16px; text-align: center; }
+    .pro-cta .h { font-weight: 800; font-size: 15px; color: var(--ink); letter-spacing: -0.01em; }
+    .pro-cta .p { font-size: 13px; color: var(--fg-2); margin: 5px 0 12px; line-height: 1.5; }
+    .pro-cta .p b { color: var(--accent-hover); }
+
+    /* Step-by-step wizard — one focused task per screen */
+    .wiz-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+    .wiz-step { font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--fg-4); }
+    .pdots { display: flex; gap: 6px; }
+    .pdot { width: 7px; height: 7px; border-radius: 50%; background: var(--border); transition: background .2s, transform .2s; }
+    .pdot.on { background: var(--accent); transform: scale(1.25); }
+    .pdot.done { background: var(--accent-line); }
+    .wiz-body { animation: wizIn .22s ease; }
+    @keyframes wizIn { from { opacity: 0; transform: translateX(6px); } to { opacity: 1; transform: none; } }
+    .wiz-title { font-size: 18px; font-weight: 800; color: var(--ink); letter-spacing: -0.01em; line-height: 1.2; }
+    .wiz-title .tag { vertical-align: middle; margin-left: 4px; }
+    .wiz-sub { font-size: 13.5px; color: var(--fg-2); margin-top: 6px; line-height: 1.5; }
+    .wiz-nav { display: flex; gap: 10px; margin-top: 20px; }
+    .wiz-nav .btn { flex: 1; }
+    .wiz-nav .btn.back { flex: 0 0 auto; }
+
+    /* Overview mini-list shown on the sign-in screen (titles only, no inputs) */
+    .mini-steps { margin: 16px 0 4px; }
+    .mini-step { display: flex; align-items: center; gap: 12px; padding: 11px 0; border-top: 1px solid var(--border); }
+    .mini-step:first-child { border-top: none; }
+    .mini-step .n { flex: 0 0 24px; height: 24px; border-radius: 50%; background: var(--accent-soft); color: var(--accent);
+                    border: 1px solid var(--accent-line); display: grid; place-items: center; font-weight: 700; font-size: 12px; }
+    .mini-step .t { font-size: 14px; font-weight: 600; color: var(--fg); }
+
     /* Confirmation */
     .confirm { text-align: center; padding: 8px 0; }
     .confirm .tick { width: 56px; height: 56px; margin: 0 auto 14px; border-radius: 50%; background: var(--accent-soft); border: 1px solid var(--accent-line); display: grid; place-items: center; }
@@ -209,7 +240,9 @@
     var GID = (params.get("g") || "").trim();
     var app = document.getElementById("app");
     var state = null;        // last /api/giveaway payload
-    var subChecked = false;  // honor-gate checkbox
+    var subChecked = false;  // honor-gate checkbox (persists across wizard steps)
+    var macroCode = "";      // typed macro code (persists across wizard steps)
+    var wizStep = 0;         // current step index in the entry wizard
     var countdownTimer = null;
 
     function esc(s) {
@@ -292,6 +325,15 @@
       if (!g.ended) startCountdown(g.endsAt);
     }
 
+    // Re-render ONLY the entry panel (used for wizard step changes) so the prize
+    // card + countdown above it keep ticking without a flicker.
+    function renderPanel() {
+      var panel = el("panel");
+      if (!panel) { render(); return; }
+      panel.innerHTML = entryPanel(state);
+      wire(state);
+    }
+
     function unit(id, label) {
       return '<div class="u"><div class="n" id="' + id + '">–</div><div class="l">' + label + '</div></div>';
     }
@@ -313,12 +355,9 @@
           promoBlock(g);
       }
 
-      // Not signed in.
+      // Not signed in -> focused sign-in screen (step 1), with a short overview.
       if (!me.signedIn) {
-        return '<div class="steps-h">How to enter</div>' +
-          gateSteps(g, false) +
-          '<button class="btn ink block mt14" id="signinBtn">' + googleIcon() + ' Sign in with Google to enter</button>' +
-          '<div class="rules" style="text-align:center;margin-top:10px">1 entry per account. We only use your email to contact you if you win.</div>';
+        return signinStep(g);
       }
 
       // Signed in + already entered.
@@ -356,53 +395,118 @@
           '<a href="/api/auth/google/login" style="color:var(--accent-hover)">switch account</a>.</div>';
       }
 
-      // Signed in, can enter (normal giveaway, or premium + Pro).
-      return '<div class="steps-h">Complete these to enter</div>' +
-        gateSteps(g, true) +
-        proLine(g) +
-        entryPreview(g) +
-        '<div id="enterErr"></div>' +
-        '<button class="btn primary block mt14 disabled" id="enterBtn" disabled>Enter giveaway</button>';
+      // Signed in, can enter (normal giveaway, or premium + Pro) -> step wizard.
+      return entryWizard(g);
     }
 
-    // The subscribe (+ macro code) steps, shared by signed-out preview and the live form.
-    function gateSteps(g, live) {
+    // ---- Sign-in screen (step 1) -----------------------------------------
+    function signinStep(g) {
+      var last = g.kind === "premium" ? "Confirm &amp; enter (Pro)" : "Confirm &amp; enter";
+      return '<div class="steps-h">How to enter — 3 quick steps</div>' +
+        '<div class="mini-steps">' +
+          miniStep(1, "Sign in with Google") +
+          miniStep(2, "Subscribe to White Lion") +
+          miniStep(3, last) +
+        '</div>' +
+        '<button class="btn ink block mt14" id="signinBtn">' + googleIcon() + ' Sign in with Google</button>' +
+        '<div class="rules" style="text-align:center;margin-top:10px">1 entry per account. We only use your email to contact you if you win.</div>';
+    }
+    function miniStep(n, t) {
+      return '<div class="mini-step"><div class="n">' + n + '</div><div class="t">' + t + '</div></div>';
+    }
+
+    // ---- Entry wizard (signed in, not yet entered) -----------------------
+    // One task per screen: subscribe -> (optional macro code) -> confirm & enter.
+    // Pro members skip the code step (they already hold the max entries).
+    function wizardSteps(g) {
       var me = g.me || {};
-      var subDone = live && me.entered; // (entered users never reach here, but keep it honest)
-      var s = "";
-
-      // Step 1 — subscribe honor gate.
-      s += '<div class="step">' +
-        '<div class="num">1</div>' +
-        '<div class="body">' +
-          '<div class="t">Subscribe to White Lion on YouTube</div>' +
-          '<div class="d">Our giveaways are powered by the channel — subscribing is how you enter.</div>' +
-          '<a class="btn yt sm mt6" href="' + esc(g.subscribeUrl) + '" target="_blank" rel="noopener" id="subBtn">' +
-            ytIcon() + ' Subscribe to White Lion</a>';
-      if (live) {
-        s += '<label class="check"><input type="checkbox" id="subCheck"> ' +
-          'I subscribed to White Lion on YouTube</label>' +
-          '<div class="warn">Be honest — if you didn\'t actually subscribe, you won\'t receive the prize even if you\'re drawn.</div>';
-      }
-      s += '</div></div>';
-
-      // Step 2 — macro code (+2). Skipped visually for Pro (they already get max).
-      if (!(live && me.isPro)) {
-        s += '<div class="step">' +
-          '<div class="num">2</div>' +
-          '<div class="body">' +
-            '<div class="t">Have the macro? Enter its code <span class="tag">+2 entries</span></div>' +
-            '<div class="d">The code is shown at the <b>bottom of the macro window</b>, under the version. ' +
-            'Don\'t have it yet? <a href="/launcher.ahk" download style="color:var(--accent-hover);font-weight:600">Download the free macro</a>.</div>';
-        if (live) {
-          s += macroCodeStep(g, false);
-        }
-        s += '</div></div>';
-      }
-      return s;
+      var steps = ["subscribe"];
+      if (!me.isPro) steps.push("code");
+      steps.push("enter");
+      return steps;
     }
 
-    // The macro-code input row (used inline in step 2 and in the post-entry "better odds" block).
+    function entryWizard(g) {
+      var steps = wizardSteps(g);
+      if (wizStep > steps.length - 1) wizStep = steps.length - 1;
+      if (wizStep < 0) wizStep = 0;
+      var key = steps[wizStep];
+      var body = key === "subscribe" ? stepSubscribe(g)
+               : key === "code"      ? stepCode(g)
+               :                       stepEnter(g);
+      return wizProgress(steps, wizStep) +
+        '<div class="wiz-body">' + body + '</div>' +
+        wizNav(g, steps);
+    }
+
+    function wizProgress(steps, i) {
+      var dots = steps.map(function (_, idx) {
+        var cls = idx === i ? " on" : (idx < i ? " done" : "");
+        return '<span class="pdot' + cls + '"></span>';
+      }).join("");
+      return '<div class="wiz-top">' +
+        '<div class="wiz-step">Step ' + (i + 1) + ' of ' + steps.length + '</div>' +
+        '<div class="pdots">' + dots + '</div></div>';
+    }
+
+    function stepSubscribe(g) {
+      return '<div class="wiz-title">Subscribe to White Lion</div>' +
+        '<div class="wiz-sub">Our giveaways are powered by the channel — subscribing on YouTube is how you enter.</div>' +
+        '<a class="btn yt block mt14" href="' + esc(g.subscribeUrl) + '" target="_blank" rel="noopener" id="subBtn">' +
+          ytIcon() + ' Subscribe to White Lion</a>' +
+        '<label class="check"><input type="checkbox" id="subCheck"> I subscribed to White Lion on YouTube</label>' +
+        '<div class="warn">Be honest — if you didn\'t actually subscribe, you won\'t receive the prize even if you\'re drawn.</div>';
+    }
+
+    function stepCode(g) {
+      return '<div class="wiz-title">Have the macro? <span class="tag">+2 entries</span></div>' +
+        '<div class="wiz-sub">Enter the code shown at the <b>bottom of the macro window</b>, under the version. ' +
+        'Don\'t have it yet? <a href="/launcher.ahk" download style="color:var(--accent-hover);font-weight:600">Download the free macro</a>, or skip this step.</div>' +
+        '<input type="text" id="codeInput" class="mt14" maxlength="16" placeholder="Enter macro code" ' +
+          'spellcheck="false" autocomplete="off" value="' + esc(macroCode) + '">' +
+        '<div id="codeMsg"></div>';
+    }
+
+    function stepEnter(g) {
+      var me = g.me || {};
+      var n = me.isPro ? g.weights.pro : (macroCode ? g.weights.macro : g.weights.base);
+      var note = me.isPro ? "as a Pro member" : (macroCode ? "with your macro code" : "with your entry");
+      return '<div class="wiz-title">You\'re ready to enter</div>' +
+        '<div class="wiz-sub">Here\'s where you stand — hit the button to lock it in.</div>' +
+        '<div class="entry-count"><div class="big">' + n + '</div>' +
+          '<div class="sub">' + (n === 1 ? "entry" : "entries") + ' ' + note + '</div></div>' +
+        (me.isPro ? proLine(g) : proCta(g)) +
+        '<div id="enterErr"></div>';
+    }
+
+    // Strong Pro pitch at the end of the flow: Pro = the maximum entries.
+    function proCta(g) {
+      return '<div class="pro-cta">' +
+        '<div class="h">Want the best odds?</div>' +
+        '<div class="p">With <b>Garden Macro Pro</b> you get <b>' + g.weights.pro +
+          ' entries</b> into this giveaway — the most you can have. Grab it now for the best shot at winning.</div>' +
+        '<a class="btn primary block" href="/api/checkout">Get Garden Macro Pro — ' + g.weights.pro + ' entries →</a>' +
+        '</div>';
+    }
+
+    function wizNav(g, steps) {
+      var key = steps[wizStep];
+      var back = wizStep > 0 ? '<button class="btn back" id="wizBack">Back</button>' : "";
+      if (key === "enter") {
+        return '<div class="wiz-nav">' + back +
+          '<button class="btn primary" id="enterBtn">Enter giveaway</button></div>' +
+          '<div class="rules" style="text-align:center;margin-top:10px">1 entry per account.</div>';
+      }
+      if (key === "subscribe") {
+        return '<div class="wiz-nav">' + back +
+          '<button class="btn primary disabled" id="wizNext" disabled>Continue</button></div>';
+      }
+      // code step — optional, so Continue works with or without a code.
+      return '<div class="wiz-nav">' + back +
+        '<button class="btn primary" id="wizNext">' + (macroCode ? "Continue" : "Skip for now") + '</button></div>';
+    }
+
+    // The macro-code input row (used in the post-entry "better odds" booster block).
     function macroCodeStep(g, standalone) {
       var wrapOpen = standalone ? '<div class="mt10">' : '<div class="mt10">';
       return wrapOpen +
@@ -424,14 +528,6 @@
         '<a class="btn primary sm" href="/api/checkout">Get it →</a></div>';
     }
 
-    function entryPreview(g) {
-      var me = g.me || {};
-      var n = me.isPro ? g.weights.pro : g.weights.base; // base until they add the code
-      var note = me.isPro ? "as a Pro member" : "Enter your macro code for +2";
-      return '<div class="entry-count"><div class="big" id="previewN">' + n + '</div>' +
-        '<div class="sub" id="previewNote">' + note + '</div></div>';
-    }
-
     function promoBlock(g) {
       return '<div class="promo"><div class="h">Get more chances next time</div>' +
         '<div class="p">Run the macro for +2 entries, or go Pro for ' + g.weights.pro + ' — plus Pro-only giveaways.</div>' +
@@ -451,44 +547,52 @@
         location.href = "/api/auth/google/login";
       };
 
+      // Subscribe step: the honor-gate checkbox unlocks the "Continue" button.
+      var wizNext = el("wizNext");
       var subCheck = el("subCheck");
-      var enterBtn = el("enterBtn");
-      if (subCheck && enterBtn) {
+      if (subCheck) {
         subCheck.checked = subChecked;
-        updateEnter();
-        subCheck.onchange = function () { subChecked = subCheck.checked; updateEnter(); };
+        gateNext();
+        subCheck.onchange = function () { subChecked = subCheck.checked; gateNext(); };
+      }
+      function gateNext() {
+        if (!wizNext) return;
+        wizNext.disabled = !subChecked;
+        wizNext.classList.toggle("disabled", !subChecked);
       }
 
+      // Wizard navigation.
+      if (wizNext) wizNext.onclick = function () {
+        if (wizNext.disabled) return;
+        wizStep++; renderPanel();
+      };
+      var wizBack = el("wizBack");
+      if (wizBack) wizBack.onclick = function () { wizStep--; renderPanel(); };
+
+      // Macro-code input (wizard code step OR post-entry booster). Persist what's
+      // typed so it survives step navigation, and keep the Skip/Continue label live.
       var codeInput = el("codeInput");
-      if (codeInput) codeInput.addEventListener("input", updatePreview);
+      if (codeInput) codeInput.addEventListener("input", function () {
+        macroCode = codeInput.value.trim();
+        var wn = el("wizNext");
+        if (wn) wn.textContent = macroCode ? "Continue" : "Skip for now";
+      });
 
       // Inline "Add +2" (post-entry booster).
       var codeApply = el("codeApplyBtn");
       if (codeApply) codeApply.onclick = function () { submitEntry(true); };
 
+      var enterBtn = el("enterBtn");
       if (enterBtn) enterBtn.onclick = function () { submitEntry(false); };
-
-      function updateEnter() {
-        enterBtn.disabled = !subChecked;
-        enterBtn.classList.toggle("disabled", !subChecked);
-      }
-    }
-
-    function updatePreview() {
-      var g = state, me = g.me || {};
-      var code = (el("codeInput") && el("codeInput").value || "").trim();
-      var previewN = el("previewN"), note = el("previewNote");
-      if (!previewN) return;
-      var n = me.isPro ? g.weights.pro : (code ? g.weights.macro : g.weights.base);
-      previewN.textContent = n;
-      if (note) note.textContent = me.isPro ? "as a Pro member" : (code ? "with your macro code" : "Enter your macro code for +2");
     }
 
     // Submit (or booster-update) the entry. `boost` = the standalone "Add +2" button.
+    // The code comes from the visible input when present (booster), else the value
+    // the wizard captured on the code step.
     function submitEntry(boost) {
       var g = state;
       var codeInput = el("codeInput");
-      var code = (codeInput && codeInput.value || "").trim();
+      var code = ((codeInput && codeInput.value) || macroCode || "").trim();
       var errBox = el("enterErr") || el("codeMsg");
       var btn = boost ? el("codeApplyBtn") : el("enterBtn");
       if (errBox) errBox.innerHTML = "";
