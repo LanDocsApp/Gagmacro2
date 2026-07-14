@@ -42,7 +42,7 @@ export const GIVEAWAYS = {
     id: "venusflytrap",
     title: "Venus Fly Trap Seed",
     tagline: "One lucky winner gets a Venus Fly Trap Seed",
-    prize: "1× Venus Fly Trap Seed, delivered straight into your Grow a Garden account.",
+    prize: "1x Venus Fly Trap Seed, delivered straight into your Grow a Garden account.",
     kind: "normal",
     endsAt: "2026-07-28T18:00:00Z",
     image: "/VenusFlyTrapSeed.webp",
