@@ -7,14 +7,21 @@
 // lands on Checkout with the discount already applied — no code to paste. See
 // functions/_lib/creators.js FLASH_CODES. The cookie is what carries the variant
 // across the Google-login round-trip (the OAuth callback drops the query string).
+//
+// Creator codes work the same way: a `code` (e.g. ?code=LION) may ride in on the query
+// string or the `gag_code` cookie when the user entered a creator code in the macro. The
+// code string IS its own Stripe promotion code, so we look it up and AUTO-APPLY it too —
+// no code to paste. Flash offer and creator code are mutually exclusive in the macro (the
+// flash deal is suppressed for creator-code holders); if both somehow arrive, the flash wins.
 
 import { createCheckoutSession, listPromotionCodes } from "../_lib/stripe.js";
 import { getCustomerId, getSubStatus, isActiveStatus } from "../_lib/kv.js";
 import { baseUrl, readSession, redirect, parseCookies, cookie } from "../_lib/http.js";
 import { logEvent } from "../_lib/events.js";
-import { flashCodeForVariant } from "../_lib/creators.js";
+import { flashCodeForVariant, creatorCode } from "../_lib/creators.js";
 
 const OFFER_COOKIE = "gag_offer";
+const CODE_COOKIE = "gag_code";
 const OFFER_MAX_AGE = 30 * 60; // 30 min: long enough to cover the Google-login round-trip.
 
 // Read + validate the flash variant from the query string (wins) or the cookie.
@@ -26,11 +33,18 @@ function readOffer(request) {
   return /^[123]$/.test(raw) ? raw : "";
 }
 
-// Look up the active promotion code id (promo_...) for a flash variant, or null.
-// Best-effort: any Stripe hiccup returns null so checkout falls back to full price
+// Read + validate an entered creator code from the query string (wins) or the cookie.
+// Returns the UPPERCASE code (e.g. "LION") only if it's a known creator code, else "".
+function readCreatorCode(request) {
+  const q = new URL(request.url).searchParams.get("code");
+  const c = parseCookies(request)[CODE_COOKIE];
+  return creatorCode(q || c || "");
+}
+
+// Look up the active promotion code id (promo_...) for a raw promotion-code STRING, or
+// null. Best-effort: any Stripe hiccup returns null so checkout falls back to full price
 // rather than failing the sale.
-async function flashPromotionId(env, offer) {
-  const code = flashCodeForVariant(offer);
+async function promotionIdForCode(env, code) {
   if (!code) return null;
   try {
     const res = await listPromotionCodes(env, code);
@@ -41,16 +55,24 @@ async function flashPromotionId(env, offer) {
   }
 }
 
+// The flash variant's promotion code id, or null. Thin wrapper over promotionIdForCode.
+function flashPromotionId(env, offer) {
+  return promotionIdForCode(env, flashCodeForVariant(offer));
+}
+
 async function handle({ request, env }) {
   const base = baseUrl(request, env);
   const offer = readOffer(request);
+  const creator = readCreatorCode(request);
 
   const session = await readSession(request, env);
   if (!session) {
-    // Not signed in yet -> send to Google login, but first stash the offer in a
-    // cookie so it survives the round-trip (the OAuth callback drops query strings).
+    // Not signed in yet -> send to Google login, but first stash the offer / creator
+    // code in a cookie so it survives the round-trip (the OAuth callback drops query
+    // strings), and the discount still auto-applies when they come back to checkout.
     const headers = new Headers({ Location: `${base}/api/auth/google/login` });
     if (offer) headers.append("Set-Cookie", cookie(OFFER_COOKIE, offer, { maxAge: OFFER_MAX_AGE }));
+    if (creator) headers.append("Set-Cookie", cookie(CODE_COOKIE, creator, { maxAge: OFFER_MAX_AGE }));
     return new Response(null, { status: 302, headers });
   }
 
@@ -78,16 +100,31 @@ async function handle({ request, env }) {
   if (customerId) params.customer = customerId;
   else if (session.email) params.customer_email = session.email;
 
-  // Flash deal: auto-apply the variant's promotion code. `discounts` and
-  // `allow_promotion_codes` are mutually exclusive in a Checkout Session, so swap.
+  // Auto-apply a discount so the user never has to paste a code: the flash-deal
+  // variant (?offer=) OR an entered creator code (?code=). At most one applies — if
+  // both arrive the flash wins. `discounts` and `allow_promotion_codes` are mutually
+  // exclusive in a Checkout Session, so swap when we attach one.
   let promoId = null;
+  let appliedOffer = "";
+  let appliedCode = "";
   if (offer) {
     promoId = await flashPromotionId(env, offer);
-    if (promoId) {
-      params.discounts = [{ promotion_code: promoId }];
-      delete params.allow_promotion_codes;
-      params.metadata.offer = offer;
-      params.subscription_data.metadata.offer = offer;
+    if (promoId) appliedOffer = offer;
+  }
+  if (!promoId && creator) {
+    promoId = await promotionIdForCode(env, creator);
+    if (promoId) appliedCode = creator;
+  }
+  if (promoId) {
+    params.discounts = [{ promotion_code: promoId }];
+    delete params.allow_promotion_codes;
+    if (appliedOffer) {
+      params.metadata.offer = appliedOffer;
+      params.subscription_data.metadata.offer = appliedOffer;
+    }
+    if (appliedCode) {
+      params.metadata.promo = appliedCode;
+      params.subscription_data.metadata.promo = appliedCode;
     }
   }
 
@@ -104,6 +141,8 @@ async function handle({ request, env }) {
       params.allow_promotion_codes = true;
       delete params.metadata.offer;
       delete params.subscription_data.metadata.offer;
+      delete params.metadata.promo;
+      delete params.subscription_data.metadata.promo;
       promoId = null;
       try {
         checkout = await createCheckoutSession(env, params);
@@ -115,12 +154,19 @@ async function handle({ request, env }) {
     }
   }
   // Funnel: a signed-in, not-yet-subscribed user is being sent to the pay page.
-  // Tag the flash variant when applied so /stats can group checkout intent by price.
+  // Tag the applied flash variant / creator code so /stats can group checkout intent.
   // Best-effort and never blocks the redirect.
-  await logEvent(env, "checkout", { meta: { sub: session.sub, offer: promoId ? offer : undefined } });
-  // Clear the offer cookie now that it's been consumed into the session.
+  await logEvent(env, "checkout", {
+    meta: {
+      sub: session.sub,
+      offer: promoId && appliedOffer ? appliedOffer : undefined,
+      promo: promoId && appliedCode ? appliedCode : undefined,
+    },
+  });
+  // Clear the offer / creator-code cookies now that they've been consumed into the session.
   const headers = new Headers({ Location: checkout.url });
   if (offer) headers.append("Set-Cookie", cookie(OFFER_COOKIE, "", { maxAge: 0 }));
+  if (creator) headers.append("Set-Cookie", cookie(CODE_COOKIE, "", { maxAge: 0 }));
   return new Response(null, { status: 302, headers });
 }
 

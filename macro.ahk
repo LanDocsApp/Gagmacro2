@@ -1034,14 +1034,20 @@ CheckSavedLicense() {
 ; "Get access" -> open the sign-in / subscribe page in the default browser.
 ; Minimize the macro window so the browser sign-in page is in full view.
 OpenAccessPage() {
-    global BackendBase, MainGui, OfferVariant
+    global BackendBase, MainGui, OfferVariant, PromoCode
     ; Count this as a funnel step: an install that clicked through to the pay page.
     SendEvent("get_access")
     url := BackendBase "/signin.html"
     ; During the 24h flash window, carry the price variant so the discount auto-applies
     ; at checkout (the sign-in page stashes it in a cookie across the Google login).
+    ; Otherwise, if the user entered a creator code, carry that instead so IT auto-applies
+    ; the same way -- no code to paste. The two are mutually exclusive (OfferActive() is
+    ; false whenever a creator code is held), so at most one query param is ever added.
+    ; PromoCode is pre-validated + UPPER-cased and is plain A-Z, so it needs no escaping.
     if OfferActive()
         url .= "?offer=" OfferVariant
+    else if (PromoCode != "")
+        url .= "?code=" PromoCode
     try
         Run(url)
     catch

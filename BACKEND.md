@@ -72,6 +72,16 @@ External setup that must match:
    straight to the code; otherwise creates a Stripe Checkout session
    (`client_reference_id` = Google sub, `metadata.google_id` on both the session
    and the subscription).
+   - **Auto-applied discount:** `/api/checkout` will attach a Stripe promotion code
+     for the user so they never paste one — from either the flash-deal variant
+     (`?offer=1|2|3`) or an entered creator code (`?code=LION`). The macro sends one on
+     the "Get access" link; `signin.html` persists it in the `gag_offer` / `gag_code`
+     cookie across the Google-login round-trip (the OAuth callback drops query strings)
+     and threads it back onto the checkout link. Offer and code are mutually exclusive
+     (the flash deal is suppressed for creator-code holders); if both arrive, the flash
+     wins. If Stripe rejects the discount, checkout retries at full price rather than
+     failing the sale. Creator attribution is native (the promotion code lands on the
+     invoice discount — see `_lib/money.js`), so it works the same as a pasted code.
 4. After payment Stripe redirects to `/api/success?session_id=...`, which writes
    the `user:` / `sub:` KV records and shows the **paste-code**.
 5. Stripe also calls `/api/webhook` to keep KV in sync on renewals/cancellations.

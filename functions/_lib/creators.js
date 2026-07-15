@@ -77,6 +77,15 @@ const CODE_TO_CREATOR = (() => {
   return m;
 })();
 
+// Normalize + validate a creator code the user entered in the macro. Returns the
+// UPPERCASE code string if it belongs to a known creator, else "". The code string
+// IS its own Stripe promotion code, so /api/checkout can look it up directly and
+// auto-apply it (see checkout.js), the same way the flash deal auto-applies its code.
+export function creatorCode(code) {
+  const CODE = String(code || "").trim().toUpperCase();
+  return CODE_TO_CREATOR[CODE] ? CODE : "";
+}
+
 // Tag a promo code string with its purpose + owning creator (if any). Used to
 // label the Money tab's discount-code table and to attribute earnings.
 // Returns { purpose: "creator"|"conversion"|"loyalty"|"flash"|"other",

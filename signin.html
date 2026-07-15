@@ -167,12 +167,32 @@
       const c = getCookie("gag_offer");
       return /^[123]$/.test(c) ? c : "";
     }
+
+    // Creator code: the macro sends ?code=<CODE> when the user entered a valid creator
+    // code, so it auto-applies at checkout the same way the flash deal does. Persist it
+    // across the Google-login round-trip too. /api/checkout is the authority on which
+    // codes are real — here we only sanity-check the shape.
+    function getCode() {
+      const q = (params.get("code") || "").toUpperCase();
+      if (/^[A-Z0-9]{2,16}$/.test(q)) return q;
+      const c = getCookie("gag_code").toUpperCase();
+      return /^[A-Z0-9]{2,16}$/.test(c) ? c : "";
+    }
+
+    // Persist whichever arrived (30 min — enough to sign in and come back; cleared by
+    // /api/checkout) and thread it onto the checkout link so the discount auto-applies.
+    // Offer and code are mutually exclusive in the macro; if both are present, both ride.
     const offer = getOffer();
-    if (offer) {
-      // 30 min — enough to cover signing in and coming back. Cleared by /api/checkout.
-      document.cookie = "gag_offer=" + offer + "; Max-Age=1800; Path=/; SameSite=Lax; Secure";
+    const code = getCode();
+    if (offer) document.cookie = "gag_offer=" + offer + "; Max-Age=1800; Path=/; SameSite=Lax; Secure";
+    if (code) document.cookie = "gag_code=" + code + "; Max-Age=1800; Path=/; SameSite=Lax; Secure";
+    const checkoutQs = [];
+    if (offer) checkoutQs.push("offer=" + encodeURIComponent(offer));
+    if (code) checkoutQs.push("code=" + encodeURIComponent(code));
+    if (checkoutQs.length) {
+      const suffix = "?" + checkoutQs.join("&");
       document.querySelectorAll('a[href="/api/checkout"]').forEach(function (a) {
-        a.setAttribute("href", "/api/checkout?offer=" + offer);
+        a.setAttribute("href", "/api/checkout" + suffix);
       });
     }
 
