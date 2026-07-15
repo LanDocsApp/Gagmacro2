@@ -16,11 +16,29 @@ export const CREATORS = {
   vexy:  { name: "VexyChaos",  codes: ["VEXY"] },
 };
 
+// The checkout discount each creator code grants (its Stripe promotion code is a percent-off
+// coupon). The giveaway page reads this to show "N% off with code LION" when a creator code is
+// entered instead of the generic GIVEAWAY chip. Keep in sync with macro.ahk's PromoValid and
+// with CREATORS above. Keys UPPERCASE; look up case-insensitively via creatorCodePercent().
+export const CREATOR_CODE_PERCENT = {
+  OVER:   10,
+  ROOKIE: 10,
+  JUKEM:  10,
+  VEXY:   20,
+  LION:   20,
+};
+
 // Look up a creator by slug (case-insensitive). Returns { id, name, codes } or null.
 export function getCreator(id) {
   const key = String(id || "").trim().toLowerCase();
   const c = CREATORS[key];
   return c ? { id: key, name: c.name, codes: c.codes.slice() } : null;
+}
+
+// The discount percent for a creator code (0 if it isn't a known creator code). Case-insensitive.
+export function creatorCodePercent(code) {
+  const CODE = String(code || "").trim().toUpperCase();
+  return CREATOR_CODE_PERCENT[CODE] || 0;
 }
 
 // Non-creator system discount codes the macro shows on its own (NOT attribution

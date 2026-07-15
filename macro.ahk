@@ -353,7 +353,12 @@ BuildUi() {
     html := StrReplace(html, "__LOCKED__", BuildLockedJs())
     html := StrReplace(html, "__PREMIUM__", PremiumCount)
     html := StrReplace(html, "__VERSION__", VersionLabel())
-    html := StrReplace(html, "__GIVEAWAY__", GiveawayCode)  ; giveaway entry code, shown under the version
+    ; Giveaway entry code shown under the version. If the user holds a creator code, show THAT
+    ; instead of the generic shared code -- a creator code also proves they have the macro (+2
+    ; giveaway entries), and on the giveaway page it swaps the generic 30%-off chip for the
+    ; creator's own code + percent. Updated live if a code is entered this session (promoAccepted).
+    giveCode := (PromoCode != "") ? PromoCode : GiveawayCode
+    html := StrReplace(html, "__GIVEAWAY__", giveCode)
     html := StrReplace(html, "__PROMO__", PromoCode)   ; "" if none/skipped -> badge stays hidden
     html := StrReplace(html, "__PROMOPCT__", PromoPct) ; the code's discount percent (0 if none) -> badge "N% off"
     hasToken := (FileExist(TokenFile) && ReadToken(TokenFile) != "") ? "1" : "0"  ; returning user? -> skip the promo wall
@@ -1598,6 +1603,20 @@ HtmlTemplate() {
         background:#fafafa;border-radius:8px;font-size:11.5px;color:#777;line-height:1.4}
   .setupnote .sni{font-size:13px;opacity:.65;flex-shrink:0}
   .setupnote b{color:#555;font-weight:600}
+  /* One-tap link to the setup video; replaces the old wall of text reminders.
+     Clicking opens the walkthrough and dismisses this row for good (the top
+     "Video setup" link stays as the permanent way back). */
+  .setupvid{display:inline-flex;align-items:center;align-self:flex-start;margin-top:-6px;gap:7px;
+        cursor:pointer;border:1px solid #eee;transition:background .12s,border-color .12s}
+  .setupvid:hover{background:#f3f4f6;border-color:#e0e0e0}
+  .setupvid b{color:#333}
+  /* Little YouTube glyph: red rounded badge with a white play triangle. */
+  .setupvid .ytlogo{position:relative;width:19px;height:13px;background:#ff0000;
+        border-radius:4px;flex-shrink:0}
+  .setupvid .ytlogo::after{content:'';position:absolute;top:50%;left:50%;
+        transform:translate(-50%,-50%);border-style:solid;border-width:3.5px 0 3.5px 6px;
+        border-color:transparent transparent transparent #fff}
+  .setupvid .svarrow{color:#bbb;font-weight:700;flex-shrink:0}
   /* Gears = Pro feature: the menu opens but is grayed out behind a lock */
   .prowrap{position:relative}
   .prodim{opacity:.5;filter:grayscale(100%);pointer-events:none;user-select:none}
@@ -1675,7 +1694,7 @@ HtmlTemplate() {
      install (see MaybeShowFlashOffer). Hidden until AHK sends "flash|..."; the page
      ticks the timer down itself and hides the bar at zero. Clicking it opens checkout. */
   .flashbar{display:none;align-items:center;gap:12px;
-       background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:8px 10px 8px 13px;margin-bottom:12px}
+       background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:8px 10px 8px 13px}
   .flashbar.show{display:flex;animation:flashDrop .32s ease-out both}
   .flashbar .fbinfo{display:flex;flex-direction:column;line-height:1.25;min-width:0}
   .flashbar .fblabel{font-size:10px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:#b91c1c}
@@ -1696,9 +1715,10 @@ HtmlTemplate() {
         color:#9a9a9a;display:flex;align-items:center;justify-content:center}
   .pbar{display:flex;align-items:center;gap:9px;padding:10px 12px;
         background:#fafafa;border-radius:8px;font-size:12.5px;color:#666;cursor:pointer}
-  .pbar:hover{background:#f3f3f3;border-color:#dcdcdc}
+  .pbar:hover{background:#f3f3f3}
   .pbar .plock{opacity:.55;font-size:13px}
-  .pbar .pget{margin-left:auto;font-weight:600;color:#16a34a}
+  .pbar .pget{margin-left:auto;font-weight:700;color:#16a34a;white-space:nowrap;flex-shrink:0}
+  .pbar:hover .pget{color:#15803d}
   .pbar.ok{background:#ecfdf5;border-color:#bbf7d0;color:#15803d;cursor:default;font-weight:500}
   .overlay{position:fixed;inset:0;background:rgba(20,20,20,.45);display:flex;
         align-items:center;justify-content:center;padding:20px;z-index:50}
@@ -1790,14 +1810,6 @@ HtmlTemplate() {
   <div id='promoBadge' class='promobadge' hidden onclick='openAccess()'>Use code <b id='promoBadgeCode'></b> for <b id='promoBadgePct'></b>% off</div>
   <h1>Garden Macro</h1>
   <div id='updateBar' class='updatebar'>&#128260; A new version<span id='updateVer'></span> is available &mdash; <b>close and reopen the macro</b> to update.</div>
-  <div id='flashBar' class='flashbar'>
-    <span class='fbinfo'>
-      <span class='fblabel'>Limited time deal</span>
-      <span class='fbmain'>Get Pro for just <b class='fbprice' id='flashUsd'>$1.50</b></span>
-    </span>
-    <span class='fbtime' id='flashTime'>24:00:00</span>
-    <button class='fbbtn' onclick='barFlash()'>Claim</button>
-  </div>
   <div class='tabs'>
     <button id='tabSeeds' class='tab on' onclick='switchTab("seeds")'>Seeds</button>
     <button id='tabGears' class='tab'    onclick='switchTab("gears")'>Gears</button>
@@ -1812,7 +1824,7 @@ HtmlTemplate() {
     <div id='list' class='list'></div>
     <div id='premiumBar' class='pbar' onclick='openAccess()'>
       <span class='plock'>&#128274;</span>
-      <span id='pbarText'>Best seeds are locked</span>
+      <span id='pbarText'>Unlock the best seeds</span>
       <span class='pget'>Get access &rarr;</span>
     </div>
   </div>
@@ -1838,23 +1850,19 @@ HtmlTemplate() {
     </div>
   </div>
 
-  <div id='setupNote' class='setupnote' style='flex-direction:column;align-items:stretch;gap:3px'>
-    <div style='display:flex;align-items:center;gap:8px'>
-      <span class='sni'>&#9881;</span>
-      <span>Turn on <b>UI Navigation</b> in Roblox settings for the macro to work.</span>
-    </div>
-    <div style='display:flex;align-items:center;gap:8px'>
-      <span class='sni'>&#8635;</span>
-      <span>Make sure you <b>rejoin the game</b> before starting the macro.</span>
-    </div>
-    <div style='display:flex;align-items:center;gap:8px'>
-      <span class='sni'>&#9776;</span>
-      <span>Make sure you are <b>inside the shop menu</b> when you start the macro.</span>
-    </div>
-    <div style='display:flex;align-items:center;gap:8px'>
-      <span class='sni'>&#10227;</span>
-      <span>The macro re-buys automatically <b style='color:#dc2626;font-weight:800'>every 5 minutes</b> on each restock.</span>
-    </div>
+  <div id='setupNote' class='setupnote setupvid' onclick='watchSetup()'>
+    <span class='ytlogo'></span>
+    <span>Watch the <b>setup guide</b> video</span>
+    <span class='svarrow'>&rarr;</span>
+  </div>
+
+  <div id='flashBar' class='flashbar'>
+    <span class='fbinfo'>
+      <span class='fblabel'>Limited time deal</span>
+      <span class='fbmain'>Get Pro for just <b class='fbprice' id='flashUsd'>$1.50</b></span>
+    </span>
+    <span class='fbtime' id='flashTime'>24:00:00</span>
+    <button class='fbbtn' onclick='barFlash()'>Claim</button>
   </div>
 
   <div id='footer' class='footer'>
@@ -1862,7 +1870,7 @@ HtmlTemplate() {
     <button id='stopBtn'  class='btn'         onclick='send("stop")'>Stop <span class='hk'>F2</span></button>
     <div class='verwrap'>
       <span class='ver'>v__VERSION__</span>
-      <span class='give' title='Enter this code at gardenmacro.com/giveaway for +2 giveaway entries'>Giveaway code: <b>__GIVEAWAY__</b></span>
+      <span class='give' title='Enter this code at gardenmacro.com/giveaway for +2 giveaway entries'>Giveaway code: <b id='giveCode'>__GIVEAWAY__</b></span>
     </div>
   </div>
 
@@ -1879,7 +1887,7 @@ HtmlTemplate() {
         <li>Copy the access code it shows you.</li>
         <li>Paste it below and click Unlock.</li>
       </ol>
-      <button id='openSigninBtn' class='btn green block' onclick='send("openaccess")'>Open sign-in page to get access &rarr;</button>
+      <button id='openSigninBtn' class='btn green block' style='font-size:16px;font-weight:800' onclick='send("openaccess")'>Get access</button>
       <div class='prow'>
         <input id='codeInput' type='text' placeholder='Paste your access code' spellcheck='false' autocomplete='off'>
         <button class='btn' onclick='pasteCode()'>Paste</button>
@@ -2013,8 +2021,8 @@ HtmlTemplate() {
 
   /* Keep the upsell copy in step with however many seeds are locked today. */
   function lockText(){
-    return (PREMIUM >= SEEDS.length) ? 'All seeds are locked'
-                                     : 'Last ' + PREMIUM + ' seeds are locked';
+    if (PREMIUM >= SEEDS.length) return 'Unlock all seeds';
+    return 'Unlock the ' + PREMIUM + ' best seed' + (PREMIUM === 1 ? '' : 's');
   }
   function applyLockUi(){
     var t = document.getElementById('pbarText');
@@ -2129,6 +2137,10 @@ HtmlTemplate() {
     setTimeout(function(){ inp.focus(); }, 30);
   }
   function closeAccess(){ document.getElementById('overlay').hidden = true; }
+
+  /* Setup video row: open the walkthrough in the browser. The row stays put so
+     it's always one tap away. */
+  function watchSetup(){ send('opentutorial'); }
 
   /* Flash deal: AHK sends "flash|<variant>|<usd>|<secondsLeft>|<popup 0|1>" shortly after
      launch, for 24h after install. <usd> is the first-month price shown (e.g. "$1.50").
@@ -2302,6 +2314,10 @@ HtmlTemplate() {
     PROMO = code;
     PROMO_PCT = pct;
     applyPromoBadge();
+    /* The giveaway code in the footer becomes the creator code, so the audience enters
+       gardenmacro.com/giveaway with the same code they know (still +2 entries). */
+    var gc = document.getElementById('giveCode');
+    if (gc && code) gc.textContent = code;
     setPromoMsg('');
     goWelcome('promoOverlay');                 /* valid code -> welcome finale */
   }

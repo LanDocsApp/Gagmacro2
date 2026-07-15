@@ -16,6 +16,7 @@
 import { readSession, json } from "../../_lib/http.js";
 import { resolveActive } from "../../_lib/subscriptions.js";
 import { getGiveaway, computeWeight, MACRO_CODE } from "../../_lib/giveaways.js";
+import { creatorCode } from "../../_lib/creators.js";
 
 export async function onRequestPost({ request, env }) {
   const session = await readSession(request, env);
@@ -43,9 +44,11 @@ export async function onRequestPost({ request, env }) {
   if (!/^[A-Za-z0-9_]{3,20}$/.test(username)) return json({ error: "username" }, 400);
 
   // Macro code (optional). Wrong-but-provided is a soft error so the page can nudge them;
-  // an empty code is fine (they just enter at the base weight).
+  // an empty code is fine (they just enter at the base weight). Both the shared macro code
+  // AND any creator code prove the person has the macro (creator codes are shown in the
+  // macro footer for that creator's audience), so either grants the +2 macro tickets.
   const code = String(body.code || "").trim().toUpperCase();
-  const codeMatches = code === MACRO_CODE.toUpperCase();
+  const codeMatches = code === MACRO_CODE.toUpperCase() || !!creatorCode(code);
   if (code && !codeMatches) return json({ error: "badcode" }, 400);
 
   // Pro is auto-detected from the Google account and only bumps the ticket count (10).

@@ -256,6 +256,8 @@
     var wantBonus = null;     // answer to "want 2 more entries?"
     var macroCode = "";       // validated macro code (empty if none)
     var codeValidated = false;
+    var codeCreatorPct = 0;   // >0 when the validated code is a creator code -> its checkout % off
+                              //   (0 for the generic macro code). Drives the Pro-step discount chip.
 
     function validUsername(u) { return /^[A-Za-z0-9_]{3,20}$/.test(String(u || "").trim()); }
 
@@ -363,7 +365,7 @@
         wizScreen = "subscribe";
         subClicked = false; subChecked = false;
         gagUsername = me.username || "";
-        wantBonus = null; macroCode = ""; codeValidated = false;
+        wantBonus = null; macroCode = ""; codeValidated = false; codeCreatorPct = 0;
       }
       overlay.hidden = false;
       document.body.style.overflow = "hidden";
@@ -503,15 +505,27 @@
         '<div class="wz-text">Garden Macro Pro puts you in with ' + g.weights.pro + ' entries, the best odds in this giveaway, and unlocks the full macro.</div>' +
         promoCodeChip() +
         '<div class="wz-actions">' +
-          '<a class="btn primary block" href="/api/checkout">Get Garden Macro Pro</a>' +
+          '<a class="btn primary block" href="' + activePromo().checkout + '">Get Garden Macro Pro</a>' +
           '<button class="btn block" id="skipEnter">Skip and enter with ' + nLabel + '</button>' +
         '</div>' +
         '<div id="enterErr"></div>';
     }
 
+    // The discount code shown at the Pro step. When the user entered a CREATOR code at the code
+    // step, that replaces the generic GIVEAWAY chip with the creator's own code + its checkout
+    // percent, and the "Get Pro" button auto-applies it (?code=). Falls back to GIVEAWAY/30% for
+    // the generic macro code (or when no code was entered).
+    function activePromo() {
+      if (codeValidated && codeCreatorPct > 0) {
+        return { code: macroCode, pct: codeCreatorPct, checkout: "/api/checkout?code=" + encodeURIComponent(macroCode) };
+      }
+      return { code: "GIVEAWAY", pct: 30, checkout: "/api/checkout" };
+    }
+
     function promoCodeChip() {
+      var p = activePromo();
       return '<div class="promo-code">' +
-        '<div><div class="label">30% off with code</div><div class="code" id="promoCode">GIVEAWAY</div></div>' +
+        '<div><div class="label">' + p.pct + '% off with code</div><div class="code" id="promoCode">' + esc(p.code) + '</div></div>' +
         '<button class="copy-btn" id="copyPromo">Copy</button></div>';
     }
 
@@ -527,7 +541,7 @@
         out += '<div class="wz-text" style="margin-top:20px">Want the best odds? Garden Macro Pro gives you ' + g.weights.pro + ' entries.</div>' +
           promoCodeChip() +
           '<div class="wz-actions">' +
-            '<a class="btn primary block" href="/api/checkout">Get Garden Macro Pro</a>' +
+            '<a class="btn primary block" href="' + activePromo().checkout + '">Get Garden Macro Pro</a>' +
             '<button class="btn block" id="doneBtn">Done</button>' +
           '</div>';
       } else {
@@ -595,7 +609,7 @@
       var bonusYes = el("bonusYes");
       if (bonusYes) bonusYes.onclick = function () { wantBonus = true; navTo("code"); };
       var bonusNo = el("bonusNo");
-      if (bonusNo) bonusNo.onclick = function () { wantBonus = false; macroCode = ""; codeValidated = false; navTo("pro"); };
+      if (bonusNo) bonusNo.onclick = function () { wantBonus = false; macroCode = ""; codeValidated = false; codeCreatorPct = 0; navTo("pro"); };
 
       var codeInput = el("codeInput");
       if (codeInput) codeInput.oninput = function () {
@@ -607,10 +621,10 @@
       var codeContinue = el("codeContinue");
       if (codeContinue) codeContinue.onclick = function () { if (!codeContinue.disabled) validateCode(); };
       var codeSkip = el("codeSkip");
-      if (codeSkip) codeSkip.onclick = function () { wantBonus = false; macroCode = ""; codeValidated = false; navTo("pro"); };
+      if (codeSkip) codeSkip.onclick = function () { wantBonus = false; macroCode = ""; codeValidated = false; codeCreatorPct = 0; navTo("pro"); };
 
       var copyPromo = el("copyPromo");
-      if (copyPromo) copyPromo.onclick = function () { copyText("GIVEAWAY", copyPromo); };
+      if (copyPromo) copyPromo.onclick = function () { copyText(activePromo().code, copyPromo); };
 
       var skipEnter = el("skipEnter");
       if (skipEnter) skipEnter.onclick = function () { submitEntry(skipEnter); };
@@ -647,7 +661,14 @@
       fetch("/api/giveaway/check-code?code=" + encodeURIComponent(code), { cache: "no-store" })
         .then(function (r) { return r.json(); })
         .then(function (d) {
-          if (d && d.valid) { macroCode = code.toUpperCase(); codeValidated = true; navTo("pro"); }
+          if (d && d.valid) {
+            macroCode = code.toUpperCase();
+            codeValidated = true;
+            // A creator code carries its own checkout discount -> the Pro step shows THAT
+            // code + percent instead of the generic GIVEAWAY chip (0 for the generic code).
+            codeCreatorPct = (d.creator && d.percentOff) ? d.percentOff : 0;
+            navTo("pro");
+          }
           else { showCodeMsg("That code is invalid. Copy it from the bottom corner of the macro."); btn.disabled = false; btn.textContent = "Continue"; }
         })
         .catch(function () { showCodeMsg("Network error, please try again."); btn.disabled = false; btn.textContent = "Continue"; });
