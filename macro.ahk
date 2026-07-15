@@ -385,9 +385,8 @@ BuildUi() {
     ;   source wall shows <=> source not yet answered
     ;   promo  wall shows <=> source done, promo not asked, and not (likely) Pro -- a saved
     ;                         token means a returning user (already onboarded / probably Pro).
-    ; Published as a global so MaybeShowFlashOffer knows whether an onboarding wall is
-    ; running this launch -- if so it shows the flash BANNER only (the popup would pop
-    ; under the full-window wall), otherwise it also opens the flash popup.
+    ; Drives __ONBOARD__ -> the page's boot cover. (The flash popup no longer keys off this:
+    ; it's always requested, and the page defers it until any onboarding wall has cleared.)
     WillOnboard := (!SourceAsked) || (!PromoAsked && hasToken = "0")
     html := StrReplace(html, "__ONBOARD__", WillOnboard ? "1" : "0")
     wv.NavigateToString(html)
@@ -882,22 +881,22 @@ OfferActive() {
     return OfferSecondsLeft() > 0
 }
 
-; Show the flash-deal countdown: always the persistent banner, plus a one-time modal
-; popup on launches where onboarding isn't running (so it never pops under a full-window
-; wall). Fires the flash_shown funnel impression once per session, tagged with the arm.
+; Show the flash-deal countdown: the persistent banner plus a one-time modal popup.
+; Fires the flash_shown funnel impression once per session, tagged with the arm.
 ; Called once onboarding has settled (SkipPromo / ContinueToPromo), NOT on a timer, so the
 ; creator code is already known -- OfferActive() then reliably suppresses it for code holders.
+; We ALWAYS request the popup; if a first-launch onboarding wall (the "Welcome!" finale) is
+; still animating, the PAGE defers the popup until that wall clears rather than letting it
+; pop underneath -- so it shows on first launch too, just after onboarding settles.
 MaybeShowFlashOffer() {
-    global OfferVariant, OfferUsd, OfferShownSession, WillOnboard, MainGui
+    global OfferVariant, OfferUsd, OfferShownSession, MainGui
     if (OfferShownSession || !OfferActive())
         return
     OfferShownSession := true
     secs := OfferSecondsLeft()
     usd  := OfferUsd.Has(OfferVariant) ? OfferUsd[OfferVariant] : "$3"
-    popup := WillOnboard ? "0" : "1"
-    if (popup = "1")
-        try MainGui.Restore()               ; un-minimize so the popup is actually seen
-    Post("flash|" OfferVariant "|" usd "|" secs "|" popup)
+    try MainGui.Restore()                   ; un-minimize so the popup is actually seen
+    Post("flash|" OfferVariant "|" usd "|" secs "|1")
     SendEvent("flash_shown", OfferVariant)  ; funnel: the flash countdown was shown (A/B denominator)
 }
 
@@ -2393,25 +2392,31 @@ HtmlTemplate() {
      Show the red countdown banner (always) + optionally the modal popup, then tick the timer
      down locally and hide everything at zero. Clicking Claim goes STRAIGHT to Stripe checkout
      with the discount applied (or Google login first) -- no in-app unlock modal. */
-  var flashVariant = 0, flashTimer = null, flashEnd = 0;
+  var flashVariant = 0, flashTimer = null, flashEnd = 0, flashPopupPending = false;
   function fmtDur(s){
     function p(n){ return (n < 10 ? '0' : '') + n; }
     var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60;
     return p(h) + ':' + p(m) + ':' + p(x);
   }
+  /* Reveal the flash popup modal. Kept separate so a deferred popup (see showFlash) can be
+     opened later, once the onboarding walls have cleared. */
+  function openFlashPopup(){ flashPopupPending = false; document.getElementById('flashOverlay').hidden = false; }
   function showFlash(variant, usd, secs, popup){
     flashVariant = parseInt(variant, 10) || 0;
     secs = parseInt(secs, 10) || 0;
     if (secs <= 0) return;
     flashEnd = Date.now() + secs * 1000;
     document.getElementById('flashUsd').textContent = usd;
+    document.getElementById('flashPopUsd').textContent = usd;   /* set now; the overlay may reveal later */
     document.getElementById('flashBar').classList.add('show');
     tickFlash();
     if (flashTimer) clearInterval(flashTimer);
     flashTimer = setInterval(tickFlash, 1000);
     if (popup === '1' || popup === 1){
-      document.getElementById('flashPopUsd').textContent = usd;
-      document.getElementById('flashOverlay').hidden = false;
+      /* Never pop UNDER a first-launch onboarding wall (the "Welcome!" finale is still up
+         when AHK fires this). Defer instead; exitWall shows it once the walls have cleared. */
+      if (onboardingUp()) flashPopupPending = true;
+      else openFlashPopup();
     }
     requestAnimationFrame(function(){ requestAnimationFrame(fitWindow); });
   }
@@ -2514,6 +2519,8 @@ HtmlTemplate() {
       el.hidden = true;
       el.classList.remove('leaving');
       if (after) after();
+      /* Onboarding just fully cleared -> release a flash popup deferred during it (see showFlash). */
+      if (flashPopupPending && !onboardingUp()) openFlashPopup();
     }, WALL_FADE);
   }
   /* Bring `toId` up over `fromId`, then drop `fromId` once it's fully covered. */
@@ -2535,6 +2542,16 @@ HtmlTemplate() {
      shows before the first wall; the first wall then dissolves in over it and drops it. */
   function coverUp(){ return !document.getElementById('bootCover').hidden; }
   function showBootCover(){ document.getElementById('bootCover').hidden = false; }
+  /* True while any onboarding surface (boot cover or a wall, including the welcome finale)
+     is still on screen. Used to defer the flash popup so it never opens behind one. */
+  function onboardingUp(){
+    var ids = ['bootCover', 'sourceOverlay', 'promoOverlay', 'welcomeOverlay'];
+    for (var i = 0; i < ids.length; i++){
+      var el = document.getElementById(ids[i]);
+      if (el && !el.hidden) return true;
+    }
+    return false;
+  }
 
   function openSourceAsk(){
     sawWall = true;
