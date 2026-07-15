@@ -9,12 +9,12 @@
 ;  then press Start (or F1). The macro:
 ;    0. Focuses Roblox + small mouse nudge
 ;    1. Clicks the shop at (697, 103), presses "e"
-;    2. Presses "\" for keyboard UI nav, snaps to position 1
-;       (Up 5x, Down 5x, then hold Up 3s), then moves onto the first ticked seed.
+;    2. Presses "\" for keyboard UI nav, then snaps to position 1
+;       (Up 5x, Down 5x, then hold Up 3s) and stays there.
 ;  Steps 0-2 (Setup) run ONCE. The shop UI then stays open and the
-;  cursor stays put, so each restock only repeats the buy pass:
-;    3. From the first ticked seed, walk DOWN buying each ticked seed
-;       N times, then walk back UP to the first ticked seed.
+;  cursor stays put on position 1, so each restock only repeats the buy pass:
+;    3. From position 1, walk DOWN buying each ticked seed N times,
+;       then walk back UP to position 1.
 ;
 ;  Setup runs on Start; the buy pass then repeats every 5 minutes
 ;  (restock loop) until you press Stop.
@@ -23,8 +23,8 @@
 ;  buys from the in-game GEAR SHOP and differs only in setup: you must
 ;  already be standing in the open Gear Shop UI when you press Start, so
 ;  it skips the shop click + "e". It presses "\" for keyboard nav, then
-;  Up 5x + Down 5x + hold Up 3s to land on position 1 (the first gear), then walks down onto
-;  the first ticked gear. From there the buy pass is identical to seeds.
+;  Up 5x + Down 5x + hold Up 3s to land on position 1 (the first gear) and
+;  stays there. From there the buy pass is identical to seeds.
 ;
 ;  Controls:
 ;    Start button / F1 -> run
@@ -43,7 +43,6 @@ SetKeyDelay 50, 50
 global Running    := false          ; a single buy pass is currently executing
 global LoopActive := false          ; the repeat loop is armed
 global IntervalMs := 5 * 60 * 1000  ; how often to repeat: 5 minutes
-global FirstSel   := 0              ; index of first ticked item (locked at Start)
 global LastSel    := 0              ; index of last ticked item (locked at Start)
 global PassQty    := 20             ; fixed quantity bought per item each pass
 
@@ -528,7 +527,7 @@ F1:: StartMacro()
 F2:: StopMacro()
 
 StartMacro() {
-    global LoopActive, Running, IntervalMs, FirstSel, LastSel, PassQty
+    global LoopActive, Running, IntervalMs, LastSel, PassQty
     global SeedSel, GearSel, SelSet, Unlocked, MainGui
     global UiActiveMode, ActiveMode, ActiveItems, Seeds, Gears
 
@@ -563,10 +562,11 @@ StartMacro() {
         return
     }
 
-    ; Lock in the selection + quantity for this whole loop session.
-    FirstSel := picks[1]
-    LastSel  := picks[picks.Length]
-    SelSet   := Map()
+    ; Lock in the selection + quantity for this whole loop session. The macro
+    ; anchors at position 1 and only needs the LAST ticked index as the walk's
+    ; lower bound; SelSet decides which rows actually get bought.
+    LastSel := picks[picks.Length]
+    SelSet  := Map()
     for idx in picks
         SelSet[idx] := true
     PassQty := 20               ; fixed buy amount per item
@@ -1348,18 +1348,17 @@ IsNewerVersion(a, b) {
 ; ============================================================
 
 ; One-time setup: focus Roblox, get into the shop UI, enter keyboard navigation,
-; snap to a known anchor, then move down onto the FIRST selected item.
+; and snap to position 1 (the anchor the buy pass counts down from). It leaves the
+; cursor ON position 1 -- the buy pass does all the down-walking itself.
 ;
-;   Seeds:  click the shop at (697,103), press "e", then "\". Anchor = position 1
-;           (the first seed) via Down 5x + hold Up 5s. The first seed sits ON the
-;           anchor, so reaching seed N takes N-1 Down presses.
+;   Seeds:  click the shop at (697,103), press "e", then "\", then snap to
+;           position 1 (Up 5x + Down 5x + hold Up 3s -> the first seed).
 ;   Gears:  you must already be standing in the open Gear Shop UI, so NO click and
-;           NO "e" -- just "\". Anchor = position 1 (the first gear) via Down 2x, so
-;           reaching gear N takes N-1 Down presses (same as seeds).
+;           NO "e" -- just "\", then the same snap to position 1 (the first gear).
 ;
 ; Returns false if stopped or Roblox is missing.
 Setup() {
-    global ActiveMode, FirstSel
+    global ActiveMode
     CoordMode "Mouse", "Screen"
 
     ; 0. Focus the Roblox window.
@@ -1414,77 +1413,45 @@ Setup() {
     if !Wait(300)
         return false
 
-    if (ActiveMode = "gears") {
-        ; 2b-gears. Snap to position 1 (the first gear): Up 5x then Down 5x to shake
-        ;           the cursor into the list, then HOLD Up for 3s. A held key scrolls
-        ;           all the way to the very top regardless of list length.
-        UiStatus("Resetting to position 1...")
-        Loop 5 {
-            Send "{Up}"
-            if !Wait(500)
-                return false
-        }
-        Loop 5 {
-            Send "{Down}"
-            if !Wait(500)
-                return false
-        }
-        Send "{Up down}"                 ; hold Up...
-        if !Wait(3000) {                 ; ...for 3s (interruptible by Stop)
-            Send "{Up up}"               ; release before bailing so no key is left stuck
+    ; 2b. Snap to position 1 (the first item): Up 5x then Down 5x to shake the cursor
+    ;     into the list, then HOLD Up for 3s. A held key scrolls all the way to the
+    ;     very top regardless of list length, settling on position 1. Identical for
+    ;     seeds and gears -- position 1 is the anchor the buy pass counts down from.
+    UiStatus("Resetting to position 1...")
+    Loop 5 {
+        Send "{Up}"
+        if !Wait(500)
             return false
-        }
-        Send "{Up up}"                   ; release Up -> now on position 1
-        ; 2c-gears. Position 1 is the first gear, so reach gear FirstSel with
-        ;           FirstSel-1 Down presses (same as seeds).
-        downsToFirst := FirstSel - 1
-    } else {
-        ; 2b-seeds. Snap to position 1: Up 5x then Down 5x to shake the cursor into
-        ;           the list, then HOLD Up for 3s. A held key scrolls all the way to
-        ;           the very top regardless of list length, settling on the first seed.
-        UiStatus("Resetting to position 1...")
-        Loop 5 {
-            Send "{Up}"
-            if !Wait(500)
-                return false
-        }
-        Loop 5 {
-            Send "{Down}"
-            if !Wait(500)
-                return false
-        }
-        Send "{Up down}"                 ; hold Up...
-        if !Wait(3000) {                 ; ...for 3s (interruptible by Stop)
-            Send "{Up up}"               ; release before bailing so no key is left stuck
-            return false
-        }
-        Send "{Up up}"                   ; release Up -> now on position 1
-        ; 2c-seeds. Position 1 is the first seed, so reach seed FirstSel with
-        ;           FirstSel-1 Down presses.
-        downsToFirst := FirstSel - 1
     }
-
-    ; 3. Move down from the anchor onto the FIRST selected item.
-    Loop downsToFirst {
+    Loop 5 {
         Send "{Down}"
-        if !Wait(300)
+        if !Wait(500)
             return false
     }
+    Send "{Up down}"                 ; hold Up...
+    if !Wait(3000) {                 ; ...for 3s (interruptible by Stop)
+        Send "{Up up}"               ; release before bailing so no key is left stuck
+        return false
+    }
+    Send "{Up up}"                   ; release Up -> now on position 1
+
+    ; Setup leaves the cursor ON position 1 (the anchor). The buy pass counts its
+    ; own Down presses from here, so there's nothing more for setup to move onto.
     return true
 }
 
-; One buy pass. Assumes the cursor is on the FIRST selected seed.
-; Walks DOWN buying each ticked seed, then walks back UP to the first
-; selected seed -> ends where it started, ready to repeat with no setup.
+; One buy pass. Assumes the cursor is on position 1 (where Setup leaves it).
+; Walks DOWN from position 1 buying each ticked seed, then walks back UP to
+; position 1 -> ends where it started, ready to repeat with no setup.
 BuyPass() {
-    global Running, ActiveItems, SelSet, FirstSel, LastSel, PassQty
+    global Running, ActiveItems, SelSet, LastSel, PassQty
 
     ; Keep Roblox focused (this does NOT move the UI cursor).
     if WinExist("ahk_exe RobloxPlayerBeta.exe")
         WinActivate
 
-    ; Walk DOWN from the first to the last selected seed, buying ticked ones.
-    i := FirstSel
+    ; Walk DOWN from position 1 to the last selected seed, buying ticked ones.
+    i := 1
     Loop {
         if !Running
             return
@@ -1501,8 +1468,8 @@ BuyPass() {
         i += 1
     }
 
-    ; Walk back UP to the first selected seed for the next pass.
-    Loop LastSel - FirstSel {
+    ; Walk back UP to position 1 for the next pass.
+    Loop LastSel - 1 {
         if !Running
             return
         Send "{Up}"
