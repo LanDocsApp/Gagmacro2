@@ -108,6 +108,10 @@ global DeviceFile   := A_AppData "\GardenMacro\device.txt"  ; random anon instal
 global DeviceId     := ""           ; set at startup (see GetOrCreateDeviceId)
 global HeartbeatReq := 0            ; keeps the async ping COM object alive in-flight
 global EventReq     := 0            ; keeps the async funnel-event ping alive in-flight
+; "Report a bug" (footer) submissions POST straight to this Discord webhook -- no
+; backend hop, so it works even if the site is down. Best-effort; a bad URL or a
+; Discord outage can never crash the macro (see SendBugReport).
+global BugReportWebhook := "https://discord.com/api/webhooks/1526917578927112244/yMU9Ma9lp03dY5GGd320GFex_cwuabhaSuOMt2ztZOSt8bguaEGdKEi2xuic643nKYZP"
 
 ; --- Update check: the launcher downloads the newest macro.ahk from GitHub `main`
 ;     at LAUNCH, so you always start on the latest build. But this macro runs for
@@ -492,6 +496,13 @@ OnWebMessage(sender, args) {
         case "fit":
             if parts.Length >= 2 && IsInteger(parts[2])
                 FitWindowHeight(Integer(parts[2]))
+        case "bug":
+            ; "bug|<contact>|<detail>" -> forward a user bug report to Discord.
+            ; The detail is free text that may itself contain "|" and newlines, so
+            ; take it as the unsplit remainder (MaxParts 3); the page already strips
+            ; delimiters from the short optional contact field.
+            bp := StrSplit(msg, "|", , 3)
+            SendBugReport(bp.Length >= 3 ? bp[3] : "", bp.Length >= 2 ? bp[2] : "")
     }
 }
 
@@ -1182,6 +1193,20 @@ JsonEscape(s) {
     return s
 }
 
+; Like JsonEscape but PRESERVES line breaks as \n escape sequences. Bug-report
+; text is multi-line free text, so flattening newlines (as JsonEscape does) would
+; run every line together. Backslash MUST be escaped first, before we introduce
+; the \n / \t escapes, or those backslashes would get doubled.
+JsonEscapeText(s) {
+    s := StrReplace(s, "\", "\\")
+    s := StrReplace(s, '"', '\"')
+    s := StrReplace(s, "`r`n", "\n")
+    s := StrReplace(s, "`r", "\n")
+    s := StrReplace(s, "`n", "\n")
+    s := StrReplace(s, "`t", "\t")
+    return s
+}
+
 ; Read the saved paste-code (BOM-safe), trimmed. "" if missing / unreadable.
 ReadToken(path) {
     try
@@ -1271,6 +1296,51 @@ SendEvent(ev, variant := "") {
         EventReq.Open("POST", PingUrl, true)          ; true = async, don't block
         EventReq.SetRequestHeader("Content-Type", "application/json")
         EventReq.Send(body)
+    }
+}
+
+; ============================================================
+;  Bug reports  ("Report a bug" in the footer -> Discord webhook)
+; ============================================================
+; Post a user-submitted bug report straight to the Discord webhook and tell the page
+; whether it actually landed ("bugok" / "bugfail|<msg>"). Synchronous on purpose so
+; the confirmation the user sees is real (delivered), not optimistic -- the send is a
+; deliberate one-off click, so the brief block is fine. Fully guarded: bad input, an
+; offline machine, or a Discord outage can never crash the macro.
+SendBugReport(detail, contact) {
+    global BugReportWebhook, AppVersion, DeviceId
+    detail  := Trim(detail)
+    contact := Trim(contact)
+    ; Server-side floor mirrors the page's 100-char minimum. The page disables Send
+    ; below it, so this only trips if the UI was somehow bypassed.
+    if (StrLen(detail) < 100) {
+        Post("bugfail|Please add more detail (at least 100 characters).")
+        return
+    }
+    ; Discord limits: embed description <= 4096 chars, field value <= 1024. Trim well
+    ; under so the JSON escaping can grow the string without breaching the cap.
+    if (StrLen(detail) > 3800)
+        detail := SubStr(detail, 1, 3800) "..."
+    if (StrLen(contact) > 300)
+        contact := SubStr(contact, 1, 300)
+    contactVal := (contact != "") ? contact : "(not provided)"
+    ts := FormatTime(A_NowUTC, "yyyy-MM-dd'T'HH:mm:ss'Z'")   ; ISO 8601 UTC for the embed
+    ; One-line body (auto-concat), matching SendEvent/SendHeartbeat. color 15548997 = Discord red.
+    body := '{"embeds":[{"title":"New bug report","description":"' JsonEscapeText(detail) '","color":15548997,"fields":[{"name":"Contact","value":"' JsonEscapeText(contactVal) '","inline":true},{"name":"Version","value":"' JsonEscape(AppVersion) '","inline":true},{"name":"Device","value":"' JsonEscape(DeviceId) '","inline":false}],"timestamp":"' ts '"}]}'
+    try {
+        req := ComObject("WinHttp.WinHttpRequest.5.1")
+        req.SetTimeouts(4000, 4000, 4000, 8000)   ; resolve, connect, send, receive (ms)
+        req.Open("POST", BugReportWebhook, false)
+        req.SetRequestHeader("Content-Type", "application/json")
+        req.Send(body)
+        ; Discord webhooks answer 204 No Content on success (200 only with ?wait=true).
+        if (req.Status = 204 || req.Status = 200) {
+            Post("bugok")
+            return
+        }
+        Post("bugfail|Could not send (HTTP " req.Status "). Please try again.")
+    } catch as e {
+        Post("bugfail|Could not send. Check your connection and try again.")
     }
 }
 
@@ -1649,6 +1719,12 @@ HtmlTemplate() {
   .give{font-size:10px;color:#9aa0a6;white-space:nowrap;
         font-family:'Consolas','JetBrains Mono',monospace}
   .give b{color:#16a34a;font-weight:700;letter-spacing:.05em}
+  /* "Report a bug": a small muted gray button pinned to the bottom-right corner,
+     sitting just above the version line (the verwrap is a right-aligned column). */
+  .reportbtn{align-self:flex-end;margin-bottom:7px;border:1px solid #d5d7db;background:#e6e8eb;
+        color:#5b616b;font-family:inherit;font-size:12px;font-weight:600;border-radius:6px;
+        padding:5px 12px;cursor:pointer;line-height:1.2}
+  .reportbtn:hover{background:#dcdfe3;color:#3f444c;border-color:#c8cbd0}
   /* "Restart to update" banner. Shown (in red) when a newer macro.ahk has shipped
      to `main` while this session was running (see CheckForUpdate). Sits right under
      the title so it's seen on every tab; hidden until AHK sends "update|<version>". */
@@ -1770,6 +1846,31 @@ HtmlTemplate() {
   .astatus{display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:600;color:#15803d;margin:2px 0 6px}
   .adot{width:8px;height:8px;border-radius:50%;background:#16a34a;box-shadow:0 0 0 3px rgba(22,163,74,.15);flex-shrink:0}
   .adesc{font-size:12.5px;color:#777;margin:0 0 12px;line-height:1.5}
+  /* Bug-report modal */
+  .modal.bugmodal{max-height:calc(100vh - 36px);overflow:auto}
+  .bugintro{font-size:12.5px;color:#777;margin:0 0 14px;line-height:1.5}
+  .bugintro b{color:#444;font-weight:600}
+  .bugfield{position:relative;margin-bottom:12px}
+  .buglabel{display:block;font-size:12px;font-weight:600;color:#555;margin-bottom:5px}
+  .buglabel .opt{font-weight:500;color:#aaa}
+  .buglabel .req{color:#dc2626;font-weight:700}
+  #bugDetail{width:100%;min-height:118px;resize:none;background:#fff;border:1px solid #d8d8d8;
+        border-radius:8px;padding:10px 11px 22px;font-size:13px;line-height:1.5;font-family:inherit;
+        outline:none;color:#1a1a1a}
+  #bugDetail:focus{border-color:#16a34a}
+  .bugcount{position:absolute;right:9px;bottom:8px;font-size:10.5px;color:#bbb;pointer-events:none;
+        font-family:'Consolas','JetBrains Mono',monospace;background:#fff;padding:0 3px;border-radius:4px}
+  .bugcount.ok{color:#16a34a}
+  .bugcontact{display:flex;align-items:center;gap:8px;background:#fff;border:1px solid #d8d8d8;
+        border-radius:8px;padding:0 11px}
+  .bugcontact:focus-within{border-color:#16a34a}
+  .bugcontact .cicons{display:flex;align-items:center;gap:5px;flex-shrink:0;color:#b4b4b4}
+  .bugcontact .cicons svg{display:block}
+  #bugContact{flex:1;min-width:0;border:none;outline:none;background:none;padding:9px 0;font-size:13px;
+        font-family:inherit;color:#1a1a1a}
+  .bugmsg{font-size:12px;color:#888;margin:2px 0 12px;min-height:15px;line-height:1.4}
+  .bugmsg.err{color:#dc2626}
+  .bugmsg.ok{color:#16a34a}
   [hidden]{display:none !important}
 </style>
 </head>
@@ -1836,6 +1937,7 @@ HtmlTemplate() {
     <button id='startBtn' class='btn primary' onclick='send("start")'>Start <span class='hk'>F1</span></button>
     <button id='stopBtn'  class='btn'         onclick='send("stop")'>Stop <span class='hk'>F2</span></button>
     <div class='verwrap'>
+      <button class='reportbtn' onclick='openBug()'>Report a bug</button>
       <span class='ver'>v__VERSION__</span>
       <span class='give' title='Enter this code at gardenmacro.com/giveaway for +2 giveaway entries'>Giveaway code: <b id='giveCode'>__GIVEAWAY__</b></span>
     </div>
@@ -1874,6 +1976,36 @@ HtmlTemplate() {
       <div class='flashtimer'><span id='flashPopTime'>24:00:00</span></div>
       <button class='btn red block' onclick='ctaFlash()'>Claim</button>
       <a class='hintDismiss' onclick='dismissFlash()'>Maybe later</a>
+    </div>
+  </div>
+
+  <div id='bugOverlay' class='overlay' hidden>
+    <div class='modal bugmodal'>
+      <div class='mh'>
+        <h2>Report a bug</h2>
+        <button class='mx' onclick='closeBug()'>&times;</button>
+      </div>
+      <p class='bugintro'>Please describe the bug in <b>as much detail as you can</b>. The more detail you give, the faster I can find and fix it. I may reach out by email if anything is unclear, and <b>I reply very, very fast</b>.</p>
+
+      <div class='bugfield'>
+        <label class='buglabel' for='bugDetail'>What went wrong? <span class='req'>*</span></label>
+        <textarea id='bugDetail' placeholder='What were you doing, what happened, and what did you expect instead? Steps to reproduce it help a lot.' spellcheck='true' oninput='updateBugCount()'></textarea>
+        <span id='bugCount' class='bugcount'>100 more characters needed</span>
+      </div>
+
+      <div class='bugfield'>
+        <label class='buglabel' for='bugContact'>Contact <span class='opt'>(optional)</span></label>
+        <div class='bugcontact'>
+          <span class='cicons'>
+            <svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='2' y='4' width='20' height='16' rx='2'/><path d='m2 6 10 7 10-7'/></svg>
+            <svg width='15' height='15' viewBox='0 0 24 24' fill='currentColor'><path d='M20.317 4.369a19.79 19.79 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.211.375-.445.865-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.1 13.1 0 0 1-1.872-.892.077.077 0 0 1-.008-.128c.126-.094.252-.192.372-.291a.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.009c.12.099.246.198.373.292a.077.077 0 0 1-.006.127 12.3 12.3 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.84 19.84 0 0 0 6.002-3.03.077.077 0 0 0 .032-.055c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.331c-1.182 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z'/></svg>
+          </span>
+          <input id='bugContact' type='text' placeholder='Email or Discord username' spellcheck='false' autocomplete='off'>
+        </div>
+      </div>
+
+      <div id='bugMsg' class='bugmsg'></div>
+      <button id='bugSend' class='btn green block' onclick='submitBug()' disabled>Add at least 100 characters first</button>
     </div>
   </div>
 
@@ -2104,6 +2236,50 @@ HtmlTemplate() {
     setTimeout(function(){ inp.focus(); }, 30);
   }
   function closeAccess(){ document.getElementById('overlay').hidden = true; }
+
+  /* Bug report modal. Send stays disabled until the detail field reaches the 100-char
+     minimum; submit -> AHK posts it to Discord and replies 'bugok' or 'bugfail|<msg>'. */
+  var BUG_MIN = 100;
+  function openBug(){
+    document.getElementById('bugOverlay').hidden = false;
+    setBugMsg('');
+    updateBugCount();
+    setTimeout(function(){ document.getElementById('bugDetail').focus(); }, 30);
+  }
+  function closeBug(){ document.getElementById('bugOverlay').hidden = true; }
+  function setBugMsg(t, cls){
+    var m = document.getElementById('bugMsg');
+    m.textContent = t || '';
+    m.className = 'bugmsg' + (cls ? ' ' + cls : '');
+  }
+  /* Live counter in the corner of the textarea + gate the Send button on the minimum.
+     Phrased as a minimum still-to-reach ("N more needed"), not "N / 100" -- a fraction
+     reads like an upper cap. The disabled button also spells out WHY it's greyed out. */
+  function updateBugCount(){
+    var n = document.getElementById('bugDetail').value.trim().length;
+    var ok = n >= BUG_MIN;
+    var c = document.getElementById('bugCount');
+    c.textContent = ok ? (n + ' characters') : ((BUG_MIN - n) + ' more characters needed');
+    c.className = 'bugcount' + (ok ? ' ok' : '');
+    var btn = document.getElementById('bugSend');
+    btn.disabled = !ok;
+    btn.textContent = ok ? 'Send report' : ('Add at least ' + BUG_MIN + ' characters first');
+  }
+  function submitBug(){
+    var detail = document.getElementById('bugDetail').value.trim();
+    if (detail.length < BUG_MIN){
+      setBugMsg('Please add more detail (at least ' + BUG_MIN + ' characters).', 'err');
+      return;
+    }
+    /* Strip the message delimiter + newlines from the short contact field so it can't
+       break the pipe-delimited bridge; the detail is sent as the unsplit remainder. */
+    var contact = document.getElementById('bugContact').value.trim().replace(/[|\r\n]+/g, ' ');
+    setBugMsg('Sending...', '');
+    var btn = document.getElementById('bugSend');
+    btn.disabled = true;
+    btn.textContent = 'Sending...';
+    send('bug|' + contact + '|' + detail);
+  }
 
   /* Setup video row: open the walkthrough in the browser. The row stays put so
      it's always one tap away. */
@@ -2340,6 +2516,17 @@ HtmlTemplate() {
     else if (type === 'promoask') openPromoAsk();       /* first-launch promo prompt */
     else if (type === 'promook') { var pp = rest.split('|'); promoAccepted(pp[0], pp[1]); }  /* valid code -> badge + close */
     else if (type === 'promobad') setPromoMsg(rest);    /* invalid code -> keep prompt open */
+    else if (type === 'bugok') {                        /* report delivered -> thank + auto-close */
+      setBugMsg('Thanks! Your report was sent. I reply very fast.', 'ok');
+      document.getElementById('bugDetail').value = '';
+      document.getElementById('bugContact').value = '';
+      updateBugCount();
+      setTimeout(closeBug, 1500);
+    }
+    else if (type === 'bugfail') {                      /* delivery failed -> show why, keep it open */
+      setBugMsg(rest || 'Could not send. Please try again.', 'err');
+      updateBugCount();                                 /* re-enable Send if still over the minimum */
+    }
   });
 
   /* Ask AHK to shrink the window to end right at the Start/Stop row. */
