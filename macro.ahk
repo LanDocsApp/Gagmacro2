@@ -102,6 +102,7 @@ global GiveawayCode := "3QIHX"
 global BackendBase  := "https://gardenmacro.com"   ; subscription backend
 global VerifyUrl    := BackendBase "/api/desktop/verify"
 global PingUrl      := BackendBase "/api/ping"              ; anonymous usage stats
+global GiveawayUrl  := BackendBase "/giveaway"             ; top banner "Enter giveaway" link
 global TutorialUrl  := "https://www.youtube.com/watch?v=2-K89sp8H4o"  ; "Video setup" link -> YouTube walkthrough
 global TokenFile    := A_AppData "\GardenMacro\token.txt"   ; saved paste-code
 global DeviceFile   := A_AppData "\GardenMacro\device.txt"  ; random anon install id
@@ -362,6 +363,10 @@ BuildUi() {
     ; creator's own code + percent. Updated live if a code is entered this session (promoAccepted).
     giveCode := (PromoCode != "") ? PromoCode : GiveawayCode
     html := StrReplace(html, "__GIVEAWAY__", giveCode)
+    ; Inline the giveaway banner image (Moon Bloom seed) as a data URI so the top banner
+    ; renders with no network dependency. If the file is missing it becomes "" and the
+    ; banner's <img> hides itself (see onerror in the template).
+    html := StrReplace(html, "__GIVEAWAYIMG__", FileToDataUri(A_ScriptDir "\MoonBloomSeed.webp", "image/webp"))
     html := StrReplace(html, "__PROMO__", PromoCode)   ; "" if none/skipped -> badge stays hidden
     html := StrReplace(html, "__PROMOPCT__", PromoPct) ; the code's discount percent (0 if none) -> badge "N% off"
     hasToken := (FileExist(TokenFile) && ReadToken(TokenFile) != "") ? "1" : "0"  ; returning user? -> skip the promo wall
@@ -428,6 +433,35 @@ JsStr(str) {
     return '"' str '"'
 }
 
+; Read a (small) binary file and return it as a base64 "data:" URI. Used to inline the
+; giveaway banner image into the WebView page so it renders with NO network dependency
+; (the page is served via NavigateToString, so relative paths don't resolve and an
+; external URL would break the banner offline). Returns "" if the file is missing or
+; unreadable, so the banner's <img> can just hide itself gracefully.
+FileToDataUri(path, mime) {
+    if !FileExist(path)
+        return ""
+    try {
+        f := FileOpen(path, "r")
+        if !f
+            return ""
+        size := f.Length
+        buf  := Buffer(size)
+        f.RawRead(buf, size)
+        f.Close()
+        ; CryptBinaryToString, flags 0x40000001 = CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF
+        ; (NOCRLF keeps it on one line so it can sit in an HTML attribute).
+        flags := 0x40000001, len := 0
+        DllCall("crypt32\CryptBinaryToStringW", "ptr", buf, "uint", size, "uint", flags, "ptr", 0, "uint*", &len)
+        out := Buffer(len * 2)
+        if !DllCall("crypt32\CryptBinaryToStringW", "ptr", buf, "uint", size, "uint", flags, "ptr", out, "uint*", &len)
+            return ""
+        return "data:" mime ";base64," StrGet(out, "UTF-16")
+    } catch {
+        return ""
+    }
+}
+
 ; ============================================================
 ;  Messages from the page  ->  AHK
 ;  Formats (pipe-delimited strings):
@@ -472,6 +506,8 @@ OnWebMessage(sender, args) {
             OpenHelpPage()
         case "opentutorial":
             OpenTutorialPage()
+        case "opengiveaway":
+            OpenGiveawayPage()
         case "paste":
             PasteAccessCode()
         case "activate":
@@ -933,6 +969,17 @@ OpenTutorialPage() {
         Run(TutorialUrl)
     catch
         try Run("explorer.exe " TutorialUrl)
+}
+
+; Top giveaway banner -> open the giveaway page in the default browser. The page reads
+; the shared macro code the footer already shows (+2 entries). Same open-in-browser
+; fallback as the other external links.
+OpenGiveawayPage() {
+    global GiveawayUrl
+    try
+        Run(GiveawayUrl)
+    catch
+        try Run("explorer.exe " GiveawayUrl)
 }
 
 ; "Paste" button in the unlock popup. The page is served via NavigateToString (a
@@ -1733,6 +1780,26 @@ HtmlTemplate() {
        padding:8px 12px;margin-bottom:12px}
   .updatebar.show{display:block}
   .updatebar b{font-weight:800}
+  /* Giveaway banner: a persistent blue promo bar under the title (blue to match the Moon
+     Bloom seed image). A "Free giveaway" eyebrow + "Enter" button make it read as a free
+     prize draw, not another paid upsell. Clicking anywhere on it -- or the Enter button --
+     opens the giveaway page. The seed image is inlined as a data URI (see FileToDataUri) so
+     it shows with no network, over a soft blue glow. */
+  .givebar{display:flex;align-items:center;gap:11px;cursor:pointer;text-decoration:none;
+       background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:8px 10px 8px 9px;
+       transition:background .12s,border-color .12s}
+  .givebar:hover{background:#e4efff;border-color:#93c5fd}
+  .givebar .gb-imgwrap{position:relative;display:grid;place-items:center;flex-shrink:0;width:56px;height:56px}
+  .givebar .gb-imgwrap::before{content:'';position:absolute;width:56px;height:56px;border-radius:50%;
+       background:radial-gradient(circle,rgba(59,130,246,.45),rgba(59,130,246,.14) 55%,transparent 72%)}
+  .givebar .gb-img{position:relative;width:46px;height:46px;object-fit:contain}
+  .givebar .gb-txt{flex:1;display:flex;flex-direction:column;line-height:1.25;min-width:0}
+  .givebar .gb-eyebrow{font-size:9.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#2563eb;margin-bottom:2px}
+  .givebar .gb-title{font-size:13px;font-weight:700;color:#1e3a8a}
+  .givebar .gb-sub{font-size:11px;color:#5578c0;margin-top:1px}
+  .givebar .gb-cta{flex-shrink:0;background:#2563eb;color:#fff;font-size:12.5px;font-weight:700;
+       border-radius:7px;padding:7px 18px;line-height:1.3}
+  .givebar:hover .gb-cta{background:#1d4ed8}
   /* Flash-deal countdown banner: a green deal bar under the title, shown for 24h after
      install (see MaybeShowFlashOffer). Hidden until AHK sends "flash|..."; the page
      ticks the timer down itself and hides the bar at zero. Clicking it opens checkout. */
@@ -1878,6 +1945,19 @@ HtmlTemplate() {
   <div id='promoBadge' class='promobadge' hidden onclick='openAccess()'>Use code <b id='promoBadgeCode'></b> for <b id='promoBadgePct'></b>% off</div>
   <h1>Garden Macro</h1>
   <div id='updateBar' class='updatebar'>&#128260; A new version<span id='updateVer'></span> is available &mdash; <b>close and reopen the macro</b> to update.</div>
+  <!-- Giveaway promo banner. Static title/image, like the site's OG card -- update the text
+       and MoonBloomSeed.webp here if the prize changes. Opens gardenmacro.com/giveaway. -->
+  <div id='giveBanner' class='givebar' onclick='openGiveaway()'>
+    <span class='gb-imgwrap'>
+      <img class='gb-img' src='__GIVEAWAYIMG__' alt='' onerror='this.style.display="none"'>
+    </span>
+    <span class='gb-txt'>
+      <span class='gb-eyebrow'>Free giveaway</span>
+      <span class='gb-title'>Win 10x Moon Bloom Seeds</span>
+      <span class='gb-sub'>Enter for a chance to win</span>
+    </span>
+    <span class='gb-cta'>Enter</span>
+  </div>
   <div class='tabs'>
     <button id='tabSeeds' class='tab on' onclick='switchTab("seeds")'>Seeds</button>
     <button id='tabGears' class='tab'    onclick='switchTab("gears")'>Gears</button>
@@ -2284,6 +2364,9 @@ HtmlTemplate() {
   /* Setup video row: open the walkthrough in the browser. The row stays put so
      it's always one tap away. */
   function watchSetup(){ send('opentutorial'); }
+
+  /* Giveaway banner: open the giveaway page in the browser (whole bar + Enter button click). */
+  function openGiveaway(){ send('opengiveaway'); }
 
   /* Flash deal: AHK sends "flash|<variant>|<usd>|<secondsLeft>|<popup 0|1>" shortly after
      launch, for 24h after install. <usd> is the first-month price shown (e.g. "$1.50").
