@@ -46,7 +46,6 @@ global IntervalMs := 5 * 60 * 1000  ; how often to repeat: 5 minutes
 global FirstSel   := 0              ; index of first ticked item (locked at Start)
 global LastSel    := 0              ; index of last ticked item (locked at Start)
 global PassQty    := 20             ; fixed quantity bought per item each pass
-global SessionStart := 0            ; A_TickCount when the current run's buying began (0 = idle)
 
 ; Which shop the macro drives: "seeds" or "gears".
 global UiActiveMode := "seeds"      ; tab currently shown in the UI (live)
@@ -89,12 +88,6 @@ global wv         := 0
 global BaseLock     := 2      ; best seeds locked on the install day (day 0) -> the best 2 are locked from day one
 global DailyLock    := 2      ; extra best seeds locked per calendar day after install
 global PremiumCount := 0      ; locked-seed count THIS session (set at startup; UI copy)
-; Per-restock in-game appearance chance of EACH seed of a rarity. Drives the
-; post-run "what you missed" upsell estimate (see MaybeShowUpgradeHint). The
-; estimate always multiplies by the FULL count of that rarity in the list, not
-; the locked count.
-global SuperChance  := 0.003  ; ~0.3% per restock per super seed
-global MythicChance := 0.014  ; ~1.4% per restock per mythic seed
 global FreeNames    := Map()  ; seed NAME -> true for seeds outside the paywall (set at startup)
 global Unlocked     := false                          ; premium unlocked this session?
 global InstallFile  := A_AppData "\GardenMacro\install.txt"  ; first-run stamp + seed-name snapshot
@@ -129,19 +122,6 @@ global UpdateSrcUrl   := "https://raw.git" "hubusercontent.com/LanD" "ocsApp/Gag
 global UpdateCheckMs  := 60 * 60 * 1000   ; re-check for a newer build hourly while open
 global UpdateNotified := false            ; banner already shown this session? (only nag once)
 global UpdateReq      := 0                ; keeps the update-check COM object alive in-flight
-
-; --- Loyalty discount: as a user accumulates macro runtime (added up across every
-;     session) they earn a 50%-off code for Pro at each hour-milestone in DiscountMiles
-;     -- so it shows at 5h, then again at 20h. Each milestone fires once, on the Stop
-;     that first crosses it, and takes priority over the post-run upsell hint. The
-;     cumulative runtime + how many milestones have been shown (DiscountStage) are
-;     persisted so it survives restarts and never repeats a milestone. Pro users never
-;     see it (nothing left to sell).
-global UsageFile     := A_AppData "\GardenMacro\usage.txt"  ; cumulative runtime + milestone stage
-global DiscountMiles := [5, 20]      ; ascending total-hours milestones; each shows the 50%-off code once
-global DiscountCode  := "promacro"   ; 50%-off code shown at each milestone
-global TotalRunMs    := 0            ; cumulative macro runtime in ms (loaded at startup)
-global DiscountStage := 0            ; how many DiscountMiles milestones have been shown so far
 
 ; --- Creator promo codes: on the FIRST Start ever, the user is asked whether they
 ;     have a promo code. A valid one (see PromoValid) is then shown in the window
@@ -290,9 +270,7 @@ global Gears := [
 FreeNames    := ComputeFreeNames()
 PremiumCount := CountLocked()
 
-; Restore the lifetime macro runtime + whether the loyalty discount has been shown,
-; and any promo code the user entered (shown in the corner; suppresses the 50%-off popup).
-LoadUsage()
+; Restore any promo code the user entered (shown in the corner as a checkout reminder).
 LoadPromo()
 LoadSource()
 LoadOrCreateOffer()   ; assign (or restore) this install's flash-deal A/B price variant
@@ -546,7 +524,7 @@ F2:: StopMacro()
 
 StartMacro() {
     global LoopActive, Running, IntervalMs, FirstSel, LastSel, PassQty
-    global SeedSel, GearSel, SelSet, Unlocked, MainGui, SessionStart
+    global SeedSel, GearSel, SelSet, Unlocked, MainGui
     global UiActiveMode, ActiveMode, ActiveItems, Seeds, Gears
 
     if LoopActive               ; loop already armed -> ignore
@@ -604,7 +582,6 @@ StartMacro() {
         try MainGui.Restore()   ; setup failed -> bring the window back so the error is visible
         return
     }
-    SessionStart := A_TickCount ; setup done -> start timing the run (drives the post-run upsell hint)
     BuyPass()                   ; first buy pass (ends on the first selected item)
     Running := false
 
@@ -629,7 +606,7 @@ DoPass() {
 }
 
 StopMacro() {
-    global Running, LoopActive, SessionStart
+    global Running, LoopActive
     LoopActive := false
     SetTimer(DoPass, 0)         ; cancel the 5-minute loop
     Running := false            ; interrupt any pass in progress
@@ -638,19 +615,6 @@ StopMacro() {
     Send "{Down up}"
     UiState(false)
     UiStatus("Stopped.")
-
-    ; End of a real run. Bank this session toward the lifetime total, then decide
-    ; what to show: a user who has just crossed a runtime milestone (5h, then 20h)
-    ; gets the 50%-off code; everyone else may get the "what the locked seeds would
-    ; have earned you" upsell. Guarded so a Stop with no run does nothing.
-    if (SessionStart > 0) {
-        elapsed := A_TickCount - SessionStart
-        SessionStart := 0
-        AddRuntime(elapsed)                 ; add this run to the lifetime total + save
-        if MaybeShowLoyaltyDiscount()       ; crossed a 5h/20h milestone -> show 50%-off, skip the hint
-            return
-        MaybeShowUpgradeHint(elapsed)
-    }
 }
 
 ; ============================================================
@@ -679,142 +643,6 @@ CountLocked() {
         if !FreeNames.Has(it.name)
             n++
     return n
-}
-
-; Count seeds of a given rarity in the current list (ALL of them, locked or not).
-; Read live from Seeds so the upsell estimate tracks the list -- adding a seed of
-; that rarity raises the number on its own; nothing is hardcoded.
-CountSeedsByRarity(rarity) {
-    global Seeds
-    n := 0
-    for it in Seeds
-        if (it.rarity = rarity)
-            n++
-    return n
-}
-
-; Count LOCKED seeds of a given rarity right now (the premium ones behind the
-; paywall). Used only to decide WHICH tiers the popup mentions, not the estimate.
-CountLockedSeedsByRarity(rarity) {
-    global Seeds, FreeNames
-    n := 0
-    for it in Seeds
-        if (it.rarity = rarity && !FreeNames.Has(it.name))
-            n++
-    return n
-}
-
-; After a run, optionally show a free user what the locked premium seeds would
-; have earned them this session. Per-rarity estimate = (restocks the run spanned,
-; one every IntervalMs) x (the FULL count of that rarity in the list) x (that
-; rarity's per-restock appearance chance). The multiplier is always the full
-; rarity count, never the locked count. Two tiers:
-;   - If ANY mythic seed is locked, gate on mythics (1.4% each -> fires on a
-;     realistic ~1-2h session) and show BOTH the mythic and super counts.
-;   - Otherwise gate on supers alone (0.3% each -> long session), the original
-;     behavior, shown super-only.
-; Skipped entirely when nothing is locked (already Pro, or day-one fully-free).
-; Counts are rounded to the nearest whole and floored at 1, so the popup never
-; shows a fraction (e.g. an in-progress 0.1 super reads as 1).
-MaybeShowUpgradeHint(elapsedMs) {
-    global Unlocked, PremiumCount, IntervalMs, MainGui, SuperChance, MythicChance, PromoCode
-    if (Unlocked || PremiumCount <= 0)      ; everything already unlocked -> nothing to sell
-        return
-    if (PromoCode != "")                    ; holds a creator discount code -> never show a rival code
-        return                              ; (Stripe codes don't stack; protect the creator's code)
-    restocks := 1 + (elapsedMs // IntervalMs)
-    superExp := restocks * CountSeedsByRarity("Super") * SuperChance
-
-    if (CountLockedSeedsByRarity("Mythic") > 0) {
-        ; Mythic tier: mythics are common enough that this fires on a real session.
-        mythicExp := restocks * CountSeedsByRarity("Mythic") * MythicChance
-        if (mythicExp < 1)                  ; too short to have averaged a mythic -> stay quiet
-            return
-        try MainGui.Restore()               ; un-minimize so the hint is actually seen
-        Post("hint|" HintCount(mythicExp) "|" HintCount(superExp))
-        SendEvent("hint_shown")             ; funnel: the post-session upsell popup was shown
-        return
-    }
-
-    ; Super-only tier (no mythic locked yet): original long-session behavior.
-    if (superExp < 1)                       ; too short to have averaged a super seed
-        return
-    try MainGui.Restore()
-    Post("hint|0|" HintCount(superExp))
-    SendEvent("hint_shown")                 ; funnel: the post-session upsell popup was shown
-}
-
-; Round an expected count for display: nearest whole, never below 1, so a small
-; fraction still reads as "1" rather than 0 or a decimal.
-HintCount(expected) {
-    n := Round(expected)
-    return n < 1 ? 1 : n
-}
-
-; ---- Loyalty discount (runtime milestones -> 50% off Pro) ----
-
-; Load the lifetime runtime + milestone stage saved across sessions. File format:
-; "<totalMs>|<stage>". Missing / unreadable -> zero usage, stage 0. Back-compat: the
-; old "shown" flag stored 0/1, which already maps to stage 0 / 1 (the first milestone).
-LoadUsage() {
-    global UsageFile, TotalRunMs, DiscountStage
-    if !FileExist(UsageFile)
-        return
-    raw := ""
-    try raw := Trim(FileRead(UsageFile, "UTF-8"), " `t`r`n" Chr(0xFEFF))
-    parts := StrSplit(raw, "|")
-    if (parts.Length >= 1 && IsInteger(parts[1]))
-        TotalRunMs := Integer(parts[1])
-    if (parts.Length >= 2 && IsInteger(parts[2]))
-        DiscountStage := Integer(parts[2])
-}
-
-; Persist the lifetime runtime + milestone stage (no BOM; create the folder if needed).
-SaveUsage() {
-    global UsageFile, TotalRunMs, DiscountStage
-    try {
-        SplitPath(UsageFile, , &dir)
-        if (dir != "" && !DirExist(dir))
-            DirCreate(dir)
-        f := FileOpen(UsageFile, "w", "UTF-8-RAW")
-        f.Write(TotalRunMs "|" DiscountStage)
-        f.Close()
-    }
-}
-
-; Add this run's elapsed ms to the lifetime total and persist it.
-AddRuntime(ms) {
-    global TotalRunMs
-    if (ms > 0)
-        TotalRunMs += ms
-    SaveUsage()
-}
-
-; After a run, if the lifetime total has reached a new DiscountMiles milestone (5h,
-; then 20h) that hasn't been shown yet, show the 50%-off code. Each milestone fires
-; once, is skipped for Pro users, and takes priority over the upsell hint. Returns
-; true if it showed the popup, so the caller can skip the hint.
-MaybeShowLoyaltyDiscount() {
-    global Unlocked, TotalRunMs, DiscountStage, DiscountMiles, DiscountCode, MainGui, PromoCode
-    if (Unlocked)                           ; already Pro -> nothing to sell
-        return false
-    if (PromoCode != "")                    ; already holds a creator discount code -> don't pile on
-        return false
-    ; How many hour-milestones the lifetime total has now passed (DiscountMiles ascending).
-    hours   := TotalRunMs / 3600000.0
-    reached := 0
-    for h in DiscountMiles
-        if (hours >= h)
-            reached++
-    if (reached <= DiscountStage)           ; no new milestone crossed since last time -> stay quiet
-        return false
-    DiscountStage := reached
-    SaveUsage()
-    try MainGui.Restore()                   ; un-minimize so the offer is actually seen
-    ; Carry the milestone hours just crossed so the popup copy reads "over 5/20 hours".
-    Post("discount|" DiscountCode "|" DiscountMiles[reached])
-    SendEvent("loyalty_shown")              ; funnel: the 50%-off loyalty popup was shown
-    return true
 }
 
 ; ---- Flash deal (24h post-install first-month discount, A/B priced) ----
@@ -1919,23 +1747,9 @@ HtmlTemplate() {
         font-size:13px;outline:none;font-family:inherit}
   #codeInput:focus,#promoInput:focus{border-color:#16a34a}
   .lmsg{font-size:12px;color:#888;margin-top:10px;min-height:15px;line-height:1.4}
-  /* Post-run upsell hint: what the locked premium seeds would have earned */
-  .hintwrap{display:flex;flex-direction:column;gap:2px;margin:6px 0 10px}
-  .hintbig{font-size:27px;font-weight:800;line-height:1.2;text-align:center}
-  .hintbig.sp{background:linear-gradient(90deg,#ff2d55,#ff8a00,#ffe600,#34c759,#00c7ff,#8b5cff,#ff2d55);
-        background-size:200% auto;-webkit-background-clip:text;background-clip:text;
-        -webkit-text-fill-color:transparent;color:transparent;animation:rainbow 3s linear infinite}
-  .hintbig.my{color:#a855f7;text-shadow:0 0 7px rgba(168,85,247,.6),0 0 14px rgba(150,70,255,.4);
-        animation:glowpulse 2.2s ease-in-out infinite}
+  /* "Maybe later" dismiss link, shared by the flash-deal popup */
   .hintDismiss{display:block;text-align:center;margin-top:8px;font-size:12px;color:#999;cursor:pointer}
   .hintDismiss:hover{color:#555;text-decoration:underline}
-  /* Loyalty discount popup: the 50%-off code chip */
-  .off{color:#16a34a;font-weight:800}
-  .codebox{display:flex;align-items:center;gap:9px;margin:4px 0 14px}
-  .codeval{flex:1;text-align:center;color:#15803d;background:#ecfdf5;border:1.5px dashed #86efac;
-        border-radius:9px;padding:11px 12px;font-size:21px;font-weight:800;letter-spacing:2px;
-        text-transform:uppercase;font-family:'Consolas','JetBrains Mono',monospace;
-        -webkit-user-select:text;user-select:text}
   /* Flash-deal popup (red): big price + big live countdown */
   .flashmodal{text-align:center;position:relative}
   .flashmodal .mx{position:absolute;top:-2px;right:0}
@@ -2072,45 +1886,6 @@ HtmlTemplate() {
         <button class='btn green' onclick='activate()'>Unlock</button>
       </div>
       <div id='licenseMsg' class='lmsg'></div>
-    </div>
-  </div>
-
-  <div id='hintOverlay' class='overlay' hidden>
-    <div class='modal'>
-      <div class='mh'>
-        <span class='mlock'>&#11088;</span>
-        <h2 id='hintTitle'>You left rare seeds on the table</h2>
-        <button class='mx' onclick='dismissHint()'>&times;</button>
-      </div>
-      <p class='mdesc'>If you had upgraded, this session would have bought you on average</p>
-      <div class='hintwrap'>
-        <div id='hintMythic' class='hintbig my'><span id='hintMythicNum'>0</span> <span id='hintMythicNoun'>mythic seeds</span></div>
-        <div id='hintSuper' class='hintbig sp'><span id='hintSuperNum'>0</span> <span id='hintSuperNoun'>super seeds</span></div>
-      </div>
-      <p class='mdesc'>These are among the rarest seeds in the game and stay locked on the free plan. Upgrade and the macro grabs them for you on every restock &mdash; and here&#39;s <span class='off'>20% off</span> to get started:</p>
-      <div class='codebox'>
-        <span id='hintCode' class='codeval'>superseed</span>
-        <button class='btn' onclick='copyCode(this, "hintCode")'>Copy</button>
-      </div>
-      <button class='btn green block' onclick='ctaHint()'>Unlock the best seeds &mdash; 20% off &rarr;</button>
-      <a class='hintDismiss' onclick='dismissHint()'>Maybe later</a>
-    </div>
-  </div>
-
-  <div id='discountOverlay' class='overlay' hidden>
-    <div class='modal'>
-      <div class='mh'>
-        <span class='mlock'>&#127881;</span>
-        <h2>You&#39;ve unlocked <span class='off'>50% off</span>!</h2>
-        <button class='mx' onclick='dismissDiscount()'>&times;</button>
-      </div>
-      <p class='mdesc'>Thanks for running Garden Macro for over <span id='discountHours'>5</span> hours. Here&#39;s <b>50% off</b> Garden Macro Pro &mdash; enter this code at checkout:</p>
-      <div class='codebox'>
-        <span id='discountCode' class='codeval'>promacro</span>
-        <button class='btn' onclick='copyDiscount(this)'>Copy</button>
-      </div>
-      <button class='btn green block' onclick='ctaDiscount()'>Get Pro &mdash; 50% off &rarr;</button>
-      <a class='hintDismiss' onclick='dismissDiscount()'>Maybe later</a>
     </div>
   </div>
 
@@ -2355,38 +2130,6 @@ HtmlTemplate() {
   }
   function closeAccess(){ document.getElementById('overlay').hidden = true; }
 
-  /* Post-run upsell: AHK sends "hint|<mythic>|<super>" with the average seed
-     counts it estimated for the run. A 0 mythic means "no mythic locked yet" ->
-     super-only popup; otherwise both lines show. Values are already >= 1. */
-  function showHint(m, s){
-    m = parseInt(m, 10) || 0;
-    s = parseInt(s, 10) || 0;
-    var mEl = document.getElementById('hintMythic');
-    if (m > 0){
-      document.getElementById('hintMythicNum').textContent = m;
-      document.getElementById('hintMythicNoun').textContent = 'mythic seed' + (m === 1 ? '' : 's');
-      mEl.hidden = false;
-    } else {
-      mEl.hidden = true;
-    }
-    document.getElementById('hintSuperNum').textContent = s;
-    document.getElementById('hintSuperNoun').textContent = 'super seed' + (s === 1 ? '' : 's');
-    document.getElementById('hintSuper').hidden = (s <= 0);
-    document.getElementById('hintTitle').textContent =
-      (m > 0) ? 'You left rare seeds on the table' : 'You left super seeds on the table';
-    document.getElementById('hintOverlay').hidden = false;
-  }
-  function closeHint(){ document.getElementById('hintOverlay').hidden = true; }
-
-  /* Loyalty discount: AHK sends "discount|<code>" once the user has run the macro
-     for 5h total. Show the 50%-off code and let them copy it. */
-  function showDiscount(code, hours){
-    if (code) document.getElementById('discountCode').textContent = code;
-    if (hours) document.getElementById('discountHours').textContent = hours;
-    document.getElementById('discountOverlay').hidden = false;
-  }
-  function closeDiscount(){ document.getElementById('discountOverlay').hidden = true; }
-
   /* Flash deal: AHK sends "flash|<variant>|<usd>|<secondsLeft>|<popup 0|1>" shortly after
      launch, for 24h after install. <usd> is the first-month price shown (e.g. "$1.50").
      Show the red countdown banner (always) + optionally the modal popup, then tick the timer
@@ -2454,32 +2197,6 @@ HtmlTemplate() {
     el.classList.add('show');
     requestAnimationFrame(function(){ requestAnimationFrame(fitWindow); });
   }
-  /* Copy the promo code in element `id` to the clipboard, with a graceful
-     fallback for the non-secure NavigateToString origin, then flash "Copied". */
-  function copyCode(btn, id){
-    var el = document.getElementById(id), code = el.textContent;
-    var ok = false;
-    try { navigator.clipboard.writeText(code); ok = true; } catch(e){}
-    if (!ok){
-      try {
-        var r = document.createRange(); r.selectNode(el);
-        var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
-        document.execCommand('copy'); sel.removeAllRanges();
-      } catch(e2){}
-    }
-    if (id === 'hintCode') send('ev|hint_copied');         /* funnel: post-session upsell code copied */
-    else if (id === 'discountCode') send('ev|loyalty_copied'); /* funnel: loyalty code copied */
-    if (btn){ var t = btn.textContent; btn.textContent = 'Copied'; setTimeout(function(){ btn.textContent = t; }, 1400); }
-  }
-  function copyDiscount(btn){ copyCode(btn, 'discountCode'); }
-  /* Dismissals (X / "Maybe later") log a funnel event; the CTA buttons do NOT (they
-     route to openAccess instead), so dismiss counts only true "not now" closes. */
-  function dismissHint(){ send('ev|hint_dismiss'); closeHint(); }
-  function dismissDiscount(){ send('ev|loyalty_dismiss'); closeDiscount(); }
-  /* CTA = clicked through to the access page (strongest intent). Logs a popup event
-     AND opens access (openAccess fires its own get_access funnel event). */
-  function ctaHint(){ send('ev|hint_cta'); closeHint(); openAccess(); }
-  function ctaDiscount(){ send('ev|loyalty_cta'); closeDiscount(); openAccess(); }
 
   /* Promo codes. AHK sends "promoask" shortly after first launch; the page shows the
      prompt. Apply (or Enter) -> AHK validates and replies "promook|<CODE>|<PCT>" (badge
@@ -2629,8 +2346,6 @@ HtmlTemplate() {
       setLicenseMsg('');
     }
     else if (type === 'access') openAccess();   /* tried to Start a Pro-locked tab */
-    else if (type === 'hint') { var hp = rest.split('|'); showHint(hp[0], hp[1]); }  /* post-run upsell */
-    else if (type === 'discount') { var dp = rest.split('|'); showDiscount(dp[0], dp[1]); }   /* loyalty 50%-off code + milestone hours */
     else if (type === 'flash') { var xp = rest.split('|'); showFlash(xp[0], xp[1], xp[2], xp[3]); }   /* 24h flash-deal countdown (variant|usd|secs|popup) */
     else if (type === 'update') showUpdate(rest);   /* newer build on `main` -> restart to update */
     else if (type === 'sourceask') openSourceAsk();     /* first-launch acquisition prompt (before promo) */
