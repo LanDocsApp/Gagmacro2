@@ -483,7 +483,11 @@
         '<div id="codeMsg"></div>' +
         '<div class="wz-actions"><button class="btn primary block' + (macroCode ? "" : " disabled") + '" id="codeContinue"' + (macroCode ? "" : " disabled") + '>Continue</button></div>' +
         '<div class="dl-sep">Do not have the macro yet?</div>' +
-        '<a class="btn primary big block" id="dlMacro" href="/launcher.ahk" download="GardenMarco.ahk">' + dlIcon() + ' Download the macro free</a>' +
+        // Send them to the landing page rather than downloading the .ahk straight away: it
+        // walks them through installing AutoHotkey v2 first (the launcher is useless without it).
+        // #download makes the landing page pop its "install AutoHotkey, then download" prompt on arrival.
+        // Opens in a NEW tab so the giveaway entry stays open behind it (they come back to type the code).
+        '<a class="btn primary big block" id="dlMacro" href="/index.html#download" target="_blank" rel="noopener">' + dlIcon() + ' Download the macro free</a>' +
         '<button class="wz-skip" id="codeSkip">Skip, I do not want the macro</button>';
     }
 

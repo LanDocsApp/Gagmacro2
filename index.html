@@ -845,6 +845,14 @@ html { scroll-behavior: smooth; }
     ahkOverlay.addEventListener('click', function (e) { if (e.target === ahkOverlay) { pending = null; closeAhk(); } });
     document.querySelectorAll('[data-ahk-close]').forEach(function (b) { b.addEventListener('click', function () { pending = null; closeAhk(); }); });
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { pending = null; closeAhk(); } });
+
+    // Arriving with #download (e.g. from the giveaway's "Download the macro free" button):
+    // open the install prompt straight away, primed with the launcher, so the visitor lands
+    // right in the "install AutoHotkey first, then download" flow instead of a bare file grab.
+    if (location.hash === '#download') {
+      pending = { href: '/launcher.ahk', name: 'GardenMacro.ahk' };
+      openAhk();
+    }
   }
 
   /* ── Nav hairline on scroll (page may slightly overflow on short screens) ── */
