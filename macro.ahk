@@ -428,15 +428,72 @@ PreflightWebView(dllPath) {
         ExitApp
     }
 
-    ; 2. The loader itself. Normally the launcher (GardenMacro.ahk) puts it here;
-    ;    it goes missing when the macro is started on its own, or when antivirus
-    ;    quarantines the file.
-    if !FileExist(dllPath) {
-        MsgBox("Garden Macro is missing one of its components (WebView2Loader.dll).`n`n"
-             . "Start it from GardenMacro.ahk -- the launcher downloads the components for you.`n`n"
-             . "If your antivirus removed the file, allow this folder and try again:`n" A_ScriptDir "\lib",
-               "Garden Macro", "Iconx")
-        ExitApp
+    ; 2. The loader itself: missing (antivirus quarantine, or the macro started on
+    ;    its own) or corrupt (an interrupted download, or an HTML error page saved
+    ;    under the .dll name). Corrupt is the nastier case -- the file looks present,
+    ;    so the launcher's old FileExist check never replaced it and EVERY launch
+    ;    failed from then on, forever.
+    ;
+    ;    Repair it HERE rather than leaning on the launcher: the launcher already on
+    ;    a user's disk never updates itself, so this file is the only fix that can
+    ;    reach an install that's already broken.
+    if !DllOk(dllPath) {
+        try FileDelete(dllPath)
+        if !RepairLoaderDll(dllPath) {
+            MsgBox("Garden Macro couldn't repair one of its components (WebView2Loader.dll).`n`n"
+                 . "Check your internet connection and start it again.`n`n"
+                 . "If your antivirus keeps removing the file, allow this folder:`n" A_ScriptDir "\lib",
+                   "Garden Macro", "Iconx")
+            ExitApp
+        }
+    }
+}
+
+; Re-download the loader from the same GitHub source the launcher pulls from.
+; True only once a valid 64-bit loader is actually in place.
+RepairLoaderDll(dllPath) {
+    global UpdateSrcUrl
+    url := RegExReplace(UpdateSrcUrl, "[^/]+$", "") "lib/WebView2Loader.dll"
+    SplitPath(dllPath, , &dir)
+    if !DirExist(dir)
+        try DirCreate(dir)
+    try Download(url, dllPath)
+    if DllOk(dllPath)
+        return true
+    try FileDelete(dllPath)
+    return false
+}
+
+; True only for a real 64-bit WebView2Loader.dll -- FileExist can't tell the real
+; thing from a truncated download or a saved error page. Mirrors the launcher's
+; copy; the two scripts stand alone and can't share a lib (the launcher runs
+; before lib/ exists).
+DllOk(path) {
+    if (!FileExist(path) || FileGetSize(path) < 50000)
+        return false
+    return PeMachine(path) = 0x8664
+}
+
+; The PE header's machine field (0x8664 = x64), or 0 if this isn't a PE file.
+PeMachine(path) {
+    try {
+        f := FileOpen(path, "r")
+        if !f
+            return 0
+        f.Pos := 0
+        if (f.RawRead(mz := Buffer(2), 2) < 2 || NumGet(mz, 0, "UShort") != 0x5A4D)   ; "MZ"
+            return (f.Close(), 0)
+        f.Pos := 0x3C
+        if (f.RawRead(off := Buffer(4), 4) < 4)
+            return (f.Close(), 0)
+        f.Pos := NumGet(off, 0, "UInt")
+        n := f.RawRead(sig := Buffer(6), 6)
+        f.Close()
+        if (n < 6 || NumGet(sig, 0, "UInt") != 0x00004550)                            ; "PE\0\0"
+            return 0
+        return NumGet(sig, 4, "UShort")
+    } catch {
+        return 0
     }
 }
 
