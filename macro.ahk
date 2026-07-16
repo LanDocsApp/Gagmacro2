@@ -104,6 +104,9 @@ global VerifyUrl    := BackendBase "/api/desktop/verify"
 global PingUrl      := BackendBase "/api/ping"              ; anonymous usage stats
 global GiveawayUrl  := BackendBase "/giveaway"             ; top banner "Enter giveaway" link
 global TutorialUrl  := "https://www.youtube.com/watch?v=2-K89sp8H4o"  ; "Video setup" link -> YouTube walkthrough
+; Microsoft's Evergreen WebView2 bootstrapper. Offered if the window can't be created
+; because the runtime is missing (preinstalled on Win11, not on every Win10 build).
+global WebView2RuntimeUrl := "https://go.microsoft.com/fwlink/p/?LinkId=2124703"
 global TokenFile    := A_AppData "\GardenMacro\token.txt"   ; saved paste-code
 global DeviceFile   := A_AppData "\GardenMacro\device.txt"  ; random anon install id
 global DeviceId     := ""           ; set at startup (see GetOrCreateDeviceId)
@@ -327,6 +330,8 @@ BuildUi() {
     dataDir := A_AppData "\GardenMacro\WebView2"   ; writable user-data folder
     DirCreate dataDir
 
+    PreflightWebView(dllPath)   ; exits with a readable message if the window can't work here
+
     MainGui := Gui("+Resize +AlwaysOnTop", "Garden Macro")
     MainGui.MarginX := 0
     MainGui.MarginY := 0
@@ -340,7 +345,10 @@ BuildUi() {
     ; Create the Edge WebView2 control filling the window. Pass the loader DLL
     ; path explicitly and a writable data dir (the default would sit next to the
     ; AutoHotkey exe in Program Files, which isn't writable).
-    controller := WebView2.create(MainGui.Hwnd, , 0, dataDir, "", 0, dllPath)
+    try
+        controller := WebView2.create(MainGui.Hwnd, , 0, dataDir, "", 0, dllPath)
+    catch as e
+        WebViewFailed(e)                      ; explains the fix, then exits
     wv := controller.CoreWebView2
 
     s := wv.Settings                          ; lock it down so it feels like an app
@@ -386,6 +394,111 @@ BuildUi() {
     WillOnboard := (!SourceAsked) || (!PromoAsked && hasToken = "0")
     html := StrReplace(html, "__ONBOARD__", WillOnboard ? "1" : "0")
     wv.NavigateToString(html)
+}
+
+; ============================================================
+;  WebView2 preflight
+;
+;  Everything the window needs before WebView2.create can work. Each of these
+;  used to surface as AutoHotkey's raw "Failed to load DLL" box -- true, but not
+;  something a player can act on, and the macro then just never appeared.
+;
+;  Returns only when the window has a real chance of building; otherwise it says
+;  what to do and exits.
+; ============================================================
+PreflightWebView(dllPath) {
+    ; 1. Bitness. WebView2Loader.dll is x64-only, so under 32-bit AutoHotkey
+    ;    LoadLibrary refuses it. A user gets here when their .ahk association
+    ;    points at AutoHotkey32.exe: the launcher runs the macro with whatever
+    ;    interpreter opened the launcher itself. Re-run under the 64-bit build
+    ;    rather than making them fix the association.
+    if (A_PtrSize = 4) {
+        ahk64 := Find64BitAhk()
+        if (A_Is64bitOS && ahk64 != "") {
+            try {
+                Run('"' ahk64 '" "' A_ScriptFullPath '"')
+                ExitApp
+            }
+        }
+        MsgBox(A_Is64bitOS
+            ? "Garden Macro needs the 64-bit build of AutoHotkey v2.`n`n"
+            . "Reinstall AutoHotkey v2 from autohotkey.com, keep the default 64-bit option, then start the macro again."
+            : "Garden Macro needs 64-bit Windows and can't run on this PC.",
+            "Garden Macro", "Iconx")
+        ExitApp
+    }
+
+    ; 2. The loader itself. Normally the launcher (GardenMacro.ahk) puts it here;
+    ;    it goes missing when the macro is started on its own, or when antivirus
+    ;    quarantines the file.
+    if !FileExist(dllPath) {
+        MsgBox("Garden Macro is missing one of its components (WebView2Loader.dll).`n`n"
+             . "Start it from GardenMacro.ahk -- the launcher downloads the components for you.`n`n"
+             . "If your antivirus removed the file, allow this folder and try again:`n" A_ScriptDir "\lib",
+               "Garden Macro", "Iconx")
+        ExitApp
+    }
+}
+
+; Called when WebView2.create throws. The runtime check lives HERE rather than in
+; the preflight on purpose: the loader finds the runtime through the registry and
+; so can succeed from install paths we don't scan, and wrongly blocking a working
+; PC is worse than a slightly late message.
+WebViewFailed(e) {
+    global WebView2RuntimeUrl, BackendBase
+
+    if !EdgeRuntimeInstalled() {
+        if (MsgBox("Garden Macro needs the Microsoft Edge WebView2 runtime, and it isn't installed on this PC.`n`n"
+                 . "Open Microsoft's free download page? Install it, then start the macro again.",
+                   "Garden Macro", "YesNo Iconi") = "Yes")
+            OpenExternal(WebView2RuntimeUrl)
+        ExitApp
+    }
+
+    if (MsgBox("Garden Macro couldn't open its window.`n`n"
+             . e.Message "`n`n"
+             . "Open the setup guide for help?", "Garden Macro", "YesNo Iconx") = "Yes")
+        OpenExternal(BackendBase "/help.html")
+    ExitApp
+}
+
+; The 64-bit interpreter, or "" if there isn't one. Note this runs under 32-bit
+; AutoHotkey, where A_ProgramFiles is the (x86) folder -- ProgramW6432 is the
+; real one.
+Find64BitAhk() {
+    cands := []
+    if (A_AhkPath != "") {
+        SplitPath(A_AhkPath, , &dir)
+        cands.Push(dir "\AutoHotkey64.exe", dir "\v2\AutoHotkey64.exe")
+    }
+    for root in [EnvGet("ProgramW6432"), A_ProgramFiles]
+        if (root != "")
+            cands.Push(root "\AutoHotkey\v2\AutoHotkey64.exe", root "\AutoHotkey\AutoHotkey64.exe")
+    for c in cands
+        if FileExist(c)
+            return c
+    return ""
+}
+
+; Same roots WebView2.ahk scans for the runtime, plus the 64-bit Program Files.
+EdgeRuntimeInstalled() {
+    for root in [EnvGet("ProgramFiles(x86)"), EnvGet("ProgramW6432"), A_AppData "\..\Local"] {
+        if (root = "")
+            continue
+        loop files root "\Microsoft\EdgeWebView\Application\*", "D"
+            if RegExMatch(A_LoopFileName, "^[\d.]+$")
+                return true
+    }
+    return false
+}
+
+; Open a URL in the default browser, with the same explorer.exe fallback the
+; other external links use.
+OpenExternal(url) {
+    try
+        Run(url)
+    catch
+        try Run("explorer.exe " url)
 }
 
 ; Keep the WebView2 control sized to the window's client area.
