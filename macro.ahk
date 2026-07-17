@@ -9,22 +9,23 @@
 ;  then press Start (or F1). The macro:
 ;    0. Focuses Roblox + small mouse nudge
 ;    1. Clicks the shop at (697, 103), presses "e"
-;    2. Presses "\" for keyboard UI nav, then snaps to position 1
-;       (Up 5x, Down 5x, then hold Up 3s) and stays there.
+;    2. Presses "\" for keyboard UI nav, snaps to position 1
+;       (Up 5x, Down 5x, then hold Up 3s), then moves onto the first ticked seed.
 ;  Steps 0-2 (Setup) run ONCE. The shop UI then stays open and the
-;  cursor stays put on position 1, so each restock only repeats the buy pass:
-;    3. From position 1, walk DOWN buying each ticked seed N times,
-;       then walk back UP to position 1.
+;  cursor stays put, so each restock only repeats the buy pass:
+;    3. From the first ticked seed, walk DOWN buying each ticked seed
+;       N times, then walk back UP to the first ticked seed.
 ;
-;  Setup runs on Start; the buy pass then repeats every 5 minutes
+;  Setup runs on Start; the buy pass then repeats every 5 seconds
 ;  (restock loop) until you press Stop.
 ;
 ;  The window has two tabs: "Seeds" (above) and "Gears". The Gears tab
 ;  buys from the in-game GEAR SHOP and differs only in setup: you must
 ;  already be standing in the open Gear Shop UI when you press Start, so
 ;  it skips the shop click + "e". It presses "\" for keyboard nav, then
-;  Up 5x + Down 5x + hold Up 3s to land on position 1 (the first gear) and
-;  stays there. From there the buy pass is identical to seeds.
+;  Up 5x + Down 5x + hold Up 3s to land on position 1 (the first gear), then
+;  walks down onto the first ticked gear. From there the buy pass is identical
+;  to seeds.
 ;
 ;  Controls:
 ;    Start button / F1 -> run
@@ -42,7 +43,8 @@ SetKeyDelay 50, 50
 
 global Running    := false          ; a single buy pass is currently executing
 global LoopActive := false          ; the repeat loop is armed
-global IntervalMs := 5 * 60 * 1000  ; how often to repeat: 5 minutes
+global IntervalMs := 5 * 1000       ; how often to repeat: 5 seconds
+global FirstSel   := 0              ; index of first ticked item (locked at Start)
 global LastSel    := 0              ; index of last ticked item (locked at Start)
 global PassQty    := 20             ; fixed quantity bought per item each pass
 
@@ -94,7 +96,7 @@ global InstallFile  := A_AppData "\GardenMacro\install.txt"  ; first-run stamp +
 ; Version shown in the window's bottom corner. Bump AppVersion on real releases;
 ; the build time is taken from this file's last-modified date, so it changes every
 ; time you save the script -> an easy "did my latest change actually load?" check.
-global AppVersion := "1.1.1"
+global AppVersion := "2.0.0"
 ; Giveaway code shown under the version line in the footer. Players type this on the
 ; giveaway page (gardenmacro.com/giveaway) to prove they have the macro -> +2 entries.
 ; A single shared code by design; keep it in sync with functions/_lib/giveaways.js MACRO_CODE.
@@ -749,7 +751,7 @@ F1:: StartMacro()
 F2:: StopMacro()
 
 StartMacro() {
-    global LoopActive, Running, IntervalMs, LastSel, PassQty
+    global LoopActive, Running, IntervalMs, FirstSel, LastSel, PassQty
     global SeedSel, GearSel, SelSet, Unlocked, MainGui
     global UiActiveMode, ActiveMode, ActiveItems, Seeds, Gears
 
@@ -784,11 +786,12 @@ StartMacro() {
         return
     }
 
-    ; Lock in the selection + quantity for this whole loop session. The macro
-    ; anchors at position 1 and only needs the LAST ticked index as the walk's
-    ; lower bound; SelSet decides which rows actually get bought.
-    LastSel := picks[picks.Length]
-    SelSet  := Map()
+    ; Lock in the selection + quantity for this whole loop session. The walk runs
+    ; between the FIRST and LAST ticked index; SelSet decides which rows in that
+    ; span actually get bought.
+    FirstSel := picks[1]
+    LastSel  := picks[picks.Length]
+    SelSet   := Map()
     for idx in picks
         SelSet[idx] := true
     PassQty := 20               ; fixed buy amount per item
@@ -812,15 +815,19 @@ StartMacro() {
     BuyPass()                   ; first buy pass (ends on the first selected item)
     Running := false
 
-    if LoopActive {             ; still armed -> schedule the repeats
-        SetTimer(DoPass, IntervalMs)
+    if LoopActive {             ; still armed -> schedule the first repeat
+        SetTimer(DoPass, -IntervalMs)
         UiStatus("Done. Waiting for next restock...  (Stop / F2 to end)")
     }
 }
 
 ; One repeat: only the buy pass, no setup. Guarded so passes never overlap.
+; The timer is one-shot (negative period) and re-armed once the pass FINISHES, so
+; the gap is always IntervalMs of idle time. A repeating timer would instead measure
+; from the pass's start -- and since a pass outlasts IntervalMs, the next tick would
+; fire the moment the pass returned, giving no gap at all.
 DoPass() {
-    global Running, LoopActive
+    global Running, LoopActive, IntervalMs
     if Running                  ; previous pass still going -> skip this tick
         return
     if !LoopActive              ; loop was stopped between ticks
@@ -828,14 +835,16 @@ DoPass() {
     Running := true
     BuyPass()
     Running := false
-    if LoopActive
+    if LoopActive {
+        SetTimer(DoPass, -IntervalMs)
         UiStatus("Done. Waiting for next restock...  (Stop / F2 to end)")
+    }
 }
 
 StopMacro() {
     global Running, LoopActive
     LoopActive := false
-    SetTimer(DoPass, 0)         ; cancel the 5-minute loop
+    SetTimer(DoPass, 0)         ; cancel the repeat loop
     Running := false            ; interrupt any pass in progress
     ; Make sure no arrow key is left stuck down.
     Send "{Up up}"
@@ -1640,17 +1649,20 @@ IsNewerVersion(a, b) {
 ; ============================================================
 
 ; One-time setup: focus Roblox, get into the shop UI, enter keyboard navigation,
-; and snap to position 1 (the anchor the buy pass counts down from). It leaves the
-; cursor ON position 1 -- the buy pass does all the down-walking itself.
+; snap to position 1 (a known anchor), then move down onto the FIRST ticked item --
+; where the buy pass starts and returns to every round.
 ;
 ;   Seeds:  click the shop at (697,103), press "e", then "\", then snap to
 ;           position 1 (Up 5x + Down 5x + hold Up 3s -> the first seed).
 ;   Gears:  you must already be standing in the open Gear Shop UI, so NO click and
 ;           NO "e" -- just "\", then the same snap to position 1 (the first gear).
 ;
+; Position 1 holds the first item in both shops, so reaching item N always takes
+; N-1 Down presses.
+;
 ; Returns false if stopped or Roblox is missing.
 Setup() {
-    global ActiveMode
+    global ActiveMode, FirstSel
     CoordMode "Mouse", "Screen"
 
     ; 0. Focus the Roblox window.
@@ -1708,7 +1720,7 @@ Setup() {
     ; 2b. Snap to position 1 (the first item): Up 5x then Down 5x to shake the cursor
     ;     into the list, then HOLD Up for 3s. A held key scrolls all the way to the
     ;     very top regardless of list length, settling on position 1. Identical for
-    ;     seeds and gears -- position 1 is the anchor the buy pass counts down from.
+    ;     seeds and gears -- position 1 is the anchor we count Down presses from.
     UiStatus("Resetting to position 1...")
     Loop 5 {
         Send "{Up}"
@@ -1727,23 +1739,28 @@ Setup() {
     }
     Send "{Up up}"                   ; release Up -> now on position 1
 
-    ; Setup leaves the cursor ON position 1 (the anchor). The buy pass counts its
-    ; own Down presses from here, so there's nothing more for setup to move onto.
+    ; 3. Move down from the anchor onto the FIRST ticked item. Position 1 holds
+    ;    item 1, so that's FirstSel-1 presses (none if item 1 is the first tick).
+    Loop FirstSel - 1 {
+        Send "{Down}"
+        if !Wait(300)
+            return false
+    }
     return true
 }
 
-; One buy pass. Assumes the cursor is on position 1 (where Setup leaves it).
-; Walks DOWN from position 1 buying each ticked seed, then walks back UP to
-; position 1 -> ends where it started, ready to repeat with no setup.
+; One buy pass. Assumes the cursor is on the FIRST ticked item (where Setup leaves
+; it). Walks DOWN buying each ticked item, then walks back UP to the first ticked
+; item -> ends where it started, ready to repeat with no setup.
 BuyPass() {
-    global Running, ActiveItems, SelSet, LastSel, PassQty
+    global Running, ActiveItems, SelSet, FirstSel, LastSel, PassQty
 
     ; Keep Roblox focused (this does NOT move the UI cursor).
     if WinExist("ahk_exe RobloxPlayerBeta.exe")
         WinActivate
 
-    ; Walk DOWN from position 1 to the last selected seed, buying ticked ones.
-    i := 1
+    ; Walk DOWN from the first to the last selected seed, buying ticked ones.
+    i := FirstSel
     Loop {
         if !Running
             return
@@ -1760,8 +1777,8 @@ BuyPass() {
         i += 1
     }
 
-    ; Walk back UP to position 1 for the next pass.
-    Loop LastSel - 1 {
+    ; Walk back UP to the first selected seed for the next pass.
+    Loop LastSel - FirstSel {
         if !Running
             return
         Send "{Up}"
