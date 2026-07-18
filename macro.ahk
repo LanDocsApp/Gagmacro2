@@ -106,6 +106,7 @@ global VerifyUrl    := BackendBase "/api/desktop/verify"
 global PingUrl      := BackendBase "/api/ping"              ; anonymous usage stats
 global GiveawayUrl  := BackendBase "/giveaway"             ; top banner "Enter giveaway" link
 global TutorialUrl  := "https://www.youtube.com/watch?v=2-K89sp8H4o"  ; "Video setup" link -> YouTube walkthrough
+global DiscordUrl   := "https://discord.gg/yJ2gydkXPp"     ; "Join the discussion" link in the bug modal
 ; Microsoft's Evergreen WebView2 bootstrapper. Offered if the window can't be created
 ; because the runtime is missing (preinstalled on Win11, not on every Win10 build).
 global WebView2RuntimeUrl := "https://go.microsoft.com/fwlink/p/?LinkId=2124703"
@@ -685,6 +686,8 @@ OnWebMessage(sender, args) {
             OpenTutorialPage()
         case "opengiveaway":
             OpenGiveawayPage()
+        case "opendiscord":
+            OpenDiscordPage()
         case "paste":
             PasteAccessCode()
         case "activate":
@@ -1153,6 +1156,17 @@ OpenTutorialPage() {
         Run(TutorialUrl)
     catch
         try Run("explorer.exe " TutorialUrl)
+}
+
+; "Join the discussion" in the bug modal -> open the Discord invite in the default
+; browser. Same open-in-browser fallback as the other external links; the modal is
+; served via NavigateToString, so a plain <a href> would navigate the app itself.
+OpenDiscordPage() {
+    global DiscordUrl
+    try
+        Run(DiscordUrl)
+    catch
+        try Run("explorer.exe " DiscordUrl)
 }
 
 ; Top giveaway banner -> open the giveaway page in the default browser. The page reads
@@ -1872,8 +1886,11 @@ HtmlTemplate() {
   .sub{font-size:12px;color:#888;display:flex;justify-content:space-between;align-items:baseline;gap:10px}
   .sub a{color:#555;cursor:pointer;text-decoration:none}
   .sub a:hover{color:#000;text-decoration:underline}
-  .sub a.help{color:#dc2626}
-  .sub a.help:hover{color:#b91c1c}
+  /* Discord link, first in the row. Blurple + logo. The icon is nudged with
+     vertical-align (not flex) so the row's baseline alignment still holds. */
+  .sub a.dc{color:#5865f2}
+  .sub a.dc:hover{color:#4752c4}
+  .sub a.dc svg{vertical-align:-2px;margin-right:3px;fill:currentColor}
   /* Tabs (Seeds / Gears) */
   .tabs{display:flex;gap:4px;border-bottom:1px solid #eee}
   .tab{appearance:none;border:none;background:none;font-family:inherit;font-size:13px;
@@ -1894,8 +1911,8 @@ HtmlTemplate() {
   .setupnote .sni{font-size:13px;opacity:.65;flex-shrink:0}
   .setupnote b{color:#555;font-weight:600}
   /* One-tap link to the setup video; replaces the old wall of text reminders.
-     Clicking opens the walkthrough and dismisses this row for good (the top
-     "Video setup" link stays as the permanent way back). */
+     This row is the only entry point to the walkthrough, so it stays put (it's
+     hidden only while the Account tab is showing). */
   .setupvid{display:inline-flex;align-items:center;align-self:flex-start;margin-top:-6px;gap:7px;
         cursor:pointer;border:1px solid #eee;transition:background .12s,border-color .12s}
   .setupvid:hover{background:#f3f4f6;border-color:#e0e0e0}
@@ -2126,6 +2143,12 @@ HtmlTemplate() {
   .bugfield{position:relative;margin-bottom:12px}
   .buglabel{display:block;font-size:12px;font-weight:600;color:#555;margin-bottom:5px}
   .buglabel .req{color:#dc2626;font-weight:700}
+  /* "join the Discord for help" under the contact field -- Discord blurple, icon inline
+     with the text so it reads as one link. Opens in the real browser via AHK. */
+  .bugdiscord{display:inline-flex;align-items:center;gap:5px;margin-top:7px;font-size:12px;
+        font-weight:600;color:#5865f2;cursor:pointer;user-select:none}
+  .bugdiscord:hover{color:#4752c4;text-decoration:underline}
+  .bugdiscord svg{display:block;flex-shrink:0;fill:currentColor}
   #bugDetail{width:100%;min-height:118px;resize:none;background:#fff;border:1px solid #d8d8d8;
         border-radius:8px;padding:10px 11px 22px;font-size:13px;line-height:1.5;font-family:inherit;
         outline:none;color:#1a1a1a}
@@ -2170,7 +2193,7 @@ HtmlTemplate() {
   </div>
   <div class='sub'>
     <span id='count'>0 selected</span>
-    <span><a onclick='send("openhelp")'>Help &amp; setup</a> &middot; <a class='help' onclick='send("opentutorial")'>Video setup</a> &middot; <a onclick='setAll(true)'>Select all</a> &middot; <a onclick='setAll(false)'>Clear</a></span>
+    <span><a class='dc' onclick='send("opendiscord")'><svg width='13' height='13' viewBox='0 0 24 24' aria-hidden='true'><path d='M20.317 4.369a19.79 19.79 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.211.375-.445.865-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.1 13.1 0 0 1-1.872-.892.077.077 0 0 1-.008-.128c.126-.094.252-.192.372-.291a.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.009c.12.099.246.198.373.292a.077.077 0 0 1-.006.127 12.3 12.3 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.84 19.84 0 0 0 6.002-3.03.077.077 0 0 0 .032-.055c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.331c-1.182 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z'/></svg>Discord</a> &middot; <a onclick='send("openhelp")'>Help &amp; setup</a> &middot; <a onclick='setAll(true)'>Select all</a> &middot; <a onclick='setAll(false)'>Clear</a></span>
   </div>
 
   <div id='seedsPane'>
@@ -2287,6 +2310,10 @@ HtmlTemplate() {
           </span>
           <input id='bugContact' type='text' placeholder='Email or Discord username' spellcheck='false' autocomplete='off' oninput='updateBugCount()'>
         </div>
+        <span class='bugdiscord' onclick='openDiscord()'>
+          <svg width='14' height='14' viewBox='0 0 24 24' aria-hidden='true'><path d='M20.317 4.369a19.79 19.79 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.211.375-.445.865-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.1 13.1 0 0 1-1.872-.892.077.077 0 0 1-.008-.128c.126-.094.252-.192.372-.291a.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.009c.12.099.246.198.373.292a.077.077 0 0 1-.006.127 12.3 12.3 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.84 19.84 0 0 0 6.002-3.03.077.077 0 0 0 .032-.055c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.331c-1.182 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z'/></svg>
+          join the Discord for help
+        </span>
       </div>
 
       <div id='bugMsg' class='bugmsg'></div>
@@ -2580,6 +2607,9 @@ HtmlTemplate() {
 
   /* Giveaway banner: open the giveaway page in the browser (whole bar + Enter button click). */
   function openGiveaway(){ send('opengiveaway'); }
+
+  /* Bug modal: open the Discord invite in the browser. */
+  function openDiscord(){ send('opendiscord'); }
 
   /* Flash deal: AHK sends "flash|<variant>|<usd>|<secondsLeft>|<popup 0|1>" shortly after
      launch, for 24h after install. <usd> is the first-month price shown (e.g. "$1.50").
