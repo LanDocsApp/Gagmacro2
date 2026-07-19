@@ -1750,12 +1750,15 @@ Setup() {
     if !Wait(300)
         return false
 
-    ; 2a. One Right press before anything else. UI navigation doesn't start the
-    ;     cursor on the item list, so this single step Right puts it there; the
-    ;     Up/Down snap below only works once the cursor is in the list.
-    Send "{Right}"
-    if !Wait(300)
-        return false
+    ; 2a. Right 5x before anything else. UI navigation doesn't start the cursor on
+    ;     the item list, so step Right to get it there; extra presses are harmless
+    ;     (the cursor stops at the rightmost column) and make this reliable no matter
+    ;     where navigation lands. The Up/Down snap below only works once in the list.
+    Loop 5 {
+        Send "{Right}"
+        if !Wait(300)
+            return false
+    }
 
     ; 2b. Snap to position 1 (the first item): Up 5x then Down 5x to shake the cursor
     ;     into the list, then HOLD Up for 3s. A held key scrolls all the way to the
