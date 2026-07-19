@@ -96,7 +96,7 @@ global InstallFile  := A_AppData "\GardenMacro\install.txt"  ; first-run stamp +
 ; Version shown in the window's bottom corner. Bump AppVersion on real releases;
 ; the build time is taken from this file's last-modified date, so it changes every
 ; time you save the script -> an easy "did my latest change actually load?" check.
-global AppVersion := "2.0.0"
+global AppVersion := "2.0.1"
 ; Giveaway code shown under the version line in the footer. Players type this on the
 ; giveaway page (gardenmacro.com/giveaway) to prove they have the macro -> +2 entries.
 ; A single shared code by design; keep it in sync with functions/_lib/giveaways.js MACRO_CODE.
@@ -1747,6 +1747,13 @@ Setup() {
     Send "{vkDCsc02B down}"
     Sleep 60
     Send "{vkDCsc02B up}"
+    if !Wait(300)
+        return false
+
+    ; 2a. One Right press before anything else. UI navigation doesn't start the
+    ;     cursor on the item list, so this single step Right puts it there; the
+    ;     Up/Down snap below only works once the cursor is in the list.
+    Send "{Right}"
     if !Wait(300)
         return false
 
