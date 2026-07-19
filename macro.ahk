@@ -114,7 +114,7 @@ global TokenFile    := A_AppData "\GardenMacro\token.txt"   ; saved paste-code
 global DeviceFile   := A_AppData "\GardenMacro\device.txt"  ; random anon install id
 global DeviceId     := ""           ; set at startup (see GetOrCreateDeviceId)
 global HeartbeatReq := 0            ; keeps the async ping COM object alive in-flight
-global EventReq     := 0            ; keeps the async funnel-event ping alive in-flight
+global EventReqs    := []           ; keeps async funnel-event pings alive in-flight (see SendEvent)
 ; "Report a bug" (footer) submissions POST straight to this Discord webhook -- no
 ; backend hop, so it works even if the site is down. Best-effort; a bad URL or a
 ; Discord outage can never crash the macro (see SendBugReport).
@@ -1527,20 +1527,34 @@ SendHeartbeat() {
 ; Fire a one-off funnel-event ping (a heartbeat tagged with "ev"), e.g. when the
 ; user clicks "Get access". Lets the stats dashboard count distinct installs that
 ; reached the sign-in page. Same fire-and-forget style as SendHeartbeat: async,
-; never waited on, kept alive in a global so it isn't collected mid-flight.
+; never waited on, kept alive so it isn't collected mid-flight.
+;
+; The keep-alive is a LIST, not a single slot. It used to be one global, which meant two
+; events fired back-to-back destroyed the first: the second assignment dropped the only
+; reference to the still-in-flight request and it never landed. That is exactly what the
+; flash "Claim" path does -- ctaFlash sends flash_cta and then immediately triggers
+; OpenFlashCheckout, which sends get_access -- so nearly every flash click was lost and
+; /stats showed a ~0.7% click-through against a much higher paid-conversion rate.
+; Holding the last EVENT_KEEP requests means a send survives until that many more events
+; fire after it (seconds, versus the 3-8s request timeouts), which is ample headroom for
+; one-off user actions while keeping the list bounded.
 SendEvent(ev, variant := "") {
-    global PingUrl, DeviceId, AppVersion, EventReq
+    global PingUrl, DeviceId, AppVersion, EventReqs
+    static EVENT_KEEP := 16
     if (DeviceId = "" || ev = "")
         return
     ; Flash-deal events carry the A/B price arm (1/2/3) in "var"; other events omit it.
     varField := (variant != "" && variant != 0) ? ',"var":"' JsonEscape(variant "") '"' : ""
     body := '{"id":"' JsonEscape(DeviceId) '","v":"' JsonEscape(AppVersion) '","ev":"' JsonEscape(ev) '"' varField '}'
     try {
-        EventReq := ComObject("WinHttp.WinHttpRequest.5.1")
-        EventReq.SetTimeouts(3000, 3000, 3000, 8000)
-        EventReq.Open("POST", PingUrl, true)          ; true = async, don't block
-        EventReq.SetRequestHeader("Content-Type", "application/json")
-        EventReq.Send(body)
+        req := ComObject("WinHttp.WinHttpRequest.5.1")
+        req.SetTimeouts(3000, 3000, 3000, 8000)
+        req.Open("POST", PingUrl, true)               ; true = async, don't block
+        req.SetRequestHeader("Content-Type", "application/json")
+        req.Send(body)
+        EventReqs.Push(req)
+        while (EventReqs.Length > EVENT_KEEP)
+            EventReqs.RemoveAt(1)                     ; evict the oldest, long since delivered
     }
 }
 

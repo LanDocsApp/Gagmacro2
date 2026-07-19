@@ -512,6 +512,16 @@ export async function buildMoneySnapshot(env) {
       amountOffCents: pc.amountOffCents,
       active: pc.active,
       uses: pc.timesRedeemed,
+      // Attributed PAID redemptions: one per non-refunded invoice the scan tied to this
+      // promotion code — the same invoices that produce netSettledCents, so the two always
+      // agree. Prefer this over `uses` (Stripe's lifetime times_redeemed) wherever the
+      // number has to mean "people who paid via this code": times_redeemed counts every
+      // redemption ever, from any path, including ones predating a test and codes pasted
+      // manually at checkout. That mismatch is what made the flash A/B table report more
+      // subscribers than clicks.
+      paidUses: scan.available
+        ? (agg.redemptions || []).filter((r) => r.status === "paid").length
+        : null,
       grossCents: scan.available ? agg.grossCents : null,
       netSettledCents: scan.available ? agg.netCents : null,
       paidToCreatorCents,

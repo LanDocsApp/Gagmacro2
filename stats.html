@@ -175,6 +175,8 @@
   table.tbl tr.total td { background: var(--green-soft); font-weight: 600; }
   table.tbl tr.total:hover td { background: var(--green-soft); }
   table.tbl tr.flag td { background: var(--amber-soft); }
+  /* A figure computed from too few events to mean anything yet. */
+  table.tbl td.thin { color: var(--faint); }
   table.tbl td a { color: var(--blue); text-decoration: none; }
   table.tbl td a:hover { text-decoration: underline; }
   .muted { color: var(--muted); }
@@ -365,11 +367,12 @@
 
       <div class="section">
         <h2>Flash deal, A/B discount test</h2>
-        <p class="hint">First-month discount test on the 24h-after-install countdown. Each install is randomly shown one discount. <b>Shown</b> and <b>Clicked</b> are distinct installs, <b>Subscribed</b> is Stripe redemptions of that arm's code, <b>Rev / install</b> is net first-month revenue divided by Shown. Pick the winner by <b>Rev / install</b>, not by conversion: the biggest discount usually converts best and earns least. Subscribed and revenue need the Money tab loaded.</p>
+        <p class="hint">First-month discount test on the 24h-after-install countdown. Each install is randomly shown one discount. <b>Shown</b> and <b>Clicked</b> are distinct installs. <b>Subscribed</b> counts paid invoices Stripe attributed to that arm's code, so it matches <b>Net revenue</b> exactly. <b>Rev / install</b> is net first-month revenue divided by Shown. Pick the winner by <b>Rev / install</b>, not by conversion: the biggest discount usually converts best and earns least. Subscribed and revenue need the Money tab loaded. Note that Clicked was under-recorded before the macro fix shipped, so clicks logged earlier read far lower than they really were.</p>
         <div class="tblwrap"><table class="tbl">
           <thead><tr><th>Discount</th><th class="num">Shown</th><th class="num">Clicked</th><th class="num">Subscribed</th><th class="num">Conversion</th><th class="num">Net revenue</th><th class="num">Rev / install</th></tr></thead>
           <tbody id="g-flash"><tr><td colspan="7" class="muted">Loading…</td></tr></tbody>
         </table></div>
+        <div id="g-flash-note" style="margin-top:14px"></div>
       </div>
       <div class="foot" id="g-foot"></div>
     </div>
@@ -479,6 +482,24 @@
           <button class="lnk" id="x-cancel" hidden>cancel edit</button>
         </div>
       </div>
+
+      <div class="section">
+        <h2>Creator payouts</h2>
+        <p class="hint">What you actually paid creators. This is the ledger behind the <b>Creator payouts</b> tile above and the payout line in the P&amp;L, so clearing or adjusting a row here changes both. <b>Payout</b> means money that left your account and counts as a cost. <b>Bonus</b> is a credit you still owe the creator, so it does not count as paid. These same rows show on each creator's page and in the Money tab's Paid and Owed columns.</p>
+        <div class="tblwrap"><table class="tbl">
+          <thead><tr><th>Date</th><th>Creator</th><th>Kind</th><th>Note</th><th class="num">Amount</th><th></th></tr></thead>
+          <tbody id="f-payouts"><tr><td colspan="6" class="muted">Loading…</td></tr></tbody>
+        </table></div>
+        <div class="toolbar">
+          <select id="p-creator" style="flex:0 0 150px"></select>
+          <input id="p-amount" type="number" min="0" step="0.01" placeholder="Amount" style="flex:0 0 100px" />
+          <select id="p-kind"><option value="payout">Payout (paid)</option><option value="bonus">Bonus (owed)</option></select>
+          <input id="p-note" type="text" placeholder="Note (optional)" style="flex:1 1 170px" />
+          <input id="p-date" type="date" style="flex:0 0 148px" />
+          <button class="btn" id="p-add">Add payout</button>
+          <button class="lnk" id="p-cancel" hidden>cancel edit</button>
+        </div>
+      </div>
       <div class="foot" id="f-foot"></div>
     </div>
   </main>
@@ -494,6 +515,9 @@
   let expensesData = null; // /api/expenses payload (D1)
   let expensesState = "idle";
   let editingId = null;    // expense id being edited (null = add mode)
+  let payoutsData = null;  // /api/payouts payload (D1 creator payout ledger)
+  let payoutCreators = []; // [{id, name}] for the picker
+  let editingPayoutId = null;
   let fxBase = "EUR";      // display currency for the P&L
   let fxRates = { USD: 1.08 }; // units of <cur> per 1 fxBase (fallback EUR->USD until live rate loads)
   let fxLive = false;
@@ -853,7 +877,7 @@
     "m-fees": "Total Stripe processing fees on this month's charges.",
     "m-refunds": "Money refunded this month. Test accounts are excluded.",
     "f-rev": "Net-settled Stripe revenue this month (after fees and currency conversion, refunds excluded).",
-    "f-creator": "What you actually paid creators this month, the sum of payouts you logged dated this month. Bonuses you have not paid out yet do not count.",
+    "f-creator": "What you actually paid creators this month: the sum of payout rows dated this month in the Creator payouts ledger below. Bonuses do not count, they are credits still owed. Edit or delete a row down there and this updates straight away.",
     "f-exp": "Your logged operating costs counted for this month: monthly in full, yearly divided by twelve, one-time dated this month.",
     "f-net": "Net profit this month: revenue minus creator payouts minus operating expenses.",
     "f-burn": "Your fixed monthly burn: all recurring expenses normalized to per-month.",
@@ -999,7 +1023,10 @@
       const st = flash[v] || { shown: 0, clicked: 0 };
       const code = byVariant[v];
       const shown = st.shown || 0;
-      const subscribed = code ? (code.uses || 0) : null;
+      // Attributed paid redemptions (invoices the scan tied to this arm's code), NOT
+      // Stripe's lifetime times_redeemed — that counts every use of the code ever, from
+      // any path, which is how this table used to show more subscribers than clicks.
+      const subscribed = code && code.paidUses != null ? code.paidUses : null;
       const netCents = code ? code.netSettledCents : null;
       const revPer = shown > 0 && netCents != null ? Math.round(netCents / shown) : null;
       const conv = shown > 0 && subscribed != null ? subscribed / shown : null;
@@ -1010,22 +1037,42 @@
 
     if (!rows.some((r) => r.shown > 0 || r.subscribed)) {
       $("g-flash").innerHTML = '<tr><td colspan="7" class="muted">No flash-deal activity yet. Data appears once users update the macro and start seeing the countdown.</td></tr>';
+      $("g-flash-note").innerHTML = "";
       return;
     }
+
+    // Only crown a winner once the sample can actually support one. At a handful of
+    // conversions per arm the ranking flips on a single sale, so the chip would be noise
+    // dressed up as a decision.
+    const totalConv = rows.reduce((s, r) => s + (r.subscribed || 0), 0);
+    const CONFIDENT_AT = 30;
+    const confident = totalConv >= CONFIDENT_AT;
     let bestRev = -1, winner = null;
-    for (const r of rows) if (r.revPer != null && r.shown > 0 && r.revPer > bestRev) { bestRev = r.revPer; winner = r.v; }
+    if (confident) {
+      for (const r of rows) if (r.revPer != null && r.shown > 0 && r.revPer > bestRev) { bestRev = r.revPer; winner = r.v; }
+    }
 
     $("g-flash").innerHTML = rows.map((r) => {
       const isWin = r.v === winner;
+      // A handful of conversions cannot separate arms; mark those cells rather than
+      // letting a 2-versus-3 difference read as a result.
+      const thin = r.subscribed != null && r.subscribed < 10;
       return "<tr" + (isWin ? ' class="total"' : "") + "><td>" + r.label + ' <span class="muted">first month</span>' +
         (isWin ? ' <span class="chip win">best per install</span>' : "") + "</td>" +
         '<td class="num">' + nf(r.shown) + "</td>" +
         '<td class="num">' + nf(r.clicked) + "</td>" +
         '<td class="num">' + (r.subscribed == null ? "—" : nf(r.subscribed)) + "</td>" +
-        '<td class="num">' + (r.conv == null ? "—" : (r.conv * 100).toFixed(1) + "%") + "</td>" +
+        '<td class="num' + (thin ? " thin" : "") + '">' + (r.conv == null ? "—" : (r.conv * 100).toFixed(1) + "%") + "</td>" +
         '<td class="num">' + money(r.netCents, cur) + "</td>" +
-        '<td class="num">' + (r.revPer == null ? "—" : money(r.revPer, cur)) + "</td></tr>";
+        '<td class="num' + (thin ? " thin" : "") + '">' + (r.revPer == null ? "—" : money(r.revPer, cur)) + "</td></tr>";
     }).join("");
+
+    $("g-flash-note").innerHTML = confident
+      ? ""
+      : '<div class="note">Not enough data to pick a winner yet: <b>' + nf(totalConv) +
+        "</b> conversion" + (totalConv === 1 ? "" : "s") + " across all three arms. At this size the ranking " +
+        "moves on a single sale, so the greyed figures are noise rather than a result. Aim for roughly 100 " +
+        "conversions per arm before switching everyone to one discount.</div>";
   }
 
   // ---------- Giveaway ----------
@@ -1249,6 +1296,7 @@
     if (!key) return;
     expensesState = "loading";
     loadFx();
+    payoutApi({ action: "list" }).then(fillCreatorPicker); // ledger for the payout table + tile
     try {
       const r = await fetch("/api/expenses", {
         method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store",
@@ -1272,6 +1320,109 @@
     return r.ok;
   }
 
+  // ---------- Creator payout ledger ----------
+  // Same D1 table the per-creator admin page writes, exposed across every creator so the
+  // Finances tab can correct or clear what actually left the account.
+  async function payoutApi(payload) {
+    const key = localStorage.getItem(KEY_STORE);
+    try {
+      const r = await fetch("/api/payouts", {
+        method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store",
+        body: JSON.stringify(Object.assign({ key }, payload)),
+      });
+      if (!r.ok) return false;
+      const d = await r.json();
+      payoutsData = d.payouts || [];
+      if (d.creators && d.creators.length) payoutCreators = d.creators;
+      renderFinances();
+      return true;
+    } catch (e) { return false; }
+  }
+
+  // Month-to-date cash actually disbursed. Mirrors creatorPaidThisMonth() in _lib/money.js
+  // (bonuses excluded, current UTC month) so the tile matches the P&L and the Money tab.
+  function payoutsPaidThisMonth(mStart) {
+    if (!payoutsData) return null;
+    let cents = 0;
+    for (const p of payoutsData) if (p.kind !== "bonus" && p.paidAt >= mStart) cents += p.amountCents || 0;
+    return cents;
+  }
+
+  function fillCreatorPicker() {
+    const sel = $("p-creator");
+    if (!sel) return;
+    const current = sel.value;
+    sel.innerHTML = payoutCreators.length
+      ? payoutCreators.map((c) => '<option value="' + esc(c.id) + '">' + esc(c.name) + "</option>").join("")
+      : '<option value="">no creators</option>';
+    if (current) sel.value = current;
+  }
+
+  function renderPayouts() {
+    const body = $("f-payouts");
+    if (!body) return;
+    const list = payoutsData || [];
+    if (!list.length) {
+      body.innerHTML = '<tr><td colspan="6" class="muted">' +
+        (payoutsData == null ? "Loading…" : "No payouts logged yet.") + "</td></tr>";
+      return;
+    }
+    const nameFor = (id) => {
+      for (const c of payoutCreators) if (c.id === id) return c.name;
+      return id || "—";
+    };
+    body.innerHTML = list.map((p) => {
+      const d = new Date(p.paidAt);
+      const isBonus = p.kind === "bonus";
+      return "<tr" + (p.id === editingPayoutId ? ' class="flag"' : "") + ">" +
+        "<td>" + d.toLocaleDateString() + "</td>" +
+        "<td>" + esc(nameFor(p.creatorId)) + "</td>" +
+        '<td><span class="chip kind ' + (isBonus ? "loyalty" : "creator") + '">' + (isBonus ? "Bonus" : "Payout") + "</span></td>" +
+        '<td class="muted">' + (p.note ? esc(p.note) : "—") + "</td>" +
+        '<td class="num">' + money(p.amountCents, (moneyData && moneyData.currency) || fxBase) + "</td>" +
+        "<td class='num'><button class='edit' data-pid='" + p.id + "' title='Edit'>" + ICON_EDIT + "</button>" +
+        "<button class='del' data-pid='" + p.id + "' title='Delete'>" + ICON_DEL + "</button></td></tr>";
+    }).join("");
+  }
+
+  function editPayout(id) {
+    const p = (payoutsData || []).find((x) => x.id === id);
+    if (!p) return;
+    editingPayoutId = id;
+    $("p-creator").value = p.creatorId;
+    $("p-amount").value = p.amountCents / 100;
+    $("p-kind").value = p.kind === "bonus" ? "bonus" : "payout";
+    $("p-note").value = p.note || "";
+    $("p-date").value = new Date(p.paidAt).toISOString().slice(0, 10);
+    $("p-add").textContent = "Save changes";
+    $("p-cancel").hidden = false;
+    renderPayouts();
+    $("p-amount").focus();
+  }
+  function cancelPayoutEdit() {
+    editingPayoutId = null;
+    $("p-amount").value = ""; $("p-note").value = "";
+    $("p-add").textContent = "Add payout";
+    $("p-cancel").hidden = true;
+    renderPayouts();
+  }
+
+  async function addPayout() {
+    const creatorId = $("p-creator").value;
+    const amount = Number($("p-amount").value || 0);
+    if (!creatorId || !amount) { $("p-amount").focus(); return; }
+    const dv = $("p-date").value;
+    const paidAt = dv ? Date.parse(dv + "T00:00:00Z") : Date.now();
+    const payload = { creatorId, amount, kind: $("p-kind").value, note: $("p-note").value.trim(), paidAt };
+    $("p-add").disabled = true;
+    try {
+      const ok = editingPayoutId
+        ? await payoutApi(Object.assign({ action: "update", id: editingPayoutId }, payload))
+        : await payoutApi(Object.assign({ action: "add" }, payload));
+      if (ok) cancelPayoutEdit();
+    } finally { $("p-add").disabled = false; }
+  }
+
   const ICON_EDIT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
   const ICON_DEL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>';
 
@@ -1291,8 +1442,12 @@
     }
     const revenue = m && m.month ? m.month.netSettledCents : null;
     // Cash basis: creator cost hits the P&L the month you actually pay out (log a payout),
-    // not when the commission was earned. Falls back to 0 if the ledger is unavailable.
-    const creator = m && m.month ? (m.month.creatorPaidCents || 0) : null;
+    // not when the commission was earned. Computed from the payout ledger this page can
+    // edit, so clearing or adjusting a row updates the tile and the P&L immediately rather
+    // than waiting for the next Stripe pull. Falls back to the money snapshot until the
+    // ledger has loaded, then to 0 if neither is available.
+    const ledgerPaid = payoutsPaidThisMonth(mStart);
+    const creator = ledgerPaid != null ? ledgerPaid : (m && m.month ? (m.month.creatorPaidCents || 0) : null);
     const net = revenue == null ? null : revenue - (creator || 0) - monthExp;
     const margin = net != null && revenue > 0 ? Math.round((net / revenue) * 1000) / 10 : null;
 
@@ -1336,6 +1491,8 @@
           "<button class='del' data-id='" + e.id + "' title='Delete'>" + ICON_DEL + "</button></td></tr>";
       }).join("");
     }
+    renderPayouts();
+
     const foreign = exp.some((e) => (e.currency || fxBase).toUpperCase() !== fxBase);
     $("f-foot").textContent =
       (m && m.month ? "" : "Revenue and creator figures fill in once the Money tab loads. ") +
@@ -1391,6 +1548,19 @@
     if (del && confirm("Delete this expense?")) expenseApi({ action: "delete", id: Number(del.getAttribute("data-id")) });
   });
 
+  $("p-add").onclick = addPayout;
+  $("p-cancel").onclick = cancelPayoutEdit;
+  $("p-amount").addEventListener("keydown", (e) => { if (e.key === "Enter") addPayout(); });
+  $("p-note").addEventListener("keydown", (e) => { if (e.key === "Enter") addPayout(); });
+  $("f-payouts").addEventListener("click", (e) => {
+    const ed = e.target.closest && e.target.closest(".edit");
+    if (ed) { editPayout(Number(ed.getAttribute("data-pid"))); return; }
+    const del = e.target.closest && e.target.closest(".del");
+    if (del && confirm("Delete this payout? It will stop counting as money paid to that creator.")) {
+      payoutApi({ action: "delete", id: Number(del.getAttribute("data-pid")) });
+    }
+  });
+
   // ---------- Load ----------
   function show(dash) { $("dash").hidden = !dash; $("gate").hidden = dash; }
 
@@ -1410,7 +1580,7 @@
       moneyState = "idle"; moneyData = null;
       loadMoney();
       // Expenses are D1 + cheap; reload if the Finances tab is the open one.
-      expensesState = "idle"; expensesData = null;
+      expensesState = "idle"; expensesData = null; payoutsData = null;
       if (localStorage.getItem(TAB_STORE) === "finances") loadExpenses();
       const u = $("updated");
       if (u) u.textContent = "Anonymous installs. Updated " + new Date(d.at || Date.now()).toLocaleTimeString() + ".";
@@ -1424,7 +1594,11 @@
   $("signout").onclick = () => { localStorage.removeItem(KEY_STORE); show(false); };
 
   addCardInfo();
-  (function () { const xd = $("x-date"); if (xd) xd.value = new Date().toISOString().slice(0, 10); })();
+  (function () {
+    const today = new Date().toISOString().slice(0, 10);
+    const xd = $("x-date"); if (xd) xd.value = today;
+    const pd = $("p-date"); if (pd) pd.value = today;
+  })();
   setTab(localStorage.getItem(TAB_STORE) || "overview");
 
   // MANUAL REFRESH ONLY. No auto-refresh/polling: /api/stats runs full-table scans and
