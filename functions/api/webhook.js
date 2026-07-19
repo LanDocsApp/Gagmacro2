@@ -55,8 +55,12 @@ export async function onRequestPost({ request, env }) {
           await setSubStatus(env, customerId, { status, googleId });
           // Funnel: a checkout completed and was paid -> a real conversion.
           // Best-effort; never affects the 200/500 we return to Stripe.
+          // `src` was stamped into the session metadata by /api/checkout (e.g. "giveaway"),
+          // so /stats can report how many people actually PAID from that page — a server-
+          // side number the browser can't inflate.
           if (obj.payment_status === "paid") {
-            await logEvent(env, "subscribe", { meta: { customerId } });
+            const src = (obj.metadata && obj.metadata.src) || undefined;
+            await logEvent(env, "subscribe", { meta: { customerId, src } });
           }
         }
         break;

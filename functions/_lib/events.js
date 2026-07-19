@@ -11,11 +11,21 @@ const ALLOWED = new Set([
   // no device_id), this can be tied back to the install, so /api/stats can measure how long
   // each install took to upgrade (first_seen -> first unlock).
   "unlock",
-  "hint_shown", "hint_copied", "hint_dismiss", "hint_cta",
-  "loyalty_shown", "loyalty_copied", "loyalty_dismiss", "loyalty_cta",
   // Flash-deal A/B price test popup (variant rides in meta.offer). See creators.js.
   "flash_shown", "flash_copied", "flash_dismiss", "flash_cta",
+  // Giveaway page (giveaway.html) funnel. Web events, no device_id — the page posts them
+  // to /api/ev. Powers the Giveaway tab on /stats:
+  //   gw_view     -- the giveaway page was opened
+  //   gw_download -- clicked "Download the macro free"
+  //   gw_pro      -- clicked "Get Garden Macro Pro" (heads to /api/checkout?src=giveaway)
+  // The paid steps are NOT here: they ride on the normal checkout/subscribe events tagged
+  // with meta.src = "giveaway", so giveaway revenue is counted the same way as everywhere else.
+  "gw_view", "gw_download", "gw_pro",
 ]);
+
+// NOTE: the loyalty_* (50% off, 5h/20h runtime) and hint_* (20% off, post-session) popups
+// were removed from the macro, so those events are no longer written or read anywhere.
+// Historical rows may still sit in the `events` table; nothing queries them.
 
 export async function logEvent(env, name, opts = {}) {
   if (!env || !env.STATS || !ALLOWED.has(name)) return false;

@@ -18,22 +18,19 @@ import { logEvent } from "../_lib/events.js";
 
 // Funnel events the heartbeat is allowed to report (keeps logEvent's allowlist in
 // sync at the parse boundary):
-//   get_access      -- the "Get access" button was clicked
-//   hint_shown      -- the post-session "seeds you missed" upsell popup was shown (superseed, 20%)
-//   hint_copied     -- code copied; hint_dismiss -- dismissed (X/Maybe later); hint_cta -- clicked through
-//   loyalty_shown   -- the 5h/20h runtime loyalty popup was shown (promacro, 50%)
-//   loyalty_copied  -- code copied; loyalty_dismiss -- dismissed; loyalty_cta -- clicked through
-// The shown/copied/dismissed/cta events power the Popup-performance funnel on /stats.
+//   get_access  -- the "Get access" button was clicked
+//   unlock      -- the user activated a valid code (first upgrade on this install). Device-
+//                  linked upgrade signal used for the install->upgrade time on /stats. The
+//                  macro fires it once, at first activation -- not on later relaunches -- so
+//                  the timing is the true first.
+//   flash_*     -- the flash-deal A/B price-test popup. The heartbeat also carries a "var"
+//                  field (the 1/2/3 price arm), stored in meta.offer so /stats can group the
+//                  funnel by price.
+// The loyalty_* (50% off, 5h/20h runtime) and hint_* (20% off, post-session) popups were
+// removed from the macro, so those names are no longer accepted here.
 const PING_EVENTS = new Set([
   "get_access",
-  // unlock -- the user activated a valid code (first upgrade on this install). Device-
-  // linked upgrade signal used for the install->upgrade time on /stats. The macro fires it
-  // once, at first activation -- not on later relaunches -- so the timing is the true first.
   "unlock",
-  "hint_shown", "hint_copied", "hint_dismiss", "hint_cta",
-  "loyalty_shown", "loyalty_copied", "loyalty_dismiss", "loyalty_cta",
-  // Flash-deal A/B price test popup. The heartbeat also carries a "var" field (the
-  // 1/2/3 price arm), stored in meta.offer so /stats can group the funnel by price.
   "flash_shown", "flash_copied", "flash_dismiss", "flash_cta",
 ]);
 

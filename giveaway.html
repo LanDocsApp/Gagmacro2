@@ -268,6 +268,22 @@
     }
     function el(id) { return document.getElementById(id); }
 
+    // ---- Funnel beacon ---------------------------------------------------
+    // Fire-and-forget POST to /api/ev (gw_view / gw_download / gw_pro), which feeds the
+    // Giveaway tab on /stats. keepalive so the request still goes out when the click is
+    // navigating away. Every failure is swallowed: analytics must never break entry.
+    function track(name) {
+      try {
+        fetch("/api/ev", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ n: name, g: GID || "" }),
+          keepalive: true,
+          cache: "no-store",
+        }).catch(function () {});
+      } catch (e) { /* no-op */ }
+    }
+
     // ---- Load + render landing -------------------------------------------
     function fetchState() {
       var q = GID ? "?g=" + encodeURIComponent(GID) : "";
@@ -278,7 +294,11 @@
 
     function load() {
       fetchState()
-        .then(function () { render(); maybeAutoOpen(); startPoll(); })
+        .then(function () {
+          render(); maybeAutoOpen(); startPoll();
+          // Once per page load, after the id is resolved (a bare /giveaway.html has no ?g=).
+          track("gw_view");
+        })
         .catch(function () {
           app.innerHTML = '<div class="skeleton">Could not load this giveaway. Please refresh.</div>';
         });
@@ -509,7 +529,7 @@
         '<div class="wz-text">Garden Macro Pro puts you in with ' + g.weights.pro + ' entries, the best odds in this giveaway, and unlocks the full macro.</div>' +
         promoCodeChip() +
         '<div class="wz-actions">' +
-          '<a class="btn primary block" href="' + activePromo().checkout + '">Get Garden Macro Pro</a>' +
+          '<a class="btn primary block" id="proCta" href="' + activePromo().checkout + '">Get Garden Macro Pro</a>' +
           '<button class="btn block" id="skipEnter">Skip and enter with ' + nLabel + '</button>' +
         '</div>' +
         '<div id="enterErr"></div>';
@@ -519,11 +539,13 @@
     // step, that replaces the generic GIVEAWAY chip with the creator's own code + its checkout
     // percent, and the "Get Pro" button auto-applies it (?code=). Falls back to GIVEAWAY/30% for
     // the generic macro code (or when no code was entered).
+    // src=giveaway rides along to /api/checkout so the checkout AND the resulting paid
+    // subscription are attributed to this page on /stats (see functions/api/checkout.js).
     function activePromo() {
       if (codeValidated && codeCreatorPct > 0) {
-        return { code: macroCode, pct: codeCreatorPct, checkout: "/api/checkout?code=" + encodeURIComponent(macroCode) };
+        return { code: macroCode, pct: codeCreatorPct, checkout: "/api/checkout?src=giveaway&code=" + encodeURIComponent(macroCode) };
       }
-      return { code: "GIVEAWAY", pct: 30, checkout: "/api/checkout" };
+      return { code: "GIVEAWAY", pct: 30, checkout: "/api/checkout?src=giveaway" };
     }
 
     function promoCodeChip() {
@@ -545,7 +567,7 @@
         out += '<div class="wz-text" style="margin-top:20px">Want the best odds? Garden Macro Pro gives you ' + g.weights.pro + ' entries.</div>' +
           promoCodeChip() +
           '<div class="wz-actions">' +
-            '<a class="btn primary block" href="' + activePromo().checkout + '">Get Garden Macro Pro</a>' +
+            '<a class="btn primary block" id="proCta" href="' + activePromo().checkout + '">Get Garden Macro Pro</a>' +
             '<button class="btn block" id="doneBtn">Done</button>' +
           '</div>';
       } else {
@@ -637,6 +659,13 @@
 
       var doneBtn = el("doneBtn");
       if (doneBtn) doneBtn.onclick = closeModal;
+
+      // Funnel beacons for the Giveaway tab on /stats. Both are plain links that keep
+      // working regardless — track() never blocks or cancels the navigation.
+      var dlMacro = el("dlMacro");
+      if (dlMacro) dlMacro.addEventListener("click", function () { track("gw_download"); });
+      var proCta = el("proCta");
+      if (proCta) proCta.addEventListener("click", function () { track("gw_pro"); });
     }
 
     function updateSubGate() {

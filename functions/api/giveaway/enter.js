@@ -12,6 +12,10 @@
 // Re-entering is allowed and idempotent (upsert on giveaway_id+google_sub): a user can enter
 // first, then come back and add the macro code to bump their tickets. `has_macro` is sticky —
 // once proven, it stays — so a later re-submit without the code never DROPS their bonus.
+//
+// The code they used is recorded on the row (migration 0009) so /stats can split the giveaway
+// by code — the shared macro code vs. a creator code like LION. It is sticky for the same
+// reason has_macro is.
 
 import { readSession, json } from "../../_lib/http.js";
 import { resolveActive } from "../../_lib/subscriptions.js";
@@ -60,25 +64,52 @@ export async function onRequestPost({ request, env }) {
   }
 
   // Merge with any existing entry so has_macro is sticky (never lost on re-entry).
+  // `code` is sticky the same way: a re-entry that omits the code keeps the one we
+  // already recorded, so the /stats code split counts the code they actually proved.
   let prior = null;
   try {
     prior = await env.STATS.prepare(
-      `SELECT has_macro FROM giveaway_entries WHERE giveaway_id = ?1 AND google_sub = ?2`
+      `SELECT has_macro, code FROM giveaway_entries WHERE giveaway_id = ?1 AND google_sub = ?2`
     )
       .bind(g.id, session.sub)
       .first();
   } catch {
-    prior = null;
+    // Pre-0009 database (no `code` column) -> retry without it rather than losing has_macro.
+    try {
+      prior = await env.STATS.prepare(
+        `SELECT has_macro FROM giveaway_entries WHERE giveaway_id = ?1 AND google_sub = ?2`
+      )
+        .bind(g.id, session.sub)
+        .first();
+    } catch {
+      prior = null;
+    }
   }
   const hasMacro = codeMatches || !!(prior && prior.has_macro);
+  // Which code proved it (UPPER-cased) — powers the giveaway code split on /stats.
+  const usedCode = (codeMatches ? code : (prior && prior.code)) || null;
   const weight = computeWeight({ hasMacro, isPro });
   const now = Date.now();
 
+  // Write the entry. The `code` column arrived in migration 0009, so if it hasn't been
+  // applied yet the first statement throws and we fall back to the pre-0009 shape —
+  // entering must never break just because the split isn't being recorded yet.
+  const args = [
+    g.id,
+    session.sub,
+    session.email || null,
+    session.name || null,
+    username,
+    weight,
+    hasMacro ? 1 : 0,
+    isPro ? 1 : 0,
+    now,
+  ];
   try {
     await env.STATS.prepare(
       `INSERT INTO giveaway_entries
-         (giveaway_id, google_sub, email, name, username, weight, has_macro, is_pro, subscribed, created_at, updated_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1, ?9, ?9)
+         (giveaway_id, google_sub, email, name, username, weight, has_macro, is_pro, subscribed, created_at, updated_at, code)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1, ?9, ?9, ?10)
        ON CONFLICT(giveaway_id, google_sub) DO UPDATE SET
          email      = ?3,
          name       = ?4,
@@ -87,22 +118,32 @@ export async function onRequestPost({ request, env }) {
          has_macro  = ?7,
          is_pro     = ?8,
          subscribed = 1,
-         updated_at = ?9`
+         updated_at = ?9,
+         code       = ?10`
     )
-      .bind(
-        g.id,
-        session.sub,
-        session.email || null,
-        session.name || null,
-        username,
-        weight,
-        hasMacro ? 1 : 0,
-        isPro ? 1 : 0,
-        now
-      )
+      .bind(...args, usedCode)
       .run();
-  } catch (e) {
-    return json({ error: "save", detail: String((e && e.message) || e) }, 500);
+  } catch {
+    try {
+      await env.STATS.prepare(
+        `INSERT INTO giveaway_entries
+           (giveaway_id, google_sub, email, name, username, weight, has_macro, is_pro, subscribed, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1, ?9, ?9)
+         ON CONFLICT(giveaway_id, google_sub) DO UPDATE SET
+           email      = ?3,
+           name       = ?4,
+           username   = ?5,
+           weight     = ?6,
+           has_macro  = ?7,
+           is_pro     = ?8,
+           subscribed = 1,
+           updated_at = ?9`
+      )
+        .bind(...args)
+        .run();
+    } catch (e) {
+      return json({ error: "save", detail: String((e && e.message) || e) }, 500);
+    }
   }
 
   // Fresh entrant count for the live counter.

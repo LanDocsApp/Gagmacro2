@@ -10,168 +10,311 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet" />
 <style>
   :root {
-    --bg: #f7f8fa; --card: #ffffff; --line: #e6e8eb;
-    --ink: #0f172a; --muted: #64748b; --green: #16a34a; --green-soft: #dcfce7;
-    --blue: #2563eb; --purple: #7c3aed; --amber: #d97706; --red: #dc2626; --red-soft: #fee2e2;
+    --bg: #f6f7f9; --card: #ffffff; --line: #e6e8eb; --line-soft: #f0f2f4;
+    --ink: #0a0a0a; --ink-2: #475569; --muted: #64748b; --faint: #94a3b8;
+    /* Series palette. Validated for CVD separation (see the dataviz palette check):
+       green vs amber sits in the 6-8 floor band, which is legal because the grouped
+       bars carry a 2px surface gap, a legend, a hover tooltip and a table view. */
+    --green: #16a34a; --green-soft: #f0fdf4; --green-line: #bbf7d0;
+    --amber: #f59e0b; --amber-soft: #fffbeb;
+    --blue: #2563eb; --blue-soft: #eff6ff;
+    --purple: #7c3aed; --red: #dc2626; --red-soft: #fee2e2; --teal: #0891b2;
   }
   * { box-sizing: border-box; }
+  html, body { height: 100%; }
   body {
     margin: 0; font-family: Inter, system-ui, sans-serif; background: var(--bg);
-    color: var(--ink); -webkit-font-smoothing: antialiased; padding: 40px 20px;
+    color: var(--ink); -webkit-font-smoothing: antialiased; font-size: 14px;
   }
-  .wrap { max-width: 860px; margin: 0 auto; }
-  header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-  h1 { font-size: 20px; font-weight: 700; margin: 0; }
-  .sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  a { color: var(--blue); }
 
-  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
-  @media (min-width: 640px) { .grid { grid-template-columns: repeat(3, 1fr); } }
-  .grid.four { grid-template-columns: repeat(2, 1fr); }
-  @media (min-width: 640px) { .grid.four { grid-template-columns: repeat(4, 1fr); } }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px 16px; }
-  .card .label { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
-  .card .value { font-family: "JetBrains Mono", monospace; font-size: 30px; font-weight: 600; margin-top: 8px; word-break: break-word; }
-  .card.live .value { color: var(--green); }
-  .card .delta, .card .vsub { font-size: 12px; font-weight: 600; margin-top: 6px; font-family: "JetBrains Mono", monospace; }
-  .card .vsub { color: var(--muted); font-weight: 500; }
-  .info { display: inline-block; width: 14px; height: 14px; line-height: 14px; text-align: center; border-radius: 50%; background: var(--line); color: var(--muted); font: 700 10px Inter, sans-serif; text-transform: none; letter-spacing: 0; cursor: help; margin-left: 5px; vertical-align: middle; }
+  /* ---------- Shell: fixed sidebar + scrolling main ----------
+     The shell itself carries the sidebar's white, so the left column stays white all the
+     way down on a long page even though .side is only 100vh tall and sticky. */
+  .shell { display: grid; grid-template-columns: 232px 1fr; min-height: 100vh; background: var(--card); }
+  .side { padding: 22px 14px; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
+  .brand { display: flex; align-items: center; gap: 9px; padding: 0 8px 20px; }
+  .brand .mark { width: 26px; height: 26px; border-radius: 8px; flex: 0 0 26px; }
+  .brand .nm { font-size: 14px; font-weight: 700; letter-spacing: -.01em; }
+  .brand .sb { font-size: 11px; color: var(--faint); margin-top: 1px; }
+
+  .nav { display: flex; flex-direction: column; gap: 2px; }
+  .nav button {
+    display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+    border: 0; background: transparent; color: var(--ink-2); cursor: pointer;
+    font: 600 13px Inter, sans-serif; padding: 9px 10px; border-radius: 9px;
+  }
+  .nav button svg { width: 16px; height: 16px; flex: 0 0 16px; stroke: currentColor; fill: none; stroke-width: 1.6; }
+  .nav button:hover { background: var(--line-soft); color: var(--ink); }
+  .nav button.active { background: var(--green-soft); color: #15803d; }
+  .nav .navsep { font: 600 10px Inter, sans-serif; text-transform: uppercase; letter-spacing: .08em; color: var(--faint); padding: 16px 10px 6px; }
+
+  .main { min-width: 0; padding: 26px 30px 60px; background: var(--bg); border-left: 1px solid var(--line); }
+  .topbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 22px; flex-wrap: wrap; }
+  .topbar h1 { font-size: 21px; font-weight: 700; margin: 0; letter-spacing: -.02em; }
+  .topbar .sub { color: var(--muted); font-size: 12.5px; margin-top: 3px; }
+  .tbtns { display: flex; gap: 8px; }
+  .ghost {
+    background: var(--card); color: var(--ink-2); padding: 7px 12px; font: 600 12px Inter, sans-serif;
+    border: 1px solid var(--line); border-radius: 9px; cursor: pointer; white-space: nowrap;
+  }
+  .ghost:hover { border-color: #cbd5e1; color: var(--ink); }
+  .ghost[disabled] { opacity: .55; cursor: default; }
+
+  /* Mobile: sidebar collapses to a scrolling strip */
+  @media (max-width: 860px) {
+    .shell { grid-template-columns: 1fr; }
+    .side { position: static; height: auto; border-bottom: 1px solid var(--line); padding: 16px 14px 10px; }
+    .main { border-left: 0; }
+    .brand { padding-bottom: 14px; }
+    .nav { flex-direction: row; overflow-x: auto; gap: 4px; padding-bottom: 4px; }
+    .nav button { width: auto; white-space: nowrap; }
+    .nav button svg, .nav .navsep { display: none; }
+    .main { padding: 20px 16px 48px; }
+  }
+
+  /* ---------- Stat tiles ----------
+     Fixed column counts rather than auto-fit, so 8 tiles land as a clean 4+4 instead of
+     6 with 2 orphans on a wide screen. */
+  .tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  @media (min-width: 700px) { .tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  @media (min-width: 1080px) { .tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+  .tile { background: var(--card); border: 1px solid var(--line); border-radius: 13px; padding: 15px 16px; min-width: 0; }
+  .tile .lbl { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; display: flex; align-items: center; gap: 5px; }
+  .tile .val { font-family: "JetBrains Mono", monospace; font-size: 27px; font-weight: 600; margin-top: 9px; letter-spacing: -.02em; line-height: 1.1; word-break: break-word; }
+  .tile .vsub { font-size: 11.5px; color: var(--muted); margin-top: 5px; }
+  .tile.accent .val { color: var(--green); }
+  .tile .live-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--green); margin-right: 2px; }
+  .delta { font-size: 11.5px; font-weight: 600; margin-top: 5px; font-family: "JetBrains Mono", monospace; }
+  .delta.up { color: var(--green); } .delta.down { color: var(--red); } .delta.flat { color: var(--faint); }
+  .info {
+    display: inline-flex; align-items: center; justify-content: center; width: 13px; height: 13px;
+    border-radius: 50%; background: var(--line); color: var(--muted);
+    font: 700 9px Inter, sans-serif; text-transform: none; letter-spacing: 0; cursor: help; flex: 0 0 13px;
+  }
   .info:hover { background: var(--ink); color: #fff; }
-  .delta.up { color: var(--green); } .delta.down { color: var(--red); } .delta.flat { color: var(--muted); }
-  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--green); margin-right: 6px; animation: pulse 1.6s infinite; vertical-align: middle; }
-  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
 
-  .tabs { display: flex; flex-wrap: wrap; gap: 4px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 4px; margin-bottom: 20px; }
-  .tabbtn { border: 0; background: transparent; color: var(--muted); font: 600 13px Inter, sans-serif; padding: 8px 14px; border-radius: 8px; cursor: pointer; }
-  .tabbtn:hover { color: var(--ink); }
-  .tabbtn.active { background: var(--ink); color: #fff; }
+  /* ---------- Sections ---------- */
+  .section { background: var(--card); border: 1px solid var(--line); border-radius: 13px; padding: 18px; margin-top: 14px; }
+  .section > h2 { font-size: 14px; font-weight: 600; margin: 0 0 4px; letter-spacing: -.01em; }
+  .section .hint { color: var(--muted); font-size: 12px; margin: 0 0 15px; line-height: 1.55; max-width: 78ch; }
+  .section .hint b { color: var(--ink-2); font-weight: 600; }
   .panel[hidden] { display: none; }
+  .row2 { display: grid; grid-template-columns: 1fr; gap: 14px; }
+  @media (min-width: 1100px) { .row2 { grid-template-columns: 1fr 1fr; } .row2 .section { margin-top: 0; } }
 
-  .section { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px 16px; margin-top: 16px; }
-  .section h2 { font-size: 14px; font-weight: 600; margin: 0 0 4px; }
-  .section .hint { color: var(--muted); font-size: 12px; margin: 0 0 14px; }
+  /* ---------- Charts ---------- */
+  .chart { position: relative; }
+  .chart svg { width: 100%; height: auto; display: block; overflow: visible; }
+  /* Narrow screens: let the plot keep a legible width and scroll inside its own card
+     rather than shrinking the axis labels into mush. */
+  @media (max-width: 700px) {
+    .chart { overflow-x: auto; }
+    .chart svg { min-width: 520px; }
+  }
+  .chart .band { fill: transparent; cursor: default; }
+  .chart .band:hover { fill: rgba(15, 23, 42, .04); }
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: var(--ink-2); margin-bottom: 12px; align-items: center; }
+  .legend .k { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; }
+  .tip {
+    position: absolute; pointer-events: none; z-index: 5; background: var(--ink); color: #fff;
+    border-radius: 9px; padding: 8px 10px; font-size: 11.5px; line-height: 1.5; white-space: nowrap;
+    transform: translate(-50%, -100%); box-shadow: 0 6px 20px rgba(0,0,0,.16);
+  }
+  .tip .td { font-weight: 600; margin-bottom: 3px; font-size: 11px; color: #cbd5e1; }
+  .tip .tr { display: flex; align-items: center; gap: 7px; }
+  .tip .tr i { width: 8px; height: 8px; border-radius: 2px; flex: 0 0 8px; }
+  .tip .tr b { font-family: "JetBrains Mono", monospace; font-weight: 600; margin-left: auto; padding-left: 12px; }
+  .chart-foot { display: flex; justify-content: flex-end; margin-top: 8px; }
+  .tbl-toggle { background: none; border: 0; color: var(--muted); font: 500 11.5px Inter, sans-serif; cursor: pointer; padding: 3px 6px; border-radius: 6px; }
+  .tbl-toggle:hover { background: var(--line-soft); color: var(--ink); }
+  .chart-table[hidden] { display: none; }
+  .chart-table { margin-top: 10px; max-height: 260px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; }
+  .chart-table table { margin: 0; border: 0; border-radius: 0; }
+  .chart-table th { position: sticky; top: 0; background: var(--card); z-index: 1; }
 
-  /* Charts */
-  .legend { display: flex; gap: 16px; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
-  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: middle; }
-  .chart svg { width: 100%; height: auto; display: block; }
-
-  /* Horizontal bars (versions) */
-  .hrow { margin-bottom: 12px; }
+  /* ---------- Horizontal bars ----------
+     Capped width: a 1400px-wide 8px bar with its value stranded at the far right is
+     hard to read back to its label. */
+  .barlist { max-width: 840px; }
+  .hrow { margin-bottom: 13px; }
   .hrow:last-child { margin-bottom: 0; }
-  .hhead { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; margin-bottom: 4px; }
-  .hhead .hname { font-weight: 600; }
+  .hhead { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-size: 12.5px; margin-bottom: 5px; }
+  .hhead .hname { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .hhead .hname.mono { font-family: "JetBrains Mono", monospace; }
-  .hhead .hmeta { color: var(--muted); font-family: "JetBrains Mono", monospace; }
-  .htrack { background: #f1f5f9; border-radius: 6px; height: 9px; overflow: hidden; }
-  .hfill { height: 100%; border-radius: 6px; background: var(--green); }
-  .badge { display: inline-block; font: 600 10px Inter, sans-serif; color: #fff; background: var(--green); border-radius: 5px; padding: 1px 6px; margin-left: 6px; vertical-align: middle; }
+  .hhead .hmeta { color: var(--muted); font-family: "JetBrains Mono", monospace; font-size: 12px; white-space: nowrap; }
+  .htrack { background: var(--line-soft); border-radius: 5px; height: 8px; overflow: hidden; }
+  .hfill { height: 100%; border-radius: 5px; background: var(--green); }
+  .badge { display: inline-block; font: 600 9.5px Inter, sans-serif; color: #fff; background: var(--green); border-radius: 4px; padding: 1px 5px; margin-left: 6px; vertical-align: middle; letter-spacing: .02em; }
 
-  /* Funnel note */
-  .fnote { margin-top: 12px; font-size: 12px; color: var(--muted); }
-  .fnote b { color: var(--ink); font-family: "JetBrains Mono", monospace; }
+  /* ---------- Funnel ----------
+     Every bar shares one track and the value/percent sit in fixed columns after it, so
+     the numbers line up vertically instead of drifting with each bar's length. */
+  .funnel { display: flex; flex-direction: column; gap: 4px; max-width: 1000px; }
+  .fstep { display: grid; grid-template-columns: 150px 1fr; gap: 14px; align-items: center; }
+  @media (max-width: 620px) { .fstep { grid-template-columns: 96px 1fr; gap: 10px; } }
+  .fstep .fl { font-size: 12.5px; font-weight: 600; }
+  .fstep .fl small { display: block; font-weight: 500; color: var(--faint); font-size: 11px; margin-top: 1px; }
+  .fbar { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .fbar .ftrack { flex: 1 1 auto; min-width: 0; }
+  .fbar .fb { height: 24px; border-radius: 4px; min-width: 3px; background: var(--green); }
+  .fbar .fv { font-family: "JetBrains Mono", monospace; font-size: 13px; font-weight: 600; text-align: right; flex: 0 0 62px; }
+  .fbar .fp { font-size: 11.5px; color: var(--muted); font-family: "JetBrains Mono", monospace; flex: 0 0 150px; }
+  @media (max-width: 620px) { .fbar .fp { display: none; } .fbar .fv { flex-basis: 52px; } }
 
-  /* Tables */
-  table.tbl { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
-  table.tbl th, table.tbl td { text-align: left; padding: 10px 13px; font-size: 13px; border-bottom: 1px solid var(--line); }
-  table.tbl th { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
-  table.tbl tr:last-child td { border-bottom: 0; }
-  table.tbl td.mono, table.tbl th.num, table.tbl td.num { font-family: "JetBrains Mono", monospace; }
-  table.tbl td.num, table.tbl th.num { text-align: right; }
-  table.tbl tr.total td { background: var(--green-soft); font-weight: 600; }
-  table.tbl tr.flag td { background: #fff7ed; }
-  table.tbl td.mono a { color: var(--blue); text-decoration: none; }
-  table.tbl td.mono a:hover { text-decoration: underline; }
-  .muted { color: var(--muted); }
+  /* ---------- Tables ---------- */
   .tblwrap { overflow-x: auto; }
-  .tbl .del, .tbl .edit { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 13px; padding: 2px 7px; border-radius: 6px; line-height: 1; }
+  table.tbl { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line); border-radius: 11px; overflow: hidden; }
+  table.tbl th, table.tbl td { text-align: left; padding: 9px 12px; font-size: 12.5px; border-bottom: 1px solid var(--line-soft); white-space: nowrap; }
+  table.tbl th { font-size: 10.5px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; background: #fcfcfd; border-bottom: 1px solid var(--line); }
+  table.tbl tr:last-child td { border-bottom: 0; }
+  table.tbl td.mono, table.tbl th.num, table.tbl td.num { font-family: "JetBrains Mono", monospace; font-variant-numeric: tabular-nums; }
+  table.tbl td.num, table.tbl th.num { text-align: right; }
+  table.tbl tbody tr:hover td { background: #fcfcfd; }
+  table.tbl tr.total td { background: var(--green-soft); font-weight: 600; }
+  table.tbl tr.total:hover td { background: var(--green-soft); }
+  table.tbl tr.flag td { background: var(--amber-soft); }
+  table.tbl td a { color: var(--blue); text-decoration: none; }
+  table.tbl td a:hover { text-decoration: underline; }
+  .muted { color: var(--muted); }
+  .tbl .del, .tbl .edit { background: none; border: 0; color: var(--faint); cursor: pointer; padding: 3px 6px; border-radius: 6px; line-height: 0; }
+  .tbl .del svg, .tbl .edit svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 1.7; }
   .tbl .del:hover { background: var(--red-soft); color: var(--red); }
-  .tbl .edit:hover { background: #eff6ff; color: var(--blue); }
-  .lnk { background: none; border: 0; color: var(--muted); cursor: pointer; text-decoration: underline; font-size: 12px; font-family: inherit; }
-  .toolbar select { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 13px; font-family: inherit; background: var(--card); }
+  .tbl .edit:hover { background: var(--blue-soft); color: var(--blue); }
 
-  .chip { display: inline-block; font: 600 10px Inter, sans-serif; color: #fff; border-radius: 5px; padding: 2px 7px; text-transform: capitalize; }
+  .chip { display: inline-block; font: 600 9.5px Inter, sans-serif; color: #fff; border-radius: 4px; padding: 2px 6px; text-transform: capitalize; letter-spacing: .02em; }
   .chip.creator { background: var(--blue); }
   .chip.conversion { background: var(--purple); }
   .chip.loyalty { background: var(--amber); }
-  .chip.flash { background: #0891b2; }
-  .chip.other { background: var(--muted); }
+  .chip.flash { background: var(--teal); }
+  .chip.other { background: var(--faint); }
+  .chip.win { background: var(--green); }
+  /* Chips whose text is already a written phrase, not a lowercase enum value. */
+  .chip.kind { text-transform: none; }
 
-  .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 14px 0; }
-  .btn { background: var(--green); color: #fff; border: 0; border-radius: 8px; padding: 8px 14px; font-weight: 600; font-size: 13px; cursor: pointer; font-family: inherit; }
+  .note { background: var(--amber-soft); border: 1px solid #fde68a; color: #92400e; border-radius: 9px; padding: 10px 12px; font-size: 12px; line-height: 1.55; margin-bottom: 14px; }
+  .note code { font-family: "JetBrains Mono", monospace; font-size: 11.5px; background: rgba(146,64,14,.09); padding: 1px 5px; border-radius: 4px; }
 
-  .foot { margin-top: 20px; color: var(--muted); font-size: 12px; }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 14px; }
+  .toolbar input, .toolbar select {
+    padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
+    font-size: 12.5px; font-family: inherit; background: var(--card); color: var(--ink);
+  }
+  .toolbar input:focus, .toolbar select:focus { outline: 2px solid var(--green-line); outline-offset: -1px; border-color: var(--green); }
+  .btn { background: var(--green); color: #fff; border: 0; border-radius: 8px; padding: 9px 15px; font-weight: 600; font-size: 12.5px; cursor: pointer; font-family: inherit; }
+  .btn:hover { background: #15803d; }
+  .btn[disabled] { opacity: .6; cursor: default; }
+  .lnk { background: none; border: 0; color: var(--muted); cursor: pointer; text-decoration: underline; font-size: 12px; font-family: inherit; }
 
-  .gate { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 28px; max-width: 420px; margin: 60px auto; }
-  .gate input { width: 100%; padding: 11px 12px; border: 1px solid var(--line); border-radius: 9px; font-size: 14px; margin: 14px 0; font-family: "JetBrains Mono", monospace; }
-  .gate button { background: var(--green); color: #fff; border: 0; border-radius: 9px; padding: 11px 16px; font-weight: 600; font-size: 14px; cursor: pointer; font-family: inherit; }
-  .signout { background: transparent; color: var(--muted); padding: 6px 10px; font-size: 12px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; font-family: inherit; }
-  .err { color: var(--red); font-size: 13px; min-height: 18px; }
+  .foot { margin-top: 18px; color: var(--faint); font-size: 11.5px; line-height: 1.6; }
+
+  /* ---------- Gate ---------- */
+  .gate { background: var(--card); border: 1px solid var(--line); border-radius: 15px; padding: 30px; max-width: 400px; margin: 15vh auto; }
+  .gate .mark { width: 32px; height: 32px; border-radius: 9px; margin-bottom: 16px; }
+  .gate h1 { font-size: 18px; margin: 0 0 5px; letter-spacing: -.01em; }
+  .gate .sub { color: var(--muted); font-size: 13px; }
+  .gate input { width: 100%; padding: 11px 12px; border: 1px solid var(--line); border-radius: 9px; font-size: 13.5px; margin: 16px 0 4px; font-family: "JetBrains Mono", monospace; }
+  .gate input:focus { outline: 2px solid var(--green-line); outline-offset: -1px; border-color: var(--green); }
+  .gate .btn { width: 100%; padding: 11px; margin-top: 12px; font-size: 13.5px; }
+  .err { color: var(--red); font-size: 12.5px; min-height: 17px; }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <div id="gate" class="gate" hidden>
-    <h1>Usage dashboard</h1>
-    <div class="sub">Enter your stats key to continue.</div>
-    <input id="key" type="password" placeholder="STATS_KEY" autocomplete="off" />
-    <div class="err" id="gateErr"></div>
-    <button id="enter">View stats</button>
-  </div>
 
-  <div id="dash" hidden>
-    <header>
+<!-- Brand mark, reused by the gate and the sidebar -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><symbol id="logo" viewBox="0 0 48 48">
+  <rect width="48" height="48" rx="14" fill="#16a34a"/>
+  <path d="M24 36V20m0 0c0-4.4-3.6-8-8-8-1 0-2 .2-2.9.5.6 4 4 7.1 8.1 7.5H24Zm0 0c0-4.4 3.6-8 8-8 1 0 2 .2 2.9.5-.6 4-4 7.1-8.1 7.5H24Z"
+        stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+</symbol></svg>
+
+<div id="gate" class="gate" hidden>
+  <svg class="mark"><use href="#logo"/></svg>
+  <h1>Usage dashboard</h1>
+  <div class="sub">Enter your stats key to continue.</div>
+  <input id="key" type="password" placeholder="STATS_KEY" autocomplete="off" />
+  <div class="err" id="gateErr"></div>
+  <button class="btn" id="enter">View stats</button>
+</div>
+
+<div id="dash" class="shell" hidden>
+  <aside class="side">
+    <div class="brand">
+      <svg class="mark"><use href="#logo"/></svg>
+      <div><div class="nm">Garden Macro</div><div class="sb">Dashboard</div></div>
+    </div>
+    <nav class="nav" id="nav">
+      <div class="navsep">Usage</div>
+      <button data-tab="overview" class="active">
+        <svg viewBox="0 0 24 24"><path d="M3 13h6v8H3zM9 3h6v18H9zM15 9h6v12h-6z" stroke-linejoin="round"/></svg>Overview</button>
+      <button data-tab="acquisition">
+        <svg viewBox="0 0 24 24"><path d="M12 21s-7-4.5-7-10a7 7 0 1 1 14 0c0 5.5-7 10-7 10Z" stroke-linejoin="round"/><circle cx="12" cy="11" r="2.5"/></svg>Acquisition</button>
+      <button data-tab="growth">
+        <svg viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8" stroke-linecap="round" stroke-linejoin="round"/><path d="M15 7h6v6" stroke-linecap="round" stroke-linejoin="round"/></svg>Growth</button>
+      <button data-tab="giveaway">
+        <svg viewBox="0 0 24 24"><rect x="3" y="8" width="18" height="13" rx="2"/><path d="M3 12h18M12 8v13" stroke-linecap="round"/><path d="M12 8s-1-5-4-5a2.5 2.5 0 0 0 0 5h4Zm0 0s1-5 4-5a2.5 2.5 0 0 1 0 5h-4Z" stroke-linejoin="round"/></svg>Giveaway</button>
+      <div class="navsep">Business</div>
+      <button data-tab="money">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9.5 9.5a2.5 2.5 0 0 1 2.5-2 2.2 2.2 0 0 1 0 4.4 2.2 2.2 0 0 0 0 4.4 2.5 2.5 0 0 0 2.5-2" stroke-linecap="round"/></svg>Money</button>
+      <button data-tab="finances">
+        <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 13h3M8 17h3M14 13h2M14 17h2" stroke-linecap="round"/></svg>Finances</button>
+    </nav>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
       <div>
-        <h1>Garden Macro stats</h1>
-        <div class="sub">Anonymous installs. <span id="updated"></span></div>
+        <h1 id="page-title">Overview</h1>
+        <div class="sub" id="updated">Anonymous installs.</div>
       </div>
-      <div style="display:flex; gap:8px; align-items:center;">
-        <button class="signout" id="refresh">↻ Refresh</button>
-        <button class="signout" id="signout">Sign out</button>
+      <div class="tbtns">
+        <button class="ghost" id="refresh">Refresh</button>
+        <button class="ghost" id="signout">Sign out</button>
       </div>
-    </header>
-
-    <div class="tabs" id="tabs">
-      <button class="tabbtn active" data-tab="overview">Overview</button>
-      <button class="tabbtn" data-tab="acquisition">Acquisition</button>
-      <button class="tabbtn" data-tab="money">Money</button>
-      <button class="tabbtn" data-tab="finances">Finances</button>
     </div>
 
-    <!-- OVERVIEW -->
+    <!-- ============ OVERVIEW ============ -->
     <div id="tab-overview" class="panel">
-      <div class="grid">
-        <div class="card live"><div class="label"><span class="dot"></span>Live now</div><div class="value" id="o-live">-</div></div>
-        <div class="card"><div class="label">Active today</div><div class="value" id="o-today">-</div><div class="delta flat" id="o-today-d"></div></div>
-        <div class="card"><div class="label">Returning today</div><div class="value" id="o-today-ret">-</div><div class="vsub">existing users, not first-time</div></div>
-        <div class="card"><div class="label">New installs today</div><div class="value" id="o-new">-</div><div class="delta flat" id="o-new-d"></div></div>
-        <div class="card"><div class="label">Total installs</div><div class="value" id="o-total">-</div></div>
-        <div class="card"><div class="label">Active subscribers</div><div class="value" id="o-active">…</div><div class="vsub" id="o-active-s">live from Stripe</div></div>
-        <div class="card"><div class="label">MRR</div><div class="value" id="o-mrr">…</div><div class="vsub" id="o-mrr-s"></div></div>
-        <div class="card"><div class="label">Hours automated</div><div class="value" id="o-hours">-</div></div>
+      <div class="tiles">
+        <div class="tile accent"><div class="lbl">Live now</div><div class="val" id="o-live"><span class="live-dot"></span> -</div><div class="vsub">running right now</div></div>
+        <div class="tile"><div class="lbl">Active today</div><div class="val" id="o-today">-</div><div class="delta flat" id="o-today-d"></div></div>
+        <div class="tile"><div class="lbl">New today</div><div class="val" id="o-new">-</div><div class="delta flat" id="o-new-d"></div></div>
+        <div class="tile"><div class="lbl">Returning today</div><div class="val" id="o-ret">-</div><div class="vsub" id="o-ret-s">active today, installed earlier</div></div>
+        <div class="tile"><div class="lbl">Total installs</div><div class="val" id="o-total">-</div><div class="vsub">all time</div></div>
+        <div class="tile"><div class="lbl">Subscribers</div><div class="val" id="o-active">…</div><div class="vsub" id="o-active-s">live from Stripe</div></div>
+        <div class="tile"><div class="lbl">MRR</div><div class="val" id="o-mrr">…</div><div class="vsub" id="o-mrr-s"></div></div>
+        <div class="tile"><div class="lbl">Hours automated</div><div class="val" id="o-hours">-</div><div class="vsub">all sessions, all time</div></div>
       </div>
+
       <div class="section">
-        <h2>Last 30 days</h2>
-        <p class="hint">New installs per day and how many distinct devices were active. UTC days.</p>
-        <div class="legend"><span><i style="background:var(--green)"></i>New installs</span><span><i style="background:var(--blue)"></i>Active devices</span></div>
+        <h2>Installs and new subscribers</h2>
+        <p class="hint">Last 30 UTC days. <b>New installs</b> is every device whose first ping landed that day. <b>New subscribers</b> is every completed paid checkout that day. Subscriber counts are much smaller than install counts, so a single sale is a short bar next to a tall one, that is expected. Hover any day for exact numbers.</p>
+        <div class="legend" id="o-chart-legend"></div>
         <div class="chart" id="o-chart"><div class="muted">Loading...</div></div>
+        <div class="chart-foot"><button class="tbl-toggle" data-table="o-chart-table">Show table</button></div>
+        <div class="chart-table" id="o-chart-table" hidden></div>
       </div>
-      <div class="section">
-        <h2>Conversion at a glance</h2>
-        <p class="hint">Install to paid. Checkout and subscribed are all-time web events and cannot be tied to a specific install.</p>
-        <div class="grid four" id="o-funnel"></div>
-        <div class="fnote" id="o-funnote"></div>
-      </div>
-      <div class="section">
-        <h2>Time to upgrade</h2>
-        <p class="hint">How long installs take to go Pro — from install to the moment premium unlocks in the macro. Median is the typical wait; the spread shows how many upgrade fast vs. mull it over. Only installs that upgraded after this shipped are counted, so it fills in over time.</p>
-        <div class="grid">
-          <div class="card"><div class="label">Median time to upgrade</div><div class="value" id="o-upg-median">…</div><div class="vsub" id="o-upg-count">the typical wait</div></div>
-          <div class="card"><div class="label">Average time to upgrade</div><div class="value" id="o-upg-avg">…</div><div class="vsub">mean (skewed by slow deciders)</div></div>
-          <div class="card"><div class="label">Fastest bracket</div><div class="value" id="o-upg-fast">…</div><div class="vsub">upgraded within a day</div></div>
+
+      <div class="row2">
+        <div class="section">
+          <h2>New subscribers</h2>
+          <p class="hint">The amber series above on its own scale, where single sales are actually readable.</p>
+          <div class="legend" id="o-sub-legend"></div>
+          <div class="chart" id="o-sub"><div class="muted">Loading...</div></div>
+          <div class="chart-foot"><button class="tbl-toggle" data-table="o-sub-table">Show table</button></div>
+          <div class="chart-table" id="o-sub-table" hidden></div>
         </div>
-        <div class="legend" style="margin-top:14px"><span>Distribution of how long people took:</span></div>
-        <div id="o-upg-dist"><div class="muted">No upgrades tracked yet.</div></div>
+        <div class="section">
+          <h2>Active devices</h2>
+          <p class="hint">Distinct installs that ran the macro each day. Far bigger than new installs, so it gets its own scale too.</p>
+          <div class="legend" id="o-act-legend"></div>
+          <div class="chart" id="o-act"><div class="muted">Loading...</div></div>
+          <div class="chart-foot"><button class="tbl-toggle" data-table="o-act-table">Show table</button></div>
+          <div class="chart-table" id="o-act-table" hidden></div>
+        </div>
       </div>
+
       <div class="section">
         <h2>Version adoption</h2>
         <p class="hint">Current install count per app version. The launcher auto-updates, so old versions should drain fast.</p>
@@ -180,11 +323,11 @@
       <div class="foot" id="o-foot">Loading...</div>
     </div>
 
-    <!-- ACQUISITION -->
+    <!-- ============ ACQUISITION ============ -->
     <div id="tab-acquisition" class="panel" hidden>
       <div class="section" style="margin-top:0">
         <h2>Source performance</h2>
-        <p class="hint">Where installs came from, and how engaged each channel is. CTR = share that clicked Get access. Returning = share that came back on a later day.</p>
+        <p class="hint">Where installs came from, and how engaged each channel is. <b>CTR</b> is the share that clicked Get access. <b>Returning</b> is the share that came back on a later day.</p>
         <div class="tblwrap"><table class="tbl">
           <thead><tr><th>Source</th><th class="num">Installs</th><th class="num">Get access CTR</th><th class="num">Returning</th></tr></thead>
           <tbody id="a-src"><tr><td colspan="4" class="muted">Loading...</td></tr></tbody>
@@ -192,39 +335,105 @@
       </div>
       <div class="section">
         <h2>Promo code performance</h2>
-        <p class="hint">Engagement and conversion by creator promo code. CTR = share that clicked Get access · Returning = came back a later day · Subscribers = Stripe redemptions of that code · Install→Sub = installs that became paid subs. Every creator code is listed, even ones with no installs. Revenue per code is on the Money tab.</p>
+        <p class="hint">Engagement and conversion by creator promo code. <b>Subscribers</b> is Stripe redemptions of that code, <b>Install to sub</b> is the share of its installs that became paid subs. Every creator code is listed, even ones with no installs. Revenue per code is on the Money tab.</p>
         <div class="tblwrap"><table class="tbl">
-          <thead><tr><th>Code</th><th class="num">Installs</th><th class="num">Get access CTR</th><th class="num">Returning</th><th class="num">Subscribers</th><th class="num">Install→Sub</th></tr></thead>
+          <thead><tr><th>Code</th><th class="num">Installs</th><th class="num">Get access CTR</th><th class="num">Returning</th><th class="num">Subscribers</th><th class="num">Install to sub</th></tr></thead>
           <tbody id="a-promo"><tr><td colspan="6" class="muted">Loading...</td></tr></tbody>
         </table></div>
       </div>
       <div class="foot" id="a-foot"></div>
     </div>
 
-    <!-- MONEY -->
+    <!-- ============ GROWTH ============ -->
+    <div id="tab-growth" class="panel" hidden>
+      <div class="section" style="margin-top:0">
+        <h2>Conversion funnel</h2>
+        <p class="hint">Install to paid, all time. Checkout and subscribed are web events and cannot be tied back to a specific install, so treat the last two steps as totals rather than a strict subset of the first two.</p>
+        <div class="funnel" id="g-funnel"></div>
+      </div>
+
+      <div class="section">
+        <h2>Time to upgrade</h2>
+        <p class="hint">How long installs take to go Pro, from install to the moment premium unlocks in the macro. <b>Median</b> is the typical wait, the spread below shows how many upgrade fast versus mull it over. Only installs that upgraded after this shipped are counted, so it fills in over time.</p>
+        <div class="tiles">
+          <div class="tile"><div class="lbl">Median</div><div class="val" id="g-upg-median">…</div><div class="vsub" id="g-upg-count">the typical wait</div></div>
+          <div class="tile"><div class="lbl">Average</div><div class="val" id="g-upg-avg">…</div><div class="vsub">skewed by slow deciders</div></div>
+          <div class="tile"><div class="lbl">Within a day</div><div class="val" id="g-upg-fast">…</div><div class="vsub">the impulse crowd</div></div>
+        </div>
+        <div style="margin-top:18px" id="g-upg-dist"><div class="muted">No upgrades tracked yet.</div></div>
+      </div>
+
+      <div class="section">
+        <h2>Flash deal, A/B discount test</h2>
+        <p class="hint">First-month discount test on the 24h-after-install countdown. Each install is randomly shown one discount. <b>Shown</b> and <b>Clicked</b> are distinct installs, <b>Subscribed</b> is Stripe redemptions of that arm's code, <b>Rev / install</b> is net first-month revenue divided by Shown. Pick the winner by <b>Rev / install</b>, not by conversion: the biggest discount usually converts best and earns least. Subscribed and revenue need the Money tab loaded.</p>
+        <div class="tblwrap"><table class="tbl">
+          <thead><tr><th>Discount</th><th class="num">Shown</th><th class="num">Clicked</th><th class="num">Subscribed</th><th class="num">Conversion</th><th class="num">Net revenue</th><th class="num">Rev / install</th></tr></thead>
+          <tbody id="g-flash"><tr><td colspan="7" class="muted">Loading…</td></tr></tbody>
+        </table></div>
+      </div>
+      <div class="foot" id="g-foot"></div>
+    </div>
+
+    <!-- ============ GIVEAWAY ============ -->
+    <div id="tab-giveaway" class="panel" hidden>
+      <div id="gw-note"></div>
+      <div class="tiles">
+        <div class="tile"><div class="lbl">Page views</div><div class="val" id="gw-views">-</div><div class="vsub">giveaway page opens</div></div>
+        <div class="tile"><div class="lbl">Download clicks</div><div class="val" id="gw-dl">-</div><div class="vsub" id="gw-dl-s">clicked Download the macro</div></div>
+        <div class="tile"><div class="lbl">Pro clicks</div><div class="val" id="gw-pro">-</div><div class="vsub" id="gw-pro-s">clicked Get Pro</div></div>
+        <div class="tile"><div class="lbl">Checkouts</div><div class="val" id="gw-co">-</div><div class="vsub">reached the pay page</div></div>
+        <div class="tile accent"><div class="lbl">Paid subscribers</div><div class="val" id="gw-subs">-</div><div class="vsub" id="gw-subs-s">paid from this page</div></div>
+        <div class="tile"><div class="lbl">Entries</div><div class="val" id="gw-entries">-</div><div class="vsub">accounts entered</div></div>
+      </div>
+
+      <div class="section">
+        <h2>Giveaway funnel</h2>
+        <p class="hint">Every step people take from the giveaway page. Views, download clicks and Pro clicks are browser events, so they count clicks rather than people. Checkouts and paid subscribers are recorded server side against the Stripe session, so those two are exact and cannot be inflated from the browser.</p>
+        <div class="funnel" id="gw-funnel"></div>
+      </div>
+
+      <div class="row2">
+        <div class="section">
+          <h2>Entries by tier</h2>
+          <p class="hint">What each entrant proved when they entered. Pro is worth 10 tickets, having the macro 3, signed in alone 1.</p>
+          <div id="gw-tiers"><div class="muted">No entries yet.</div></div>
+        </div>
+        <div class="section">
+          <h2>Entries by code</h2>
+          <p class="hint">Which macro code entrants pasted to prove they have the macro. Creator codes like LION show how much of the giveaway a creator's audience drove.</p>
+          <div class="tblwrap"><table class="tbl">
+            <thead><tr><th>Code</th><th>Kind</th><th class="num">Entrants</th><th class="num">Share</th></tr></thead>
+            <tbody id="gw-codes"><tr><td colspan="4" class="muted">Loading…</td></tr></tbody>
+          </table></div>
+        </div>
+      </div>
+      <div class="foot" id="gw-foot"></div>
+    </div>
+
+    <!-- ============ MONEY ============ -->
     <div id="tab-money" class="panel" hidden>
-      <div class="grid">
-        <div class="card"><div class="label">Active subscribers</div><div class="value" id="m-active">…</div><div class="vsub" id="m-active-s"></div></div>
-        <div class="card"><div class="label">MRR</div><div class="value" id="m-mrr">…</div><div class="vsub" id="m-mrr-s"></div></div>
-        <div class="card"><div class="label">ARR</div><div class="value" id="m-arr">…</div><div class="vsub" id="m-arr-s"></div></div>
-        <div class="card"><div class="label">New this month</div><div class="value" id="m-new">…</div></div>
-        <div class="card"><div class="label">Churned this month</div><div class="value" id="m-churn">…</div></div>
-        <div class="card"><div class="label">Avg sub length</div><div class="value" id="m-life">…</div><div class="vsub" id="m-life-s"></div></div>
-        <div class="card"><div class="label">LTV</div><div class="value" id="m-ltv">…</div><div class="vsub" id="m-ltv-s"></div></div>
+      <div class="tiles">
+        <div class="tile accent"><div class="lbl">Subscribers</div><div class="val" id="m-active">…</div><div class="vsub" id="m-active-s"></div></div>
+        <div class="tile"><div class="lbl">MRR</div><div class="val" id="m-mrr">…</div><div class="vsub" id="m-mrr-s"></div></div>
+        <div class="tile"><div class="lbl">ARR</div><div class="val" id="m-arr">…</div><div class="vsub" id="m-arr-s"></div></div>
+        <div class="tile"><div class="lbl">New this month</div><div class="val" id="m-new">…</div></div>
+        <div class="tile"><div class="lbl">Churned this month</div><div class="val" id="m-churn">…</div></div>
+        <div class="tile"><div class="lbl">Avg sub length</div><div class="val" id="m-life">…</div><div class="vsub" id="m-life-s"></div></div>
+        <div class="tile"><div class="lbl">LTV</div><div class="val" id="m-ltv">…</div><div class="vsub" id="m-ltv-s"></div></div>
       </div>
       <div class="section">
         <h2>This month <span id="m-monthlabel" class="muted"></span></h2>
-        <p class="hint">Settled money for the current month. Net settled = after Stripe fees and currency conversion, refunded charges excluded.</p>
-        <div class="grid four">
-          <div class="card"><div class="label">Gross</div><div class="value" id="m-gross">…</div></div>
-          <div class="card"><div class="label">Net settled</div><div class="value" id="m-net">…</div></div>
-          <div class="card"><div class="label">Stripe fees</div><div class="value" id="m-fees">…</div></div>
-          <div class="card"><div class="label">Refunds</div><div class="value" id="m-refunds">…</div><div class="vsub" id="m-refunds-s"></div></div>
+        <p class="hint">Settled money for the current month. <b>Net settled</b> is what landed after Stripe fees and currency conversion, with refunded charges excluded.</p>
+        <div class="tiles">
+          <div class="tile"><div class="lbl">Gross</div><div class="val" id="m-gross">…</div></div>
+          <div class="tile"><div class="lbl">Net settled</div><div class="val" id="m-net">…</div></div>
+          <div class="tile"><div class="lbl">Stripe fees</div><div class="val" id="m-fees">…</div></div>
+          <div class="tile"><div class="lbl">Refunds</div><div class="val" id="m-refunds">…</div><div class="vsub" id="m-refunds-s"></div></div>
         </div>
       </div>
       <div class="section">
         <h2>Discount codes</h2>
-        <p class="hint">Active Stripe promo codes only (archived ones hidden), tagged by purpose. Net revenue = net-settled first-month money (after fees/FX, refunds excluded) — for creator codes this is what they earned. Paid to creator = your disbursements; Owed = still to pay the creator (creator codes only).</p>
+        <p class="hint">Active Stripe promo codes only, archived ones hidden, tagged by purpose. <b>Net revenue</b> is net-settled first-month money, which for creator codes is what they earned. <b>Paid creator</b> is your disbursements, <b>Owed</b> is what is still to pay.</p>
         <div class="tblwrap"><table class="tbl">
           <thead><tr>
             <th>Code</th><th>Purpose</th><th>Discount</th>
@@ -234,61 +443,45 @@
           <tbody id="m-codes"><tr><td colspan="8" class="muted">Loading…</td></tr></tbody>
         </table></div>
       </div>
-      <div class="section">
-        <h2>Flash deal — A/B discount test</h2>
-        <p class="hint">First-month discount test (24h-after-install countdown). Each install is randomly shown one discount. <b>Shown</b> = distinct installs shown the countdown · <b>Clicked</b> = clicked through · <b>Subscribed</b> = Stripe redemptions of that arm's code · <b>Conversion</b> = Subscribed ÷ Shown · <b>Rev / install</b> = net first-month revenue ÷ Shown. Pick the winner by <b>Rev / install</b> (profit), not conversion — the biggest discount usually converts best but earns least. Highlighted row = best $/install so far. Data appears once users update the macro.</p>
-        <div class="tblwrap"><table class="tbl">
-          <thead><tr><th>Discount</th><th class="num">Shown</th><th class="num">Clicked</th><th class="num">Subscribed</th><th class="num">Conversion</th><th class="num">Net revenue</th><th class="num">Rev / install</th></tr></thead>
-          <tbody id="m-flash"><tr><td colspan="7" class="muted">Loading…</td></tr></tbody>
-        </table></div>
-      </div>
-      <div class="section">
-        <h2>Popup performance</h2>
-        <p class="hint">How the in-macro upsell popups convert. <b>Shown</b> = times it appeared (impressions — one person can see it several times). <b>Copied</b> = code copied. <b>Clicked</b> = clicked the green CTA through to checkout. <b>Dismissed</b> = closed via X / Maybe later. <b>No action</b> = shown but neither clicked nor dismissed (closed the macro / ignored — normal for most impressions). <b>Redeemed</b> = Stripe redemptions of the code. Events only count once users update the macro.</p>
-        <div class="tblwrap"><table class="tbl">
-          <thead><tr><th>Popup</th><th class="num">Shown</th><th class="num">Copied</th><th class="num">Clicked</th><th class="num">Dismissed</th><th class="num">No action</th><th class="num">Redeemed</th><th class="num">Shown→Used</th></tr></thead>
-          <tbody id="m-popups"><tr><td colspan="8" class="muted">Loading…</td></tr></tbody>
-        </table></div>
-      </div>
       <div class="foot" id="m-foot"></div>
     </div>
 
-    <!-- FINANCES -->
+    <!-- ============ FINANCES ============ -->
     <div id="tab-finances" class="panel" hidden>
-      <div class="grid">
-        <div class="card"><div class="label">Revenue</div><div class="value" id="f-rev">…</div><div class="vsub">net settled this month</div></div>
-        <div class="card"><div class="label">Creator payouts</div><div class="value" id="f-creator">…</div><div class="vsub">paid out this month</div></div>
-        <div class="card"><div class="label">Expenses</div><div class="value" id="f-exp">…</div><div class="vsub">this month</div></div>
-        <div class="card"><div class="label">Net profit</div><div class="value" id="f-net">…</div><div class="vsub" id="f-margin"></div></div>
-        <div class="card"><div class="label">Monthly burn</div><div class="value" id="f-burn">…</div><div class="vsub">fixed recurring cost</div></div>
-        <div class="card"><div class="label">Total invested</div><div class="value" id="f-invested">…</div><div class="vsub">one-time costs, all time</div></div>
+      <div class="tiles">
+        <div class="tile"><div class="lbl">Revenue</div><div class="val" id="f-rev">…</div><div class="vsub">net settled this month</div></div>
+        <div class="tile"><div class="lbl">Creator payouts</div><div class="val" id="f-creator">…</div><div class="vsub">paid out this month</div></div>
+        <div class="tile"><div class="lbl">Expenses</div><div class="val" id="f-exp">…</div><div class="vsub">this month</div></div>
+        <div class="tile accent"><div class="lbl">Net profit</div><div class="val" id="f-net">…</div><div class="vsub" id="f-margin"></div></div>
+        <div class="tile"><div class="lbl">Monthly burn</div><div class="val" id="f-burn">…</div><div class="vsub">fixed recurring cost</div></div>
+        <div class="tile"><div class="lbl">Total invested</div><div class="val" id="f-invested">…</div><div class="vsub">one-time costs, all time</div></div>
       </div>
       <div class="section">
-        <h2>Profit &amp; loss <span class="muted" id="f-monthlabel"></span></h2>
-        <p class="hint">This month. Revenue = net-settled Stripe money (after fees, refunds excluded). Creator payouts = what you actually paid creators this month (counts when you log a payout, not when it's earned). Operating expenses = your logged costs (monthly counts in full, yearly is amortized to /12, one-time counts in its month).</p>
+        <h2>Profit and loss <span class="muted" id="f-monthlabel"></span></h2>
+        <p class="hint">This month. Creator payouts count when you log a payout, not when the commission is earned. Operating expenses count monthly costs in full, yearly amortized to a twelfth, and one-time costs in their month.</p>
         <div class="tblwrap"><table class="tbl"><tbody id="f-pl"></tbody></table></div>
       </div>
       <div class="section">
         <h2>Expenses</h2>
-        <p class="hint">Your real-world costs. Monthly/yearly recur automatically; one-time counts only in its month. Enter amounts in your account currency. Use the "investment" category for one-off startup spend.</p>
+        <p class="hint">Your real-world costs. Monthly and yearly recur automatically, one-time counts only in its month. Use the investment category for one-off startup spend.</p>
         <div class="tblwrap"><table class="tbl">
           <thead><tr><th>Date</th><th>Label</th><th>Category</th><th>Recurrence</th><th class="num">Amount</th><th></th></tr></thead>
           <tbody id="f-expenses"><tr><td colspan="6" class="muted">Loading…</td></tr></tbody>
         </table></div>
         <div class="toolbar">
-          <input id="x-label" type="text" placeholder="Label (e.g. Cloudflare Workers Paid)" />
-          <input id="x-amount" type="number" min="0" step="0.01" placeholder="Amount" style="flex:0 0 100px; min-width:80px" />
-          <select id="x-cur"><option value="EUR">€ EUR</option><option value="USD">$ USD</option></select>
+          <input id="x-label" type="text" placeholder="Label (e.g. Cloudflare Workers Paid)" style="flex:1 1 210px" />
+          <input id="x-amount" type="number" min="0" step="0.01" placeholder="Amount" style="flex:0 0 100px" />
+          <select id="x-cur"><option value="EUR">EUR</option><option value="USD">USD</option></select>
           <select id="x-cat"><option value="infra">Infra</option><option value="domain">Domain</option><option value="marketing">Marketing</option><option value="tools">Tools</option><option value="investment">Investment</option><option value="other">Other</option></select>
           <select id="x-rec"><option value="once">One-time</option><option value="monthly">Monthly</option><option value="yearly">Yearly</option></select>
-          <input id="x-date" type="date" style="flex:0 0 150px" />
+          <input id="x-date" type="date" style="flex:0 0 148px" />
           <button class="btn" id="x-add">Add expense</button>
           <button class="lnk" id="x-cancel" hidden>cancel edit</button>
         </div>
       </div>
       <div class="foot" id="f-foot"></div>
     </div>
-  </div>
+  </main>
 </div>
 
 <script>
@@ -304,6 +497,15 @@
   let fxBase = "EUR";      // display currency for the P&L
   let fxRates = { USD: 1.08 }; // units of <cur> per 1 fxBase (fallback EUR->USD until live rate loads)
   let fxLive = false;
+
+  // Series colors, mirrored from the CSS custom properties so the SVG and the
+  // legend/tooltip swatches can never drift apart.
+  const C = { green: "#16a34a", amber: "#f59e0b", blue: "#2563eb", faint: "#94a3b8" };
+
+  const TAB_TITLES = {
+    overview: "Overview", acquisition: "Acquisition", growth: "Growth",
+    giveaway: "Giveaway", money: "Money", finances: "Finances",
+  };
 
   const nf = (n) => (n == null ? "—" : Number(n).toLocaleString("en-US"));
   const pct = (num, den) => (den > 0 && num != null ? Math.round((num / den) * 1000) / 10 : 0);
@@ -350,103 +552,318 @@
   function setDelta(el, cur, prev) {
     const d = (cur || 0) - (prev || 0);
     el.className = "delta " + (d > 0 ? "up" : d < 0 ? "down" : "flat");
-    const arrow = d > 0 ? "▲" : d < 0 ? "▼" : "·";
+    const arrow = d > 0 ? "▲" : d < 0 ? "▼" : "•";
     el.textContent = arrow + " " + (d === 0 ? "0" : (d > 0 ? "+" : "") + d) + " vs yesterday";
   }
 
-  // Generic horizontal bars. rows: [{name, mono, meta, value, max, color, badge}]
+  // ---------- Generic horizontal bars ----------
+  // rows: [{name, mono, meta, value, max, color, badge}]
   function hbars(rows) {
     if (!rows || !rows.length) return '<div class="muted">No data yet.</div>';
-    return rows.map((r) => {
+    return '<div class="barlist">' + rows.map((r) => {
       const w = r.max > 0 ? Math.max(2, Math.round((r.value / r.max) * 100)) : 2;
       return (
         '<div class="hrow">' +
           '<div class="hhead"><span class="hname' + (r.mono ? " mono" : "") + '">' + esc(r.name) +
             (r.badge ? '<span class="badge">' + esc(r.badge) + "</span>" : "") + "</span>" +
             '<span class="hmeta">' + esc(r.meta) + "</span></div>" +
-          '<div class="htrack"><div class="hfill" style="width:' + w + "%;background:" + (r.color || "var(--green)") + '"></div></div>' +
+          '<div class="htrack"><div class="hfill" style="width:' + w + "%;background:" + (r.color || C.green) + '"></div></div>' +
         "</div>"
       );
+    }).join("") + "</div>";
+  }
+
+  // ---------- Funnel bars ----------
+  // steps: [{label, sub, value}] — one series, so one color for every step. Widths are
+  // relative to the first step, and the drop-off percentage is spelled out per row.
+  function funnel(el, steps) {
+    const base = Math.max(1, steps.length ? steps[0].value || 0 : 1);
+    el.innerHTML = steps.map((s, i) => {
+      const v = s.value || 0;
+      const w = Math.max(0.6, (v / base) * 100);
+      const share = i === 0 ? "" : pct(v, base) + "% of " + steps[0].label.toLowerCase();
+      return '<div class="fstep">' +
+        '<div class="fl">' + esc(s.label) + (s.sub ? "<small>" + esc(s.sub) + "</small>" : "") + "</div>" +
+        '<div class="fbar">' +
+          '<div class="ftrack"><div class="fb" style="width:' + w.toFixed(2) + '%"></div></div>' +
+          '<span class="fv">' + nf(v) + "</span>" +
+          '<span class="fp">' + share + "</span>" +
+        "</div></div>";
     }).join("");
   }
 
-  // 30-day chart: bars for one key + optional line for another.
-  function dayChart(boxId, daily, barKey, barColor, lineKey, lineColor) {
-    const box = $(boxId);
-    if (!daily || !daily.length) { box.innerHTML = '<div class="muted">No data yet.</div>'; return; }
-    const W = 800, H = 200, padL = 34, padR = 10, padT = 12, padB = 26;
-    const iw = W - padL - padR, ih = H - padT - padB;
-    const maxBar = Math.max(1, ...daily.map((d) => d[barKey] || 0));
-    const maxLine = lineKey ? Math.max(1, ...daily.map((d) => d[lineKey] || 0)) : 0;
-    const maxY = Math.max(maxBar, maxLine);
-    const x = (i) => padL + (iw / daily.length) * (i + 0.5);
-    const y = (v) => padT + ih - (v / maxY) * ih;
-    const bw = Math.max(2, (iw / daily.length) * 0.62);
-
-    let bars = "";
-    daily.forEach((d, i) => {
-      const v = d[barKey] || 0, by = y(v), bx = x(i) - bw / 2;
-      const tip = esc(d.day) + ": " + v + " " + barKey + (lineKey ? ", " + (d[lineKey] || 0) + " " + lineKey : "");
-      bars += '<rect x="' + bx.toFixed(1) + '" y="' + by.toFixed(1) + '" width="' + bw.toFixed(1) +
-        '" height="' + (padT + ih - by).toFixed(1) + '" rx="2" fill="' + barColor + '" opacity="0.85"><title>' + tip + "</title></rect>";
-    });
-    let line = "", dots = "";
-    if (lineKey) {
-      const pts = daily.map((d, i) => x(i).toFixed(1) + "," + y(d[lineKey] || 0).toFixed(1)).join(" ");
-      line = '<polyline points="' + pts + '" fill="none" stroke="' + lineColor + '" stroke-width="2" stroke-linejoin="round"/>';
-      daily.forEach((d, i) => { dots += '<circle cx="' + x(i).toFixed(1) + '" cy="' + y(d[lineKey] || 0).toFixed(1) + '" r="2" fill="' + lineColor + '"/>'; });
-    }
-    let grid = "";
-    [0, 0.5, 1].forEach((t) => {
-      const yy = padT + ih - t * ih, val = Math.round(maxY * t);
-      grid += '<line x1="' + padL + '" y1="' + yy.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + yy.toFixed(1) + '" stroke="var(--line)"/>' +
-        '<text x="' + (padL - 6) + '" y="' + (yy + 3).toFixed(1) + '" text-anchor="end" font-size="10" fill="var(--muted)">' + val + "</text>";
-    });
-    let xlab = "";
-    [0, Math.floor(daily.length / 2), daily.length - 1].forEach((i) => {
-      const lbl = daily[i] && daily[i].day ? daily[i].day.slice(5) : "";
-      xlab += '<text x="' + x(i).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle" font-size="10" fill="var(--muted)">' + lbl + "</text>";
-    });
-    box.innerHTML = '<svg viewBox="0 0 ' + W + " " + H + '" preserveAspectRatio="xMidYMid meet" font-family="JetBrains Mono, monospace">' +
-      grid + bars + line + dots + xlab + "</svg>";
+  // ---------- Charts ----------
+  // Round an axis maximum up to a readable number. Steps are limited to 1/2/5/10 x 10^n,
+  // every one of which divides evenly by 5, so the gridlines below always land on whole
+  // numbers (a 2.5 step would give ticks like 0.8 / 1.5 / 2.3 on a count of 3).
+  function niceMax(v) {
+    if (!(v > 0)) return 1;
+    if (v <= 5) return Math.ceil(v);
+    const p = Math.pow(10, Math.floor(Math.log10(v)));
+    const r = v / p;
+    const s = r <= 1 ? 1 : r <= 2 ? 2 : r <= 5 ? 5 : 10;
+    return s * p;
   }
 
-  // ---------- Info icons (hover tooltip per card) ----------
+  // Gridline values for an axis. Small integer ranges step by 1 so a chart topping out
+  // at 3 subscribers reads 0/1/2/3 rather than quarters of 3.
+  function axisTicks(maxY) {
+    if (maxY <= 5) {
+      const out = [];
+      for (let i = 0; i <= maxY; i++) out.push(i);
+      return out;
+    }
+    return [0, 0.2, 0.4, 0.6, 0.8, 1].map((t) => maxY * t);
+  }
+
+  const tickLabel = (v) => (v >= 1000 ? Math.round(v / 100) / 10 + "k" : String(Math.round(v * 10) / 10));
+
+  function legendHtml(series) {
+    return series.map((s) => '<span class="k"><i style="background:' + s.color + '"></i>' + esc(s.label) + "</span>").join("");
+  }
+
+  // Shared tooltip plumbing. The SVG scales with the container, so positions come from
+  // the pointer (client coords) rather than SVG user units, which keeps it exact at
+  // any width. Clamped so it never escapes the card.
+  function attachTip(box) {
+    let tip = box.querySelector(".tip");
+    if (!tip) { tip = document.createElement("div"); tip.className = "tip"; tip.hidden = true; box.appendChild(tip); }
+    return {
+      show(ev, html) {
+        tip.innerHTML = html;
+        tip.hidden = false;
+        const r = box.getBoundingClientRect();
+        const w = tip.offsetWidth;
+        let x = ev.clientX - r.left;
+        x = Math.max(w / 2 + 2, Math.min(r.width - w / 2 - 2, x));
+        tip.style.left = x + "px";
+        tip.style.top = Math.max(tip.offsetHeight + 6, ev.clientY - r.top - 12) + "px";
+      },
+      hide() { tip.hidden = true; },
+    };
+  }
+
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  function svgEl(name, attrs) {
+    const e = document.createElementNS(SVG_NS, name);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    return e;
+  }
+
+  // Grouped vertical bars, one group per day, one bar per series.
+  // A 2px surface gap separates adjacent bars: that gap is the secondary encoding the
+  // green/amber pair needs to stay legible for red-green colorblind readers.
+  function barChart(boxId, rows, series, opts) {
+    const box = $(boxId);
+    if (!box) return;
+    opts = opts || {};
+    box.innerHTML = "";
+    if (!rows || !rows.length) { box.innerHTML = '<div class="muted">No data yet.</div>'; return; }
+
+    // `compact` shrinks the viewBox for half-width cards: the SVG scales to its container,
+    // so a narrower viewBox keeps the axis text from rendering too small to read.
+    const W = opts.compact ? 560 : 920, H = opts.compact ? 210 : 230;
+    const FS = opts.compact ? 11 : 10;
+    const padL = 46, padR = 14, padT = 12, padB = 28;
+    const iw = W - padL - padR, ih = H - padT - padB;
+    const rawMax = Math.max(0, ...rows.map((r) => Math.max(...series.map((s) => r[s.key] || 0))));
+    const maxY = niceMax(rawMax);
+    const band = iw / rows.length;
+    const GAP = 2;
+    const groupW = Math.min(band * 0.74, 26);
+    const barW = Math.max(2, (groupW - GAP * (series.length - 1)) / series.length);
+    const y = (v) => padT + ih - (v / maxY) * ih;
+
+    const svg = svgEl("svg", { viewBox: "0 0 " + W + " " + H, "font-family": "Inter, sans-serif" });
+
+    // Recessive solid hairline grid + y labels.
+    axisTicks(maxY).forEach((val) => {
+      const yy = padT + ih - (val / maxY) * ih;
+      svg.appendChild(svgEl("line", { x1: padL, y1: yy.toFixed(1), x2: W - padR, y2: yy.toFixed(1), stroke: "#e6e8eb", "stroke-width": 1 }));
+      const lbl = svgEl("text", {
+        x: padL - 8, y: (yy + 3.5).toFixed(1), "text-anchor": "end",
+        "font-size": FS, fill: "#94a3b8", "font-family": "JetBrains Mono, monospace",
+      });
+      lbl.textContent = tickLabel(val);
+      svg.appendChild(lbl);
+    });
+
+    // Bars. A non-zero value always gets at least 2px so "one sale" never renders as "none".
+    rows.forEach((r, i) => {
+      const cx = padL + band * (i + 0.5);
+      const x0 = cx - groupW / 2;
+      series.forEach((s, j) => {
+        const v = r[s.key] || 0;
+        if (v <= 0) return;
+        const h = Math.max(2, padT + ih - y(v));
+        svg.appendChild(svgEl("rect", {
+          x: (x0 + j * (barW + GAP)).toFixed(2), y: (padT + ih - h).toFixed(2),
+          width: barW.toFixed(2), height: h.toFixed(2), rx: Math.min(3, barW / 2), fill: s.color,
+        }));
+      });
+    });
+
+    // X labels: first, middle, last (plus quarter marks when there is room).
+    const idxs = rows.length > 12 && !opts.compact
+      ? [0, Math.floor(rows.length / 4), Math.floor(rows.length / 2), Math.floor((rows.length * 3) / 4), rows.length - 1]
+      : [0, Math.floor(rows.length / 2), rows.length - 1];
+    [...new Set(idxs)].forEach((i) => {
+      if (!rows[i]) return;
+      const t = svgEl("text", {
+        x: (padL + band * (i + 0.5)).toFixed(1), y: H - 8, "text-anchor": "middle",
+        "font-size": FS, fill: "#94a3b8", "font-family": "JetBrains Mono, monospace",
+      });
+      t.textContent = String(rows[i][opts.labelKey || "day"] || "").slice(5);
+      svg.appendChild(t);
+    });
+
+    // Full-height hover bands, one per group. The hit area is the whole band (well over
+    // the 24px minimum at normal widths), not just the bars.
+    const tip = attachTip(box);
+    rows.forEach((r, i) => {
+      const hit = svgEl("rect", { class: "band", x: (padL + band * i).toFixed(2), y: padT, width: band.toFixed(2), height: ih });
+      const html = '<div class="td">' + esc(r[opts.labelKey || "day"]) + "</div>" +
+        series.map((s) => '<div class="tr"><i style="background:' + s.color + '"></i>' + esc(s.label) + "<b>" + nf(r[s.key] || 0) + "</b></div>").join("");
+      hit.addEventListener("mousemove", (ev) => tip.show(ev, html));
+      hit.addEventListener("mouseleave", tip.hide);
+      svg.appendChild(hit);
+    });
+
+    box.appendChild(svg);
+  }
+
+  // Single-series area + line, for a measure whose scale dwarfs the others.
+  function areaChart(boxId, rows, key, color, label, opts) {
+    const box = $(boxId);
+    if (!box) return;
+    opts = opts || {};
+    box.innerHTML = "";
+    if (!rows || !rows.length) { box.innerHTML = '<div class="muted">No data yet.</div>'; return; }
+
+    const W = opts.compact ? 560 : 920, H = opts.compact ? 210 : 200;
+    const FS = opts.compact ? 11 : 10;
+    const padL = 46, padR = 14, padT = 12, padB = 28;
+    const iw = W - padL - padR, ih = H - padT - padB;
+    const maxY = niceMax(Math.max(0, ...rows.map((r) => r[key] || 0)));
+    const band = iw / rows.length;
+    const x = (i) => padL + band * (i + 0.5);
+    const y = (v) => padT + ih - (v / maxY) * ih;
+
+    const svg = svgEl("svg", { viewBox: "0 0 " + W + " " + H, "font-family": "Inter, sans-serif" });
+    [0, 0.5, 1].forEach((t) => {
+      const yy = padT + ih - t * ih;
+      svg.appendChild(svgEl("line", { x1: padL, y1: yy.toFixed(1), x2: W - padR, y2: yy.toFixed(1), stroke: "#e6e8eb", "stroke-width": 1 }));
+      const lbl = svgEl("text", {
+        x: padL - 8, y: (yy + 3.5).toFixed(1), "text-anchor": "end",
+        "font-size": FS, fill: "#94a3b8", "font-family": "JetBrains Mono, monospace",
+      });
+      lbl.textContent = tickLabel(maxY * t);
+      svg.appendChild(lbl);
+    });
+
+    const pts = rows.map((r, i) => x(i).toFixed(1) + "," + y(r[key] || 0).toFixed(1));
+    svg.appendChild(svgEl("polygon", {
+      points: x(0).toFixed(1) + "," + (padT + ih) + " " + pts.join(" ") + " " + x(rows.length - 1).toFixed(1) + "," + (padT + ih),
+      fill: color, opacity: 0.10,
+    }));
+    svg.appendChild(svgEl("polyline", { points: pts.join(" "), fill: "none", stroke: color, "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+
+    const idxs = opts.compact
+      ? [0, Math.floor(rows.length / 2), rows.length - 1]
+      : [0, Math.floor(rows.length / 4), Math.floor(rows.length / 2), Math.floor((rows.length * 3) / 4), rows.length - 1];
+    [...new Set(idxs)].forEach((i) => {
+      if (!rows[i]) return;
+      const t = svgEl("text", { x: x(i).toFixed(1), y: H - 8, "text-anchor": "middle", "font-size": FS, fill: "#94a3b8", "font-family": "JetBrains Mono, monospace" });
+      t.textContent = String(rows[i].day || "").slice(5);
+      svg.appendChild(t);
+    });
+
+    // Hover: a marker dot on the point plus the tooltip. A 2px surface ring keeps the
+    // dot readable where it sits on top of the line.
+    const tip = attachTip(box);
+    const dot = svgEl("circle", { r: 4, fill: color, stroke: "#fff", "stroke-width": 2, opacity: 0 });
+    svg.appendChild(dot);
+    rows.forEach((r, i) => {
+      const hit = svgEl("rect", { class: "band", x: (padL + band * i).toFixed(2), y: padT, width: band.toFixed(2), height: ih });
+      const html = '<div class="td">' + esc(r.day) + "</div>" +
+        '<div class="tr"><i style="background:' + color + '"></i>' + esc(label) + "<b>" + nf(r[key] || 0) + "</b></div>";
+      hit.addEventListener("mousemove", (ev) => {
+        dot.setAttribute("cx", x(i).toFixed(1));
+        dot.setAttribute("cy", y(r[key] || 0).toFixed(1));
+        dot.setAttribute("opacity", 1);
+        tip.show(ev, html);
+      });
+      hit.addEventListener("mouseleave", () => { dot.setAttribute("opacity", 0); tip.hide(); });
+      svg.appendChild(hit);
+    });
+
+    box.appendChild(svg);
+  }
+
+  // Table-view twin for a chart: every plotted value, readable without color or hover.
+  function chartTable(boxId, rows, series) {
+    const box = $(boxId);
+    if (!box) return;
+    box.innerHTML = '<table class="tbl"><thead><tr><th>Day</th>' +
+      series.map((s) => '<th class="num">' + esc(s.label) + "</th>").join("") +
+      "</tr></thead><tbody>" +
+      rows.slice().reverse().map((r) =>
+        '<tr><td class="mono">' + esc(r.day) + "</td>" +
+        series.map((s) => '<td class="num">' + nf(r[s.key] || 0) + "</td>").join("") + "</tr>"
+      ).join("") + "</tbody></table>";
+  }
+
+  document.addEventListener("click", (e) => {
+    const t = e.target.closest && e.target.closest(".tbl-toggle");
+    if (!t) return;
+    const box = $(t.getAttribute("data-table"));
+    if (!box) return;
+    box.hidden = !box.hidden;
+    t.textContent = box.hidden ? "Show table" : "Hide table";
+  });
+
+  // ---------- Info icons (hover tooltip per tile) ----------
   const CARD_INFO = {
     "o-live": "Distinct installs that pinged in the last 2 minutes (currently running the macro).",
-    "o-today": "Distinct installs active since 00:00 UTC today.",
-    "o-today-ret": "Installs active today that were first installed on an earlier day — returning users, not first-timers.",
+    "o-today": "Distinct installs that started a session today (UTC). New today plus Returning today always adds up to exactly this number.",
     "o-new": "Installs whose very first ping was today (UTC).",
+    "o-ret": "Active today minus New today: installs running the macro today that first installed on an earlier day.",
     "o-total": "Every install ever recorded (all time).",
     "o-active": "Real paying subscribers right now (from Stripe). Free 100%-off comps and ignored test accounts are excluded.",
-    "o-mrr": "Monthly recurring revenue — what your active real subs pay each month. Excludes free comps, subs set to cancel, and test accounts.",
+    "o-mrr": "Monthly recurring revenue, what your active real subs pay each month. Excludes free comps, subs set to cancel, and test accounts.",
     "o-hours": "Total macro runtime summed across every session, all time.",
-    "o-upg-median": "The typical wait from installing the macro to unlocking premium — half of upgraders were faster, half slower. Robust to a few people who took months. Only counts installs that upgraded after this metric shipped.",
-    "o-upg-avg": "Mean wait from install to premium unlock. Higher than the median because a handful of slow deciders (days/weeks later) pull the average up.",
-    "o-upg-fast": "Share of upgraders who went Pro within their first day of installing — your impulse/quick-convert crowd.",
+    "g-upg-median": "The typical wait from installing the macro to unlocking premium. Half of upgraders were faster, half slower, so a few people who took months cannot skew it. Only counts installs that upgraded after this metric shipped.",
+    "g-upg-avg": "Mean wait from install to premium unlock. Higher than the median because a handful of slow deciders pull the average up.",
+    "g-upg-fast": "Share of upgraders who went Pro within their first day of installing.",
+    "gw-views": "Times the giveaway page finished loading. A browser event, so it counts page opens rather than unique people.",
+    "gw-dl": "Clicks on Download the macro free in the giveaway wizard.",
+    "gw-pro": "Clicks on Get Garden Macro Pro in the giveaway wizard. Clicking sends them to Stripe with src=giveaway attached.",
+    "gw-co": "Checkout sessions created from the giveaway page. Recorded server side by /api/checkout, so this cannot be faked from the browser.",
+    "gw-subs": "Completed paid checkouts that started on the giveaway page. Recorded by the Stripe webhook against the session metadata, so it is exact.",
+    "gw-entries": "Google accounts entered in the giveaway. One row per account, so re-entering never double counts.",
     "m-active": "Distinct real subscribers with an active subscription right now. Excludes free 100%-off comps (youtuber grants) and ignored test accounts.",
-    "m-mrr": "Recurring monthly revenue from paying subs. Excludes comps, subs scheduled to cancel (won't renew), and test accounts — so it can differ from Stripe's raw MRR.",
-    "m-arr": "Annual recurring revenue — MRR × 12. A projection of a full year at your current run-rate, not money already collected. Same exclusions as MRR (comps, subs set to cancel, and test accounts).",
-    "m-new": "Distinct real subscribers whose subscription started this calendar month (UTC). Comps and test accounts excluded.",
-    "m-churn": "Distinct real (paying) subscribers whose subscription fully ended this month. Free comps and test accounts don't count, and a sub merely scheduled to cancel isn't churned until it actually ends.",
-    "m-life": "Average time a subscription lasts. Shows 'observed' once enough real subs have ended; otherwise an estimate from your churn rate, or — until any real sub churns.",
-    "m-ltv": "Lifetime value: average subscription length × average monthly revenue per paying sub. Rough until you have more churn data.",
-    "m-gross": "Total settled charges this month (after discounts, before Stripe fees), in your payout currency. Test accounts excluded.",
+    "m-mrr": "Recurring monthly revenue from paying subs. Excludes comps, subs scheduled to cancel, and test accounts, so it can differ from Stripe's raw MRR.",
+    "m-arr": "Annual recurring revenue, MRR times 12. A projection of a full year at your current run-rate, not money already collected.",
+    "m-new": "Distinct real subscribers whose subscription started this calendar month (UTC).",
+    "m-churn": "Distinct real paying subscribers whose subscription fully ended this month. A sub merely scheduled to cancel is not churned until it actually ends.",
+    "m-life": "Average time a subscription lasts. Shows observed once enough real subs have ended, otherwise an estimate from your churn rate.",
+    "m-ltv": "Lifetime value: average subscription length times average monthly revenue per paying sub. Rough until you have more churn data.",
+    "m-gross": "Total settled charges this month (after discounts, before Stripe fees), in your payout currency.",
     "m-net": "What actually landed after Stripe fees and currency conversion, with refunded charges excluded.",
     "m-fees": "Total Stripe processing fees on this month's charges.",
     "m-refunds": "Money refunded this month. Test accounts are excluded.",
-    "f-rev": "Net-settled Stripe revenue this month (after fees and currency conversion, refunds excluded). Test accounts excluded.",
-    "f-creator": "What you actually paid creators this month — the sum of payouts you logged (in the payout ledger) dated this month. Bonuses you haven't paid out yet don't count until you record them as a payout.",
-    "f-exp": "Your logged operating costs counted for this month: monthly costs in full, yearly costs ÷ 12, and one-time costs dated this month.",
-    "f-net": "Net profit this month = revenue − creator payouts − operating expenses.",
-    "f-burn": "Your fixed monthly burn: all recurring expenses normalized to per-month (monthly in full + yearly ÷ 12).",
-    "f-invested": "Total of every one-time cost you've logged (all time) — your cumulative upfront spend / investment.",
+    "f-rev": "Net-settled Stripe revenue this month (after fees and currency conversion, refunds excluded).",
+    "f-creator": "What you actually paid creators this month, the sum of payouts you logged dated this month. Bonuses you have not paid out yet do not count.",
+    "f-exp": "Your logged operating costs counted for this month: monthly in full, yearly divided by twelve, one-time dated this month.",
+    "f-net": "Net profit this month: revenue minus creator payouts minus operating expenses.",
+    "f-burn": "Your fixed monthly burn: all recurring expenses normalized to per-month.",
+    "f-invested": "Total of every one-time cost you have logged (all time), your cumulative upfront spend.",
   };
   function addCardInfo() {
     Object.keys(CARD_INFO).forEach((id) => {
       const v = document.getElementById(id);
-      const card = v && v.closest(".card");
-      const label = card && card.querySelector(".label");
+      const card = v && v.closest(".tile");
+      const label = card && card.querySelector(".lbl");
       if (!label || label.querySelector(".info")) return;
       const s = document.createElement("span");
       s.className = "info";
@@ -456,64 +873,56 @@
     });
   }
 
-  // ---------- Tabs ----------
+  // ---------- Nav ----------
   function setTab(tab) {
+    if (!TAB_TITLES[tab]) tab = "overview";
     document.querySelectorAll(".panel").forEach((p) => (p.hidden = p.id !== "tab-" + tab));
-    document.querySelectorAll(".tabbtn").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
+    document.querySelectorAll(".nav button").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
+    $("page-title").textContent = TAB_TITLES[tab];
     localStorage.setItem(TAB_STORE, tab);
     if (tab === "money" && moneyState === "idle") loadMoney();
     if (tab === "finances" && expensesState === "idle") loadExpenses();
   }
-  document.querySelectorAll(".tabbtn").forEach((b) => (b.onclick = () => setTab(b.dataset.tab)));
+  document.querySelectorAll(".nav button").forEach((b) => (b.onclick = () => setTab(b.dataset.tab)));
 
   // ---------- Overview ----------
+  const OVERVIEW_SERIES = [
+    { key: "installs", label: "New installs", color: C.green },
+    { key: "subs", label: "New subscribers", color: C.amber },
+  ];
+
   function renderOverview(d) {
     const daily = d.daily || [];
-    const today = daily[daily.length - 1] || { installs: 0, active: 0 };
-    const yest = daily[daily.length - 2] || { installs: 0, active: 0 };
-    $("o-live").textContent = nf(d.live);
-    $("o-today").textContent = nf(today.active);
-    $("o-today-ret").textContent = nf(d.todayReturning);
-    $("o-new").textContent = nf(today.installs);
+    const today = daily[daily.length - 1] || { installs: 0, active: 0, subs: 0 };
+    const yest = daily[daily.length - 2] || { installs: 0, active: 0, subs: 0 };
+
+    $("o-live").innerHTML = '<span class="live-dot"></span> ' + nf(d.live);
+    // These three come from the API already reconciled: new + returning === active.
+    $("o-today").textContent = nf(d.todayActive);
+    $("o-new").textContent = nf(d.todayNew);
+    $("o-ret").textContent = nf(d.todayReturning);
+    $("o-ret-s").textContent = d.todayActive
+      ? pct(d.todayReturning, d.todayActive) + "% of today's active"
+      : "active today, installed earlier";
     $("o-total").textContent = nf(d.total);
     $("o-hours").textContent = d.totalHours != null ? nf(d.totalHours) : "-";
-    setDelta($("o-today-d"), today.active, yest.active);
-    setDelta($("o-new-d"), today.installs, yest.installs);
-    dayChart("o-chart", daily, "installs", "var(--green)", "active", "var(--blue)");
+    setDelta($("o-today-d"), d.todayActive, yest.active);
+    setDelta($("o-new-d"), d.todayNew, yest.installs);
 
-    const f = d.funnel || {};
-    // "Subscribed" = REAL active subscribers (from Stripe, comps/test excluded) when the
-    // money data has loaded; falls back to the all-time subscribe-event count otherwise.
-    const subscribed = (moneyData && moneyData.subs && moneyData.subs.active != null)
-      ? moneyData.subs.active : (f.subscribe || 0);
-    $("o-funnel").innerHTML = [
-      ["Installs", f.installs], ["Get access", f.getAccess], ["Checkout", f.checkout], ["Subscribed", subscribed],
-    ].map(([k, v]) => '<div class="card"><div class="label">' + k + '</div><div class="value">' + nf(v || 0) + "</div></div>").join("");
-    $("o-funnote").innerHTML = "Install to subscribed: <b>" + pct(subscribed, f.installs) + "%</b> &middot; clicked Get access: <b>" + pct(f.getAccess, f.installs) + "%</b>";
+    $("o-chart-legend").innerHTML = legendHtml(OVERVIEW_SERIES);
+    barChart("o-chart", daily, OVERVIEW_SERIES);
+    chartTable("o-chart-table", daily, OVERVIEW_SERIES);
 
-    // Time to upgrade: install -> first premium unlock. Median headline + mean + spread.
-    const ut = d.upgradeTime || {};
-    if (ut.count) {
-      const b = ut.buckets || {};
-      $("o-upg-median").textContent = fmtDur(ut.medianMs);
-      $("o-upg-avg").textContent = fmtDur(ut.avgMs);
-      $("o-upg-count").textContent = "across " + nf(ut.count) + " upgrade" + (ut.count === 1 ? "" : "s");
-      $("o-upg-fast").textContent = pct((b.lt1h || 0) + (b.h1to24 || 0), ut.count) + "%";
-      const rows = [
-        ["Under 1 hour", b.lt1h || 0], ["1–24 hours", b.h1to24 || 0], ["1–7 days", b.d1to7 || 0],
-        ["7–30 days", b.d7to30 || 0], ["Over 30 days", b.gt30d || 0],
-      ];
-      const bmax = Math.max(1, ...rows.map((r) => r[1]));
-      $("o-upg-dist").innerHTML = hbars(rows.map(([name, value]) => ({
-        name, value, max: bmax, meta: nf(value) + " (" + pct(value, ut.count) + "%)", color: "var(--green)",
-      })));
-    } else {
-      $("o-upg-median").textContent = "—";
-      $("o-upg-avg").textContent = "—";
-      $("o-upg-fast").textContent = "—";
-      $("o-upg-count").textContent = "no upgrades tracked yet";
-      $("o-upg-dist").innerHTML = '<div class="muted">No upgrades tracked yet — this fills in as installs go Pro.</div>';
-    }
+    // Same subscriber series as the grouped chart, on its own scale. A day with one sale
+    // is a sliver next to 60 installs, so it also gets a chart where it reads properly.
+    const subSeries = [{ key: "subs", label: "New subscribers", color: C.amber }];
+    $("o-sub-legend").innerHTML = legendHtml(subSeries);
+    barChart("o-sub", daily, subSeries, { compact: true });
+    chartTable("o-sub-table", daily, subSeries);
+
+    $("o-act-legend").innerHTML = legendHtml([{ label: "Active devices", color: C.blue }]);
+    areaChart("o-act", daily, "active", C.blue, "Active devices", { compact: true });
+    chartTable("o-act-table", daily, [{ key: "active", label: "Active devices" }]);
 
     const versions = d.versions || [];
     const vtotal = versions.reduce((s, v) => s + (v.count || 0), 0);
@@ -524,10 +933,160 @@
       name: "v" + v.version, mono: true, value: v.count || 0, max: vmax,
       meta: nf(v.count) + " (" + pct(v.count, vtotal) + "%)",
       badge: v.version === latest ? "LATEST" : "",
-      color: v.version === latest ? "var(--green)" : "var(--muted)",
+      color: v.version === latest ? C.green : C.faint,
     }))) : '<div class="muted">No versioned installs yet.</div>';
 
-    $("o-foot").textContent = "Updated " + new Date(d.at).toLocaleTimeString();
+    $("o-foot").textContent = "Updated " + new Date(d.at).toLocaleTimeString() + ".";
+    renderGrowth(d);
+    renderGiveaway(d);
+  }
+
+  // ---------- Growth ----------
+  function renderGrowth(d) {
+    const f = d.funnel || {};
+    // "Subscribed" = REAL active subscribers (from Stripe, comps/test excluded) when the
+    // money data has loaded; falls back to the all-time subscribe-event count otherwise.
+    const subscribed = (moneyData && moneyData.subs && moneyData.subs.active != null)
+      ? moneyData.subs.active : (f.subscribe || 0);
+    funnel($("g-funnel"), [
+      { label: "Installs", sub: "all time", value: f.installs || 0 },
+      { label: "Get access", sub: "clicked in the macro", value: f.getAccess || 0 },
+      { label: "Checkout", sub: "reached the pay page", value: f.checkout || 0 },
+      { label: "Subscribed", sub: moneyData ? "active paying subs" : "all-time events", value: subscribed },
+    ]);
+
+    const ut = d.upgradeTime || {};
+    if (ut.count) {
+      const b = ut.buckets || {};
+      $("g-upg-median").textContent = fmtDur(ut.medianMs);
+      $("g-upg-avg").textContent = fmtDur(ut.avgMs);
+      $("g-upg-count").textContent = "across " + nf(ut.count) + " upgrade" + (ut.count === 1 ? "" : "s");
+      $("g-upg-fast").textContent = pct((b.lt1h || 0) + (b.h1to24 || 0), ut.count) + "%";
+      const rows = [
+        ["Under 1 hour", b.lt1h || 0], ["1 to 24 hours", b.h1to24 || 0], ["1 to 7 days", b.d1to7 || 0],
+        ["7 to 30 days", b.d7to30 || 0], ["Over 30 days", b.gt30d || 0],
+      ];
+      const bmax = Math.max(1, ...rows.map((r) => r[1]));
+      $("g-upg-dist").innerHTML = hbars(rows.map(([name, value]) => ({
+        name, value, max: bmax, meta: nf(value) + " (" + pct(value, ut.count) + "%)", color: C.green,
+      })));
+    } else {
+      $("g-upg-median").textContent = "—";
+      $("g-upg-avg").textContent = "—";
+      $("g-upg-fast").textContent = "—";
+      $("g-upg-count").textContent = "no upgrades tracked yet";
+      $("g-upg-dist").innerHTML = '<div class="muted">No upgrades tracked yet. This fills in as installs go Pro.</div>';
+    }
+
+    renderFlash(moneyData);
+    $("g-foot").textContent = "Updated " + new Date(d.at).toLocaleTimeString() + ".";
+  }
+
+  // Flash-deal A/B discount test: Shown/Clicked (distinct installs) from D1 events
+  // (lastData.flash, keyed by variant), Subscribed + Net revenue from Stripe
+  // (money codes tagged purpose "flash", matched by variant). Winner is chosen by
+  // net revenue PER INSTALL, the profit-max metric, not raw conversion.
+  const FLASH_PCT = { 1: "75% off", 2: "65% off", 3: "50% off" };
+  function renderFlash(m) {
+    if (!$("g-flash")) return;
+    const cur = m && m.currency;
+    const flash = (lastData && lastData.flash) || {};
+    const codes = (m && m.codes) || [];
+    const byVariant = {};
+    for (const c of codes) if (c.purpose === "flash" && c.variant) byVariant[c.variant] = c;
+
+    const rows = [1, 2, 3].map((v) => {
+      const st = flash[v] || { shown: 0, clicked: 0 };
+      const code = byVariant[v];
+      const shown = st.shown || 0;
+      const subscribed = code ? (code.uses || 0) : null;
+      const netCents = code ? code.netSettledCents : null;
+      const revPer = shown > 0 && netCents != null ? Math.round(netCents / shown) : null;
+      const conv = shown > 0 && subscribed != null ? subscribed / shown : null;
+      // Prefer the real discount label from Stripe (coupon percent_off) when present.
+      const label = code && code.percentOff != null ? code.percentOff + "% off" : FLASH_PCT[v];
+      return { v, label, shown, clicked: st.clicked || 0, subscribed, netCents, revPer, conv };
+    });
+
+    if (!rows.some((r) => r.shown > 0 || r.subscribed)) {
+      $("g-flash").innerHTML = '<tr><td colspan="7" class="muted">No flash-deal activity yet. Data appears once users update the macro and start seeing the countdown.</td></tr>';
+      return;
+    }
+    let bestRev = -1, winner = null;
+    for (const r of rows) if (r.revPer != null && r.shown > 0 && r.revPer > bestRev) { bestRev = r.revPer; winner = r.v; }
+
+    $("g-flash").innerHTML = rows.map((r) => {
+      const isWin = r.v === winner;
+      return "<tr" + (isWin ? ' class="total"' : "") + "><td>" + r.label + ' <span class="muted">first month</span>' +
+        (isWin ? ' <span class="chip win">best per install</span>' : "") + "</td>" +
+        '<td class="num">' + nf(r.shown) + "</td>" +
+        '<td class="num">' + nf(r.clicked) + "</td>" +
+        '<td class="num">' + (r.subscribed == null ? "—" : nf(r.subscribed)) + "</td>" +
+        '<td class="num">' + (r.conv == null ? "—" : (r.conv * 100).toFixed(1) + "%") + "</td>" +
+        '<td class="num">' + money(r.netCents, cur) + "</td>" +
+        '<td class="num">' + (r.revPer == null ? "—" : money(r.revPer, cur)) + "</td></tr>";
+    }).join("");
+  }
+
+  // ---------- Giveaway ----------
+  function renderGiveaway(d) {
+    const g = d.giveaway || {};
+    $("gw-views").textContent = nf(g.views || 0);
+    $("gw-dl").textContent = nf(g.downloads || 0);
+    $("gw-pro").textContent = nf(g.proClicks || 0);
+    $("gw-co").textContent = nf(g.checkouts || 0);
+    $("gw-subs").textContent = nf(g.subscribes || 0);
+    $("gw-entries").textContent = nf(g.entries || 0);
+    $("gw-dl-s").textContent = g.views ? pct(g.downloads, g.views) + "% of views" : "clicked Download the macro";
+    $("gw-pro-s").textContent = g.views ? pct(g.proClicks, g.views) + "% of views" : "clicked Get Pro";
+    $("gw-subs-s").textContent = g.checkouts ? pct(g.subscribes, g.checkouts) + "% of checkouts" : "paid from this page";
+
+    funnel($("gw-funnel"), [
+      { label: "Page views", sub: "opened the giveaway", value: g.views || 0 },
+      { label: "Entered", sub: "completed an entry", value: g.entries || 0 },
+      { label: "Downloaded", sub: "clicked Download", value: g.downloads || 0 },
+      { label: "Pro clicks", sub: "clicked Get Pro", value: g.proClicks || 0 },
+      { label: "Checkout", sub: "reached Stripe", value: g.checkouts || 0 },
+      { label: "Paid", sub: "completed payment", value: g.subscribes || 0 },
+    ]);
+
+    const tiers = [
+      { name: "Pro (10 tickets)", value: g.entriesPro || 0 },
+      { name: "Has the macro (3 tickets)", value: g.entriesMacro || 0 },
+      { name: "Signed in only (1 ticket)", value: g.entriesBase || 0 },
+    ];
+    const tmax = Math.max(1, ...tiers.map((t) => t.value));
+    $("gw-tiers").innerHTML = g.entries
+      ? hbars(tiers.map((t) => ({ name: t.name, value: t.value, max: tmax, meta: nf(t.value) + " (" + pct(t.value, g.entries) + "%)" })))
+      : '<div class="muted">No entries yet.</div>';
+
+    // Code split. `codeAvailable` is false until migration 0009 has been applied.
+    if (g.codeAvailable === false) {
+      $("gw-note").innerHTML = '<div class="note">The per-code split needs one migration. Run <code>wrangler d1 execute gagmacro-stats --remote --file migrations/0009_add_giveaway_entry_code.sql</code> once, then codes appear here for entries made after that.</div>';
+      $("gw-codes").innerHTML = '<tr><td colspan="4" class="muted">Waiting on migration 0009.</td></tr>';
+    } else {
+      $("gw-note").innerHTML = "";
+      const list = (g.byCode || []).slice().sort((a, b) => (b.entries || 0) - (a.entries || 0));
+      const total = list.reduce((s, r) => s + (r.entries || 0), 0);
+      if (!list.length) {
+        $("gw-codes").innerHTML = '<tr><td colspan="4" class="muted">No entries yet.</td></tr>';
+      } else {
+        const shared = String(g.macroCode || "").toUpperCase();
+        $("gw-codes").innerHTML = list.map((r) => {
+          const code = String(r.code || "");
+          const isNone = code === "";
+          const kind = isNone ? "No code" : code === shared ? "Shared macro code" : "Creator code";
+          const chip = isNone ? "other" : code === shared ? "conversion" : "creator";
+          return "<tr>" +
+            '<td class="mono">' + (isNone ? '<span class="muted">none</span>' : esc(code)) + "</td>" +
+            '<td><span class="chip kind ' + chip + '">' + esc(kind) + "</span></td>" +
+            '<td class="num">' + nf(r.entries) + "</td>" +
+            '<td class="num">' + pct(r.entries, total) + "%</td></tr>";
+        }).join("");
+      }
+    }
+    $("gw-foot").textContent = "Updated " + new Date(d.at).toLocaleTimeString() +
+      ". Views, downloads and Pro clicks are browser events (clicks, not people). Checkouts and paid subscribers are recorded server side.";
   }
 
   // ---------- Acquisition ----------
@@ -593,7 +1152,7 @@
   function setMoneyCard(id, txt) { const el = $(id); if (el) el.textContent = txt; }
 
   function renderMoney(m) {
-    // Overview's two Stripe-backed cards mirror the Money tab.
+    // Overview's two Stripe-backed tiles mirror the Money tab.
     const subs = (m && m.subs) || {};
     const cur = m && m.currency;
     const active = subs.active;
@@ -604,22 +1163,22 @@
     setMoneyCard("m-active", active == null ? "—" : nf(active));
     setMoneyCard("m-mrr", money(mrr, cur));
     setMoneyCard("m-arr", money(mrr == null ? null : mrr * 12, cur));   // ARR = MRR × 12 run-rate
-    $("m-arr-s").textContent = mrr == null ? "" : "MRR × 12 run-rate";
-    var payNote = subs.mrrSubs == null ? "" : subs.mrrSubs + " paying" + (active != null && active > subs.mrrSubs ? " · " + (active - subs.mrrSubs) + " ending" : "");
+    $("m-arr-s").textContent = mrr == null ? "" : "MRR times 12 run-rate";
+    const payNote = subs.mrrSubs == null ? "" : subs.mrrSubs + " paying" + (active != null && active > subs.mrrSubs ? ", " + (active - subs.mrrSubs) + " ending" : "");
     $("m-mrr-s").textContent = payNote;
-    $("m-active-s").textContent = active == null ? "" : "real subs (free & test excluded)";
+    $("m-active-s").textContent = active == null ? "" : "real subs, free and test excluded";
     setMoneyCard("m-new", subs.newThisMonth == null ? "—" : nf(subs.newThisMonth));
     setMoneyCard("m-churn", subs.churnedThisMonth == null ? "—" : nf(subs.churnedThisMonth));
     setMoneyCard("m-life", subs.avgLifetimeMonths == null ? "—" : subs.avgLifetimeMonths + " mo");
     $("m-life-s").textContent = subs.avgLifetimeMonths == null ? "needs churned subs" : (subs.ltvEstimated ? "estimate (low sample)" : "observed");
     setMoneyCard("m-ltv", money(subs.ltvCents, cur));
-    $("m-ltv-s").textContent = subs.ltvCents == null ? "" : (subs.ltvEstimated ? "estimate" : "avg lifetime × price");
+    $("m-ltv-s").textContent = subs.ltvCents == null ? "" : (subs.ltvEstimated ? "estimate" : "avg lifetime times price");
     $("o-mrr-s").textContent = mrr == null ? "live from Stripe"
       : (subs.mrrSubs != null ? subs.mrrSubs + " paying" + (active != null && active !== subs.mrrSubs ? " of " + active + " active" : " subs") : "");
 
-    // Refresh Overview funnel (real "Subscribed") + Acquisition promo table (Subscribers
-    // / Install→Sub) now that the Stripe code data is available.
-    if (lastData) { renderOverview(lastData); renderAcquisition(lastData); }
+    // Refresh the Growth funnel (real "Subscribed" + flash arms) and the Acquisition
+    // promo table now that the Stripe code data is available.
+    if (lastData) { renderGrowth(lastData); renderAcquisition(lastData); }
 
     const mo = (m && m.month) || {};
     $("m-monthlabel").textContent = mo.label ? "(" + mo.label + ")" : "";
@@ -636,7 +1195,7 @@
     const codes = (m && m.codes) || [];
     if (!m || m.codesAvailable === false) {
       $("m-codes").innerHTML = '<tr><td colspan="8" class="muted">' +
-        (moneyState === "error" ? "Couldn't reach Stripe — try Refresh." : "Stripe data unavailable — showing nothing rather than wrong numbers.") + "</td></tr>";
+        (moneyState === "error" ? "Couldn't reach Stripe, try Refresh." : "Stripe data unavailable, showing nothing rather than wrong numbers.") + "</td></tr>";
     } else if (!codes.length) {
       $("m-codes").innerHTML = '<tr><td colspan="8" class="muted">No promotion codes found in Stripe.</td></tr>';
     } else {
@@ -661,85 +1220,11 @@
       $("m-codes").innerHTML = body + totals;
     }
 
-    renderPopups(m);
-    renderFlash(m);   // A/B price test: D1 shown/clicked + Stripe subs/revenue per arm
     renderFinances(); // revenue/creator come from money; refresh the P&L when money lands
 
     const stamp = m && m.at ? new Date(m.at).toLocaleTimeString() : new Date().toLocaleTimeString();
     $("m-foot").textContent = (moneyState === "error" ? "Stripe unreachable. " : "") +
-      "Net settled = balance after Stripe fees + currency conversion, refunds excluded. Updated " + stamp + ".";
-  }
-
-  // Popup funnel: shown/copied/dismissed from D1 events (lastData), redeemed from Stripe.
-  function renderPopups(m) {
-    const pe = (lastData && lastData.popupEvents) || {};
-    const codes = (m && m.codes) || [];
-    const usesFor = (code) => {
-      for (const c of codes) if (String(c.code).toUpperCase() === code) return c.uses;
-      return null;
-    };
-    const rows = [
-      { label: "Loyalty", sub: "50% · 5h/20h runtime", shown: pe.loyalty_shown || 0, copied: pe.loyalty_copied || 0, clicked: pe.loyalty_cta || 0, dismissed: pe.loyalty_dismiss || 0, redeemed: usesFor("PROMACRO") },
-      { label: "Conversion", sub: "20% · post-session", shown: pe.hint_shown || 0, copied: pe.hint_copied || 0, clicked: pe.hint_cta || 0, dismissed: pe.hint_dismiss || 0, redeemed: usesFor("SUPERSEED") },
-    ];
-    $("m-popups").innerHTML = rows.map((r) => {
-      const noAction = Math.max(0, r.shown - r.clicked - r.dismissed);
-      const conv = r.shown > 0 && r.redeemed != null ? pct(r.redeemed, r.shown) + "%" : "—";
-      return "<tr><td>" + r.label + ' <span class="muted">' + r.sub + "</span></td>" +
-        '<td class="num">' + nf(r.shown) + "</td>" +
-        '<td class="num">' + nf(r.copied) + "</td>" +
-        '<td class="num">' + nf(r.clicked) + "</td>" +
-        '<td class="num">' + nf(r.dismissed) + "</td>" +
-        '<td class="num muted">' + nf(noAction) + "</td>" +
-        '<td class="num">' + (r.redeemed == null ? "—" : nf(r.redeemed)) + "</td>" +
-        '<td class="num">' + conv + "</td></tr>";
-    }).join("");
-  }
-
-  // Flash-deal A/B discount test: Shown/Clicked (distinct installs) from D1 events
-  // (lastData.flash, keyed by variant), Subscribed + Net revenue from Stripe
-  // (money codes tagged purpose "flash", matched by variant). Winner is chosen by
-  // net revenue PER INSTALL — the profit-max metric — not raw conversion.
-  const FLASH_PCT = { 1: "75% off", 2: "65% off", 3: "50% off" };
-  function renderFlash(m) {
-    const cur = m && m.currency;
-    const flash = (lastData && lastData.flash) || {};
-    const codes = (m && m.codes) || [];
-    const byVariant = {};
-    for (const c of codes) if (c.purpose === "flash" && c.variant) byVariant[c.variant] = c;
-
-    const rows = [1, 2, 3].map((v) => {
-      const st = flash[v] || { shown: 0, clicked: 0 };
-      const code = byVariant[v];
-      const shown = st.shown || 0;
-      const subscribed = code ? (code.uses || 0) : null;
-      const netCents = code ? code.netSettledCents : null;
-      const revPer = shown > 0 && netCents != null ? Math.round(netCents / shown) : null;
-      const conv = shown > 0 && subscribed != null ? subscribed / shown : null;
-      // Prefer the real discount label from Stripe (coupon percent_off) when present.
-      const label = code && code.percentOff != null ? code.percentOff + "% off" : FLASH_PCT[v];
-      return { v, label, shown, clicked: st.clicked || 0, subscribed, netCents, revPer, conv };
-    });
-
-    if (!rows.some((r) => r.shown > 0 || r.subscribed)) {
-      $("m-flash").innerHTML = '<tr><td colspan="7" class="muted">No flash-deal activity yet — data appears once users update the macro and start seeing the countdown.</td></tr>';
-      return;
-    }
-    // Winner = highest net revenue per install (needs installs shown on that arm).
-    let bestRev = -1, winner = null;
-    for (const r of rows) if (r.revPer != null && r.shown > 0 && r.revPer > bestRev) { bestRev = r.revPer; winner = r.v; }
-
-    $("m-flash").innerHTML = rows.map((r) => {
-      const isWin = r.v === winner;
-      return "<tr" + (isWin ? ' class="total"' : "") + "><td>" + r.label + ' <span class="muted">first month</span>' +
-        (isWin ? ' <span class="chip flash">best $/install</span>' : "") + "</td>" +
-        '<td class="num">' + nf(r.shown) + "</td>" +
-        '<td class="num">' + nf(r.clicked) + "</td>" +
-        '<td class="num">' + (r.subscribed == null ? "—" : nf(r.subscribed)) + "</td>" +
-        '<td class="num">' + (r.conv == null ? "—" : (r.conv * 100).toFixed(1) + "%") + "</td>" +
-        '<td class="num">' + money(r.netCents, cur) + "</td>" +
-        '<td class="num">' + (r.revPer == null ? "—" : money(r.revPer, cur)) + "</td></tr>";
-    }).join("");
+      "Net settled is the balance after Stripe fees and currency conversion, refunds excluded. Updated " + stamp + ".";
   }
 
   // ---------- Finances (P&L + expense ledger) ----------
@@ -787,6 +1272,9 @@
     return r.ok;
   }
 
+  const ICON_EDIT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
+  const ICON_DEL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>';
+
   function renderFinances() {
     const m = moneyData;
     const cur = (m && m.currency) || fxBase; // display currency
@@ -818,8 +1306,8 @@
 
     const plRow = (label, val, o) => {
       o = o || {};
-      // Total (net profit) shows the real signed value — it can be negative (a loss).
-      // Cost lines (o.neg) are shown as −amount; revenue as a plain amount.
+      // Total (net profit) shows the real signed value: it can be negative (a loss).
+      // Cost lines (o.neg) are shown as -amount; revenue as a plain amount.
       const cell = val == null ? "—"
         : o.total ? money(val, cur)
         : (o.neg && val ? "−" : "") + money(Math.abs(val), cur);
@@ -834,7 +1322,7 @@
 
     if (!exp.length) {
       $("f-expenses").innerHTML = '<tr><td colspan="6" class="muted">' +
-        (expensesState === "error" ? "Couldn't load expenses." : "No expenses yet — add your domain, Cloudflare, etc. below.") + "</td></tr>";
+        (expensesState === "error" ? "Couldn't load expenses." : "No expenses yet. Add your domain, Cloudflare, etc. below.") + "</td></tr>";
     } else {
       $("f-expenses").innerHTML = exp.map((e) => {
         const d = new Date(e.incurredAt);
@@ -844,13 +1332,13 @@
           "<td>" + esc(e.category) + "</td>" +
           "<td>" + rec + "</td>" +
           '<td class="num">' + money(e.amountCents, e.currency || fxBase) + "</td>" +
-          "<td class='num'><button class='edit' data-id='" + e.id + "' title='Edit'>✎</button> " +
-          "<button class='del' data-id='" + e.id + "' title='Delete'>✕</button></td></tr>";
+          "<td class='num'><button class='edit' data-id='" + e.id + "' title='Edit'>" + ICON_EDIT + "</button>" +
+          "<button class='del' data-id='" + e.id + "' title='Delete'>" + ICON_DEL + "</button></td></tr>";
       }).join("");
     }
     const foreign = exp.some((e) => (e.currency || fxBase).toUpperCase() !== fxBase);
     $("f-foot").textContent =
-      (m && m.month ? "" : "Revenue & creator figures fill in once the Money tab loads. ") +
+      (m && m.month ? "" : "Revenue and creator figures fill in once the Money tab loads. ") +
       (foreign && fxRates.USD ? "USD converted to " + fxBase + " at 1 " + fxBase + " = " + fxRates.USD + " USD" + (fxLive ? " (live ECB)." : " (approx).") : "");
   }
 
@@ -915,19 +1403,19 @@
       const d = await r.json();
       lastData = d;
       show(true);
-      renderOverview(d);
+      renderOverview(d);   // also renders Growth + Giveaway from the same payload
       renderAcquisition(d);
       // Kick off the Stripe money pull (non-blocking) so Overview's subscriber/MRR
-      // cards fill and the Money tab is primed. One fetch per open — never polled.
+      // tiles fill and the Money tab is primed. One fetch per open, never polled.
       moneyState = "idle"; moneyData = null;
       loadMoney();
       // Expenses are D1 + cheap; reload if the Finances tab is the open one.
       expensesState = "idle"; expensesData = null;
       if (localStorage.getItem(TAB_STORE) === "finances") loadExpenses();
       const u = $("updated");
-      if (u) u.textContent = "Updated " + new Date(d.at || Date.now()).toLocaleTimeString() + " · press Refresh to update.";
+      if (u) u.textContent = "Anonymous installs. Updated " + new Date(d.at || Date.now()).toLocaleTimeString() + ".";
     } catch (e) {
-      if ($("o-foot")) $("o-foot").textContent = "Couldn't reach the server. Retrying...";
+      if ($("o-foot")) $("o-foot").textContent = "Couldn't reach the server. Press Refresh to retry.";
     }
   }
 
@@ -939,8 +1427,8 @@
   (function () { const xd = $("x-date"); if (xd) xd.value = new Date().toISOString().slice(0, 10); })();
   setTab(localStorage.getItem(TAB_STORE) || "overview");
 
-  // MANUAL REFRESH ONLY -- no auto-refresh/polling. /api/stats runs full-table scans and
-  // /api/money runs a Stripe invoice scan; both are pulled once on open and on Refresh.
+  // MANUAL REFRESH ONLY. No auto-refresh/polling: /api/stats runs full-table scans and
+  // /api/money runs a Stripe invoice scan, so both are pulled once on open and on Refresh.
   $("refresh").onclick = async () => {
     const b = $("refresh");
     if (b.disabled) return;

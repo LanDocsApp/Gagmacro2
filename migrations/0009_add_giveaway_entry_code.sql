@@ -1,0 +1,26 @@
+-- Records WHICH macro code each giveaway entrant pasted, so /stats can split the
+-- giveaway funnel by code (the shared macro code 3QIHX vs. a creator code like LION).
+--
+-- Why a column and not an event: entries are one row per Google account (the giveaway_entries
+-- primary key), so a column counts PEOPLE. An event row would count submissions, and re-entry
+-- is allowed and idempotent by design (a user can enter, then come back and add the code), so
+-- an event-based split would double-count those returners.
+--
+-- NULL / empty = entered without a code (base weight). The value is stored UPPER-cased,
+-- matching how enter.js validates it.
+--
+-- Readers wrap their query in try/catch, so this column being absent never 500s the
+-- giveaway page, the entry flow, or /api/stats — /stats just shows the split as empty
+-- until it is applied. Applying it is non-breaking, any time.
+--
+-- Apply ONCE to the production D1 database (gagmacro-stats), the same way as 0007/0008:
+-- run the statement directly (do NOT use `wrangler d1 migrations apply` — earlier promo/src
+-- columns were added manually with no tracked migration, so a full run would try to re-add
+-- them and fail). Either:
+--   wrangler d1 execute gagmacro-stats --remote --file migrations/0009_add_giveaway_entry_code.sql
+-- or paste the statement below into the D1 "Console" tab in the Cloudflare dashboard.
+--
+-- SQLite has no "ADD COLUMN IF NOT EXISTS", so run this line only once. If it reports
+-- "duplicate column name", the column already exists — safe to ignore.
+
+ALTER TABLE giveaway_entries ADD COLUMN code TEXT;

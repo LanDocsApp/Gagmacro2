@@ -22,7 +22,15 @@ import { flashCodeForVariant, creatorCode } from "../_lib/creators.js";
 
 const OFFER_COOKIE = "gag_offer";
 const CODE_COOKIE = "gag_code";
+const SRC_COOKIE = "gag_src";
 const OFFER_MAX_AGE = 30 * 60; // 30 min: long enough to cover the Google-login round-trip.
+
+// Where the checkout was started from (?src=giveaway). Rides through the Google-login
+// round-trip in its own cookie exactly like the offer/code do, gets logged on the
+// `checkout` event, AND is stamped into the Stripe session metadata so the webhook can
+// tag the resulting `subscribe` event with the same source. That's what lets /stats say
+// how many people PAID from the giveaway page, not just how many clicked.
+const SOURCES = new Set(["giveaway"]);
 
 // Read + validate the flash variant from the query string (wins) or the cookie.
 // Returns 1/2/3, or "" if none/invalid.
@@ -39,6 +47,15 @@ function readCreatorCode(request) {
   const q = new URL(request.url).searchParams.get("code");
   const c = parseCookies(request)[CODE_COOKIE];
   return creatorCode(q || c || "");
+}
+
+// Read + validate the acquisition source from the query string (wins) or the cookie.
+// Returns a known source key (e.g. "giveaway"), or "" if none/unrecognized.
+function readSrc(request) {
+  const q = new URL(request.url).searchParams.get("src");
+  const c = parseCookies(request)[SRC_COOKIE];
+  const raw = String(q || c || "").trim().toLowerCase();
+  return SOURCES.has(raw) ? raw : "";
 }
 
 // Look up the active promotion code id (promo_...) for a raw promotion-code STRING, or
@@ -64,15 +81,17 @@ async function handle({ request, env }) {
   const base = baseUrl(request, env);
   const offer = readOffer(request);
   const creator = readCreatorCode(request);
+  const src = readSrc(request);
 
   const session = await readSession(request, env);
   if (!session) {
     // Not signed in yet -> send to Google login, but first stash the offer / creator
-    // code in a cookie so it survives the round-trip (the OAuth callback drops query
-    // strings), and the discount still auto-applies when they come back to checkout.
+    // code / source in a cookie so they survive the round-trip (the OAuth callback drops
+    // query strings), and the discount still auto-applies when they come back to checkout.
     const headers = new Headers({ Location: `${base}/api/auth/google/login` });
     if (offer) headers.append("Set-Cookie", cookie(OFFER_COOKIE, offer, { maxAge: OFFER_MAX_AGE }));
     if (creator) headers.append("Set-Cookie", cookie(CODE_COOKIE, creator, { maxAge: OFFER_MAX_AGE }));
+    if (src) headers.append("Set-Cookie", cookie(SRC_COOKIE, src, { maxAge: OFFER_MAX_AGE }));
     return new Response(null, { status: 302, headers });
   }
 
@@ -99,6 +118,14 @@ async function handle({ request, env }) {
   // Reuse the existing Stripe customer if we know it (avoids duplicates).
   if (customerId) params.customer = customerId;
   else if (session.email) params.customer_email = session.email;
+
+  // Carry the source into Stripe so the webhook can attribute the completed payment back
+  // to where it started (e.g. the giveaway page). Set independently of any discount, and
+  // never stripped by the no-discount retry below.
+  if (src) {
+    params.metadata.src = src;
+    params.subscription_data.metadata.src = src;
+  }
 
   // Auto-apply a discount so the user never has to paste a code: the flash-deal
   // variant (?offer=) OR an entered creator code (?code=). At most one applies — if
@@ -161,12 +188,14 @@ async function handle({ request, env }) {
       sub: session.sub,
       offer: promoId && appliedOffer ? appliedOffer : undefined,
       promo: promoId && appliedCode ? appliedCode : undefined,
+      src: src || undefined,
     },
   });
-  // Clear the offer / creator-code cookies now that they've been consumed into the session.
+  // Clear the offer / creator-code / source cookies now that they've been consumed.
   const headers = new Headers({ Location: checkout.url });
   if (offer) headers.append("Set-Cookie", cookie(OFFER_COOKIE, "", { maxAge: 0 }));
   if (creator) headers.append("Set-Cookie", cookie(CODE_COOKIE, "", { maxAge: 0 }));
+  if (src) headers.append("Set-Cookie", cookie(SRC_COOKIE, "", { maxAge: 0 }));
   return new Response(null, { status: 302, headers });
 }
 

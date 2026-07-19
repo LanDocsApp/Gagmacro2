@@ -1,9 +1,10 @@
-// GET /api/stats?key=<STATS_KEY> — D1-only usage data for the Overview + Acquisition
-// tabs. NO Stripe calls live here (that's /api/money, lazy-loaded by the Money tab), so
-// this stays fast and cheap. Returns:
+// GET /api/stats?key=<STATS_KEY> — D1-only usage data for the dashboard. NO Stripe calls
+// live here (that's /api/money, lazy-loaded by the Money tab), so this stays fast and cheap.
+// Returns:
 //   live          = distinct installs active in the last 2 minutes
-//   today         = distinct installs active since 00:00 UTC today
-//   todayReturning= installs active today that were NOT first installed today
+//   todayActive   = distinct installs that started a session today (UTC)
+//   todayNew      = installs whose first ping was today (UTC)
+//   todayReturning= todayActive - todayNew (installs active today that installed earlier)
 //   week          = distinct installs active in the last 7 days
 //   total         = all installs ever seen (every row)
 //   sessionsToday = sessions started since 00:00 UTC today
@@ -12,17 +13,27 @@
 //   funnel        = { installs, getAccess, checkout, subscribe } conversion funnel
 //   upgradeTime   = install->upgrade timing { count, medianMs, avgMs, buckets } from the
 //                   first_seen -> first 'unlock' event delta per device (null figures if none)
-//   daily         = last 30 UTC days [{ day, installs, active, getAccess, checkout }]
+//   daily         = last 30 UTC days [{ day, installs, active, subs, getAccess, checkout }]
 //   versions      = current install count per app version [{ version, count }]
 //   acqSources    = per source [{ source, installs, getAccess, returning }]
 //   acqPromos     = per promo  [{ code,   installs, getAccess, returning }] (incl. zero-install creator codes)
+//   flash         = flash-deal A/B price test funnel per variant { shown, clicked }
+//   giveaway      = giveaway-page funnel (see the block below)
 //   at            = server time
+//
+// The three "today" figures are derived from the SAME sources as the daily series, so the
+// cards and the chart can never disagree: active comes from sessions started today, new from
+// devices first seen today, and returning is exactly active - new. (They used to be computed
+// from devices.last_seen independently, which let returning exceed active and made new +
+// returning != active.) A device's first ping opens both its `devices` row and its first
+// session, so every new install is also active today -- the subtraction can't go negative.
 //
 // Each block is computed defensively in its own try/catch so a missing column/table
 // can never 500 the endpoint. Protected by the STATS_KEY env var (fails closed when unset).
 
 import { json } from "../_lib/http.js";
 import { CREATORS } from "../_lib/creators.js";
+import { MACRO_CODE } from "../_lib/giveaways.js";
 
 // Build an array of the last `n` UTC day strings (YYYY-MM-DD), oldest first.
 function lastUtcDays(now, n) {
@@ -58,24 +69,31 @@ export async function onRequestGet({ request, env }) {
       `SELECT
          COUNT(*)                                              AS total,
          SUM(CASE WHEN last_seen > ?1 THEN 1 ELSE 0 END)       AS live,
-         SUM(CASE WHEN last_seen >= ?2 THEN 1 ELSE 0 END)      AS today,
-         SUM(CASE WHEN last_seen >= ?2 AND first_seen < ?2 THEN 1 ELSE 0 END) AS todayReturning,
+         SUM(CASE WHEN first_seen >= ?2 THEN 1 ELSE 0 END)     AS todayNew,
          SUM(CASE WHEN last_seen > ?3 THEN 1 ELSE 0 END)       AS week
        FROM devices`
     )
       .bind(liveCutoff, midnightUtc, weekCutoff)
       .first();
 
-    // Session aggregates: sessions started today + mean session length (excluding
-    // single-ping launches so the average reflects real use).
+    // Session aggregates: sessions started today, distinct devices active today (the same
+    // definition the daily chart uses), and mean session length (excluding single-ping
+    // launches so the average reflects real use).
     const sess = await env.STATS.prepare(
       `SELECT
-         SUM(CASE WHEN started_at >= ?1 THEN 1 ELSE 0 END)            AS sessionsToday,
-         AVG(CASE WHEN pings > 1 THEN last_ping - started_at END)     AS avgSession
+         SUM(CASE WHEN started_at >= ?1 THEN 1 ELSE 0 END)                     AS sessionsToday,
+         COUNT(DISTINCT CASE WHEN started_at >= ?1 THEN device_id END)         AS todayActive,
+         AVG(CASE WHEN pings > 1 THEN last_ping - started_at END)              AS avgSession
        FROM sessions`
     )
       .bind(midnightUtc)
       .first();
+
+    const todayNew = row?.todayNew || 0;
+    const todayActive = sess?.todayActive || 0;
+    // Every install's first ping also opens its first session, so new ⊆ active and this
+    // is a true partition. The clamp is belt-and-braces against clock skew.
+    const todayReturning = Math.max(0, todayActive - todayNew);
 
     // Conversion funnel (events table may not exist yet -> zeros).
     let funnel = { installs: row?.total || 0, getAccess: 0, checkout: 0, subscribe: 0 };
@@ -94,7 +112,9 @@ export async function onRequestGet({ request, env }) {
       // events table not created yet -> funnel shows installs only.
     }
 
-    // 30-day daily trend: new installs + active devices + funnel intent per day.
+    // 30-day daily trend: new installs + active devices + new paid subscribers + funnel
+    // intent per day. `subs` is what the dashboard draws as the amber bar beside the green
+    // installs bar — one 'subscribe' event per completed paid checkout (Stripe webhook).
     let daily = [];
     try {
       const cutoff30 = now - 30 * 86400000;
@@ -106,27 +126,30 @@ export async function onRequestGet({ request, env }) {
         `SELECT date(started_at / 1000, 'unixepoch') AS day, COUNT(DISTINCT device_id) AS n
          FROM sessions WHERE started_at >= ?1 GROUP BY day`
       ).bind(cutoff30).all();
-      const insBy = {}, actBy = {}, gaBy = {}, coBy = {};
+      const insBy = {}, actBy = {}, subBy = {}, gaBy = {}, coBy = {};
       for (const r of ins?.results || []) insBy[r.day] = r.n || 0;
       for (const r of act?.results || []) actBy[r.day] = r.n || 0;
       try {
-        const ga = await env.STATS.prepare(
-          `SELECT date(ts / 1000, 'unixepoch') AS day, COUNT(*) AS n
-           FROM events WHERE name = 'get_access' AND ts >= ?1 GROUP BY day`
+        // One pass over the events table for all three per-day series.
+        const ev = await env.STATS.prepare(
+          `SELECT name, date(ts / 1000, 'unixepoch') AS day, COUNT(*) AS n
+           FROM events
+           WHERE name IN ('get_access','checkout','subscribe') AND ts >= ?1
+           GROUP BY name, day`
         ).bind(cutoff30).all();
-        for (const r of ga?.results || []) gaBy[r.day] = r.n || 0;
-        const co = await env.STATS.prepare(
-          `SELECT date(ts / 1000, 'unixepoch') AS day, COUNT(*) AS n
-           FROM events WHERE name = 'checkout' AND ts >= ?1 GROUP BY day`
-        ).bind(cutoff30).all();
-        for (const r of co?.results || []) coBy[r.day] = r.n || 0;
+        for (const r of ev?.results || []) {
+          if (r.name === "get_access") gaBy[r.day] = r.n || 0;
+          else if (r.name === "checkout") coBy[r.day] = r.n || 0;
+          else if (r.name === "subscribe") subBy[r.day] = r.n || 0;
+        }
       } catch {
-        // events table absent -> get_access/checkout stay 0.
+        // events table absent -> get_access/checkout/subs stay 0.
       }
       daily = lastUtcDays(now, 30).map((day) => ({
         day,
         installs: insBy[day] || 0,
         active: actBy[day] || 0,
+        subs: subBy[day] || 0,
         getAccess: gaBy[day] || 0,
         checkout: coBy[day] || 0,
       }));
@@ -197,21 +220,6 @@ export async function onRequestGet({ request, env }) {
       }
     }
 
-    // Popup funnel events (loyalty + post-session upsell): shown/copied/dismissed counts
-    // from the events table. Redemptions are added on the dashboard from Stripe (Money tab).
-    let popupEvents = {};
-    try {
-      const pe = await env.STATS.prepare(
-        `SELECT name, COUNT(*) AS n FROM events
-         WHERE name IN ('loyalty_shown','loyalty_copied','loyalty_dismiss','loyalty_cta',
-                        'hint_shown','hint_copied','hint_dismiss','hint_cta')
-         GROUP BY name`
-      ).all();
-      for (const r of pe?.results || []) popupEvents[String(r.name)] = r.n || 0;
-    } catch {
-      popupEvents = {};
-    }
-
     // Flash-deal A/B price test: per-variant funnel denominators from the events table.
     // shown/clicked are DISTINCT installs (people), grouped by the price arm in meta.offer.
     // The conversion numerator (paid subs) + net revenue per arm come from Stripe on the
@@ -233,6 +241,78 @@ export async function onRequestGet({ request, env }) {
       }
     } catch {
       // events table / json_extract unavailable -> zeros (Money tab still shows conversions).
+    }
+
+    // Giveaway page funnel (giveaway.html). Three sources, each independently guarded:
+    //   views/downloads/proClicks -- gw_* events posted by the page (/api/ev)
+    //   checkouts/subscribes      -- normal checkout/subscribe events tagged meta.src='giveaway'
+    //                                by /api/checkout + the Stripe webhook (server-side, so
+    //                                the money numbers can't be inflated from the browser)
+    //   entries/byCode            -- the giveaway_entries table (one row per Google account)
+    // `byCode` splits entrants by the macro code they pasted: the shared code, a creator code
+    // like LION, or none at all. Needs migration 0009; stays empty until it's applied.
+    const giveaway = {
+      views: 0, downloads: 0, proClicks: 0, checkouts: 0, subscribes: 0,
+      entries: 0, entriesPro: 0, entriesMacro: 0, entriesBase: 0,
+      byCode: [], codeAvailable: false,
+      // The shared macro code, so the dashboard can label it without hardcoding the string.
+      macroCode: String(MACRO_CODE || "").toUpperCase(),
+    };
+    try {
+      const gv = await env.STATS.prepare(
+        `SELECT name, COUNT(*) AS n FROM events
+         WHERE name IN ('gw_view','gw_download','gw_pro') GROUP BY name`
+      ).all();
+      for (const r of gv?.results || []) {
+        if (r.name === "gw_view") giveaway.views = r.n || 0;
+        else if (r.name === "gw_download") giveaway.downloads = r.n || 0;
+        else if (r.name === "gw_pro") giveaway.proClicks = r.n || 0;
+      }
+    } catch {
+      // events table absent -> the click funnel stays at zero.
+    }
+    try {
+      const gp = await env.STATS.prepare(
+        `SELECT name, COUNT(*) AS n FROM events
+         WHERE name IN ('checkout','subscribe')
+           AND json_extract(meta, '$.src') = 'giveaway'
+         GROUP BY name`
+      ).all();
+      for (const r of gp?.results || []) {
+        if (r.name === "checkout") giveaway.checkouts = r.n || 0;
+        else if (r.name === "subscribe") giveaway.subscribes = r.n || 0;
+      }
+    } catch {
+      // json_extract unavailable -> paid steps stay at zero.
+    }
+    try {
+      const ge = await env.STATS.prepare(
+        `SELECT COUNT(*) AS n,
+                SUM(CASE WHEN is_pro = 1 THEN 1 ELSE 0 END) AS pro,
+                SUM(CASE WHEN is_pro = 0 AND has_macro = 1 THEN 1 ELSE 0 END) AS macro
+         FROM giveaway_entries`
+      ).first();
+      giveaway.entries = ge?.n || 0;
+      giveaway.entriesPro = ge?.pro || 0;
+      giveaway.entriesMacro = ge?.macro || 0;
+      giveaway.entriesBase = Math.max(0, giveaway.entries - giveaway.entriesPro - giveaway.entriesMacro);
+    } catch {
+      // giveaway_entries absent -> no entry figures.
+    }
+    try {
+      const gc = await env.STATS.prepare(
+        `SELECT UPPER(TRIM(COALESCE(code, ''))) AS k, COUNT(*) AS n
+         FROM giveaway_entries GROUP BY k ORDER BY n DESC`
+      ).all();
+      giveaway.codeAvailable = true;
+      giveaway.byCode = (gc?.results || []).map((r) => ({
+        code: String(r.k || ""),   // "" = entered without a code
+        entries: r.n || 0,
+      }));
+    } catch {
+      // Pre-0009 database (no `code` column) -> the dashboard shows the "apply 0009" note.
+      giveaway.codeAvailable = false;
+      giveaway.byCode = [];
     }
 
     // Time-to-upgrade: how long each install took from first_seen (install) to its FIRST
@@ -289,8 +369,9 @@ export async function onRequestGet({ request, env }) {
 
     return json({
       live: row?.live || 0,
-      today: row?.today || 0,
-      todayReturning: row?.todayReturning || 0,
+      todayActive,
+      todayNew,
+      todayReturning,
       week: row?.week || 0,
       total: row?.total || 0,
       sessionsToday: sess?.sessionsToday || 0,
@@ -301,8 +382,8 @@ export async function onRequestGet({ request, env }) {
       versions,
       acqSources,
       acqPromos,
-      popupEvents,
       flash,
+      giveaway,
       upgradeTime,
       at: now,
     });
