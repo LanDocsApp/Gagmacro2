@@ -143,7 +143,7 @@ global SupportSlowMs := 120000     ; background "any replies for me?" check once
 ;     source of truth is the SAME raw URL the launcher pulls from, so there is exactly
 ;     one version to bump per release (AppVersion above) -- nothing else to keep in sync.
 global UpdateSrcUrl   := "https://raw.git" "hubusercontent.com/LanD" "ocsApp/Gag" "macro2/main/macro.ahk"
-global UpdateCheckMs  := 60 * 60 * 1000   ; re-check for a newer build hourly while open
+global UpdateCheckMs  := 5 * 60 * 1000    ; re-check for a newer build every 5 min while open
 global UpdateNotified := false            ; banner already shown this session? (only nag once)
 global UpdateReq      := 0                ; keeps the update-check COM object alive in-flight
 
@@ -324,7 +324,7 @@ SetTimer(StartHeartbeat, -1500)     ; first beat shortly after launch, then repe
 SetTimer(MaybeAskSource, -1800)
 
 ; Update check: a few seconds after launch (after the license check + onboarding
-; have had their turn), then hourly. If a newer macro.ahk has shipped to `main`
+; have had their turn), then every 5 min. If a newer macro.ahk has shipped to `main`
 ; while this session is open, show a red "restart to update" banner. Best-effort
 ; and never blocks the UI meaningfully (small ranged fetch, short timeouts).
 SetTimer(StartUpdateChecks, -4000)
@@ -1594,7 +1594,7 @@ SendEvent(ev, variant := "") {
 ; These requests are SYNCHRONOUS, like every other request in this file that has to read a
 ; response (VerifyToken, FetchLatestVersion). Timeouts are held deliberately tight -- 2s to
 ; connect, 4s to receive -- because this runs on the UI thread and the macro may be mid-pass;
-; the worst case is a few seconds of stalled UI, same as the hourly update check.
+; the worst case is a few seconds of stalled UI, same as the update check.
 ;
 ; What actually keeps that cheap is the CADENCE, not the timeouts:
 ;   - the fast poll only runs while the tab is on screen (SupportPoll, armed by OpenSupport)
@@ -1744,7 +1744,7 @@ MarkSupportUsed() {
 ;  Update check ("restart to update" banner)
 ; ============================================================
 
-; First check shortly after launch, then arm the hourly re-check. Split from
+; First check shortly after launch, then arm the 5-minute re-check. Split from
 ; CheckForUpdate for the same reason as StartHeartbeat/SendHeartbeat: SetTimer keys
 ; on the callback, so a function used as BOTH a one-shot and a repeat collapses into
 ; a single one-shot -- distinct callbacks keep both the first check and the repeat.
@@ -1766,7 +1766,7 @@ CheckForUpdate() {
     latest := FetchLatestVersion()
     if (latest != "" && IsNewerVersion(latest, AppVersion)) {
         UpdateNotified := true
-        SetTimer(CheckForUpdate, 0)      ; told them -> stop the hourly re-check
+        SetTimer(CheckForUpdate, 0)      ; told them -> stop re-checking
         Post("update|" latest)
     }
 }
@@ -2325,7 +2325,7 @@ HtmlTemplate() {
 <body>
   <div id='promoBadge' class='promobadge' hidden onclick='openAccess()'>Use code <b id='promoBadgeCode'></b> for <b id='promoBadgePct'></b>% off</div>
   <h1>Garden Macro</h1>
-  <div id='updateBar' class='updatebar'>&#128260; A new version<span id='updateVer'></span> is available &mdash; <b>close and reopen the macro</b> to update.</div>
+  <div id='updateBar' class='updatebar'>&#128260; A new version<span id='updateVer'></span> is available. <b>Close and reopen the macro</b> to update.</div>
   <!-- Giveaway promo banner. Static title/image, like the site's OG card -- update the text
        and MoonBloomSeed.webp here if the prize changes. Opens gardenmacro.com/giveaway. -->
   <div id='giveBanner' class='givebar' onclick='openGiveaway()'>
