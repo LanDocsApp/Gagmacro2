@@ -96,7 +96,7 @@ global InstallFile  := A_AppData "\GardenMacro\install.txt"  ; first-run stamp +
 ; Version shown in the window's bottom corner. Bump AppVersion on real releases;
 ; the build time is taken from this file's last-modified date, so it changes every
 ; time you save the script -> an easy "did my latest change actually load?" check.
-global AppVersion := "2.0.1"
+global AppVersion := "2.0.2"
 ; Giveaway code shown under the version line in the footer. Players type this on the
 ; giveaway page (gardenmacro.com/giveaway) to prove they have the macro -> +2 entries.
 ; A single shared code by design; keep it in sync with functions/_lib/giveaways.js MACRO_CODE.
