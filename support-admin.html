@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <title>Support inbox — Garden Macro</title>
+  <meta name="robots" content="noindex" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --accent: #16a34a; --accent-hover: #15803d; --accent-soft: #f0fdf4; --accent-line: #bbf7d0;
+      --bg-soft: #fafafa; --bg-muted: #f5f5f5; --border: #e0e0e0; --border-strong: #cccccc;
+      --ink: #0a0a0a; --fg: #111; --fg-2: #555; --fg-3: #777; --fg-4: #888;
+      --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+      --font-mono: 'JetBrains Mono', Consolas, monospace;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: var(--font-sans); color: var(--fg); background: var(--bg-soft); line-height: 1.5; padding: 28px 18px 60px; -webkit-font-smoothing: antialiased; }
+    .wrap { max-width: 1080px; margin: 0 auto; }
+    h1 { font-size: 20px; font-weight: 800; letter-spacing: -0.01em; color: var(--ink); }
+    .sub { color: var(--fg-3); font-size: 13.5px; margin-top: 3px; }
+    .card { background: #fff; border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 12px 32px rgba(0,0,0,.05); }
+    .top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; gap: 12px; flex-wrap: wrap; }
+
+    /* Gate */
+    .gate { max-width: 380px; margin: 60px auto 0; text-align: center; }
+    input[type=password], input[type=text] { width: 100%; font: 500 14px var(--font-sans); padding: 11px 13px; border: 1px solid var(--border-strong); border-radius: 9px; background: #fff; }
+    input:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; font: 600 13.5px var(--font-sans); padding: 10px 15px; border-radius: 9px; border: 1px solid var(--border-strong); background: #fff; color: #3c4043; cursor: pointer; text-decoration: none; }
+    .btn:hover { background: var(--bg-muted); }
+    .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .btn.primary:hover { background: var(--accent-hover); }
+    .btn.danger { color: #b71c1c; border-color: #ef9a9a; }
+    .btn.danger:hover { background: #ffebee; }
+    .btn.sm { padding: 6px 10px; font-size: 12.5px; }
+    .btn:disabled { opacity: .5; cursor: not-allowed; }
+    .block { display: flex; width: 100%; }
+    .mt10 { margin-top: 10px; } .mt16 { margin-top: 16px; }
+    .err { color: #b71c1c; font-size: 13px; margin-top: 10px; }
+
+    /* Two-pane inbox: thread list on the left, the open conversation on the right. */
+    .panes { display: grid; grid-template-columns: 320px 1fr; gap: 16px; align-items: start; }
+    @media (max-width: 820px) { .panes { grid-template-columns: 1fr; } }
+
+    .threads { overflow: hidden; }
+    .threads .hd { display: flex; align-items: center; justify-content: space-between; padding: 13px 16px; border-bottom: 1px solid var(--border); }
+    .threads .hd .t { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--fg-4); }
+    .tlist { max-height: 70vh; overflow-y: auto; }
+    .titem { display: block; width: 100%; text-align: left; border: none; border-bottom: 1px solid var(--border); background: #fff; padding: 12px 16px; cursor: pointer; font-family: inherit; }
+    .titem:hover { background: var(--bg-soft); }
+    .titem.active { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+    .titem .l1 { display: flex; align-items: center; gap: 7px; }
+    .titem .id { font-family: var(--font-mono); font-size: 11.5px; color: var(--fg-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .titem .when { margin-left: auto; font-size: 11px; color: var(--fg-4); white-space: nowrap; flex-shrink: 0; }
+    .titem .prev { font-size: 12.5px; color: var(--fg-3); margin-top: 3px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .titem.unread .prev { color: var(--fg); font-weight: 600; }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+    .pill { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 999px; flex-shrink: 0; }
+    .pill.pro { color: #b45309; background: #fffbeb; }
+    .pill.closed { color: var(--fg-4); background: var(--bg-muted); }
+    .pill.wait { color: #1d4ed8; background: #eff6ff; }
+
+    /* Conversation */
+    .conv { display: flex; flex-direction: column; min-height: 420px; }
+    .conv .hd { display: flex; align-items: center; gap: 10px; padding: 13px 18px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+    .conv .hd .id { font-family: var(--font-mono); font-size: 12.5px; font-weight: 700; color: var(--ink); }
+    .conv .hd .meta { font-size: 12px; color: var(--fg-4); }
+    .conv .hd .sp { margin-left: auto; display: flex; gap: 8px; }
+    .log { padding: 18px; display: flex; flex-direction: column; gap: 10px; max-height: 56vh; overflow-y: auto; }
+    .msg { max-width: 78%; padding: 9px 13px; border-radius: 13px; font-size: 13.5px; white-space: pre-wrap; word-wrap: break-word; }
+    .msg.user { align-self: flex-start; background: var(--bg-muted); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+    .msg.admin { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
+    .msg .ts { display: block; font-size: 10.5px; margin-top: 4px; opacity: .65; font-family: var(--font-mono); }
+    .composer { border-top: 1px solid var(--border); padding: 14px 18px; display: flex; gap: 10px; align-items: flex-end; }
+    textarea { flex: 1; resize: vertical; min-height: 64px; max-height: 220px; font: 500 13.5px var(--font-sans); padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: 10px; background: #fff; font-family: inherit; }
+    .empty { text-align: center; color: var(--fg-4); padding: 60px 30px; font-size: 13.5px; }
+    .hint { font-size: 11.5px; color: var(--fg-4); margin-top: 6px; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <!-- Key gate -->
+    <div id="gate" class="gate">
+      <h1>Support inbox</h1>
+      <p class="sub">Enter your stats key to continue.</p>
+      <input id="key" type="password" placeholder="STATS_KEY" autocomplete="off" class="mt16" />
+      <button id="enter" class="btn primary block mt10">Continue</button>
+      <div id="gateErr" class="err"></div>
+    </div>
+
+    <!-- Inbox -->
+    <div id="dash" hidden>
+      <div class="top">
+        <div>
+          <h1>Support inbox</h1>
+          <p class="sub" id="headline">Messages from the macro's Support tab.</p>
+        </div>
+        <button id="refreshBtn" class="btn sm">Refresh</button>
+      </div>
+
+      <div class="panes">
+        <div class="card threads">
+          <div class="hd">
+            <span class="t">Conversations</span>
+            <span class="t" id="unreadCount"></span>
+          </div>
+          <div id="tlist" class="tlist"></div>
+        </div>
+
+        <div class="card conv">
+          <div id="convHd" class="hd" hidden>
+            <span class="id" id="convId"></span>
+            <span class="meta" id="convMeta"></span>
+            <span class="sp">
+              <button id="closeBtn" class="btn sm">Mark resolved</button>
+              <button id="deleteBtn" class="btn sm danger">Delete</button>
+            </span>
+          </div>
+          <div id="log" class="log">
+            <div class="empty">Pick a conversation on the left.</div>
+          </div>
+          <div id="composer" class="composer" hidden>
+            <div style="flex:1">
+              <textarea id="reply" placeholder="Write a reply. It appears in their macro's Support tab."></textarea>
+              <div class="hint">Ctrl+Enter sends. They see this the next time the macro checks in.</div>
+            </div>
+            <button id="sendBtn" class="btn primary">Send</button>
+          </div>
+        </div>
+      </div>
+      <div id="err" class="err"></div>
+    </div>
+  </div>
+
+  <script>
+    "use strict";
+    // Same key + storage slot as the giveaway console, so signing into one signs into both.
+    var KEY_STORE = "gm_stats_key";
+    var POLL_MS = 15000;      // background refresh while the page is open
+    var current = "";         // open thread's device id ("" = none)
+    var data = null;          // last admin payload
+
+    function $(id) { return document.getElementById(id); }
+    function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]; }); }
+    function key() { return localStorage.getItem(KEY_STORE) || ""; }
+
+    function api(payload) {
+      return fetch("/api/support/admin", {
+        method: "POST", cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(Object.assign({ key: key() }, payload))
+      }).then(function (r) { return r.json().then(function (d) { return { status: r.status, d: d }; }); });
+    }
+
+    function show(authed) { $("gate").hidden = authed; $("dash").hidden = !authed; }
+
+    // Short relative stamp for the inbox rows ("4m", "3h", "2d").
+    function ago(ms) {
+      if (!ms) return "";
+      var s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+      if (s < 60) return s + "s";
+      if (s < 3600) return Math.floor(s / 60) + "m";
+      if (s < 86400) return Math.floor(s / 3600) + "h";
+      return Math.floor(s / 86400) + "d";
+    }
+    function fmtTime(ms) {
+      if (!ms) return "";
+      var d = new Date(ms);
+      return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    }
+
+    function load(device, quiet) {
+      if (device !== undefined) current = device;
+      return api({ action: current ? "thread" : "list", device: current }).then(function (res) {
+        if (res.status === 401) {
+          localStorage.removeItem(KEY_STORE);
+          $("gateErr").textContent = "That key was rejected.";
+          show(false);
+          return;
+        }
+        if (res.d && res.d.error) { $("err").textContent = res.d.error; return; }
+        $("err").textContent = "";
+        data = res.d;
+        show(true);
+        render(quiet);
+      });
+    }
+
+    function render(quiet) {
+      var threads = (data && data.threads) || [];
+      $("unreadCount").textContent = data.unread ? data.unread + " unread" : "";
+      $("headline").textContent = threads.length
+        ? threads.length + " conversation" + (threads.length === 1 ? "" : "s")
+        : "Messages from the macro's Support tab.";
+
+      $("tlist").innerHTML = threads.length ? threads.map(function (t) {
+        var tags = "";
+        if (t.isPro) tags += ' <span class="pill pro">Pro</span>';
+        if (t.closed) tags += ' <span class="pill closed">resolved</span>';
+        else if (t.awaitingUser) tags += ' <span class="pill wait">replied</span>';
+        return '<button class="titem' + (t.unread ? " unread" : "") + (t.device === current ? " active" : "") + '" data-d="' + esc(t.device) + '">' +
+          '<span class="l1">' + (t.unread ? '<span class="dot"></span>' : '') +
+            '<span class="id">' + esc(t.device.slice(0, 8)) + '</span>' + tags +
+            '<span class="when">' + ago(t.lastAt) + '</span></span>' +
+          '<span class="prev">' + (t.lastFrom === "admin" ? "You: " : "") + esc(t.preview) + '</span>' +
+          '</button>';
+      }).join("") : '<div class="empty">No conversations yet.</div>';
+
+      Array.prototype.forEach.call($("tlist").querySelectorAll("button[data-d]"), function (b) {
+        b.onclick = function () { load(b.getAttribute("data-d")); };
+      });
+
+      // Conversation pane.
+      var open = current && data.messages;
+      $("convHd").hidden = !open;
+      $("composer").hidden = !open;
+      if (!open) {
+        $("log").innerHTML = '<div class="empty">Pick a conversation on the left.</div>';
+        return;
+      }
+
+      var t = threads.filter(function (x) { return x.device === current; })[0] || {};
+      $("convId").textContent = current;
+      $("convMeta").textContent = (t.version ? "v" + t.version : "unknown version") +
+        (t.count ? " · " + t.count + " messages" : "");
+      $("closeBtn").textContent = data.closed ? "Reopen" : "Mark resolved";
+
+      var msgs = data.messages || [];
+      $("log").innerHTML = msgs.length ? msgs.map(function (m) {
+        return '<div class="msg ' + (m.from === "admin" ? "admin" : "user") + '">' +
+          esc(m.body) + '<span class="ts">' + fmtTime(m.at) + '</span></div>';
+      }).join("") : '<div class="empty">No messages in this thread.</div>';
+
+      // Keep the newest message in view, but never yank the scroll while I'm reading
+      // back through a thread on a background refresh.
+      var log = $("log");
+      if (!quiet || log.scrollHeight - log.scrollTop - log.clientHeight < 120) {
+        log.scrollTop = log.scrollHeight;
+      }
+    }
+
+    function sendReply() {
+      var box = $("reply");
+      var text = box.value.trim();
+      if (!text || !current) return;
+      $("sendBtn").disabled = true;
+      api({ action: "reply", device: current, body: text }).then(function (res) {
+        $("sendBtn").disabled = false;
+        if (res.d && res.d.error) { $("err").textContent = res.d.error; return; }
+        box.value = "";
+        data = res.d;
+        render();
+      }).catch(function () {
+        $("sendBtn").disabled = false;
+        $("err").textContent = "Could not send.";
+      });
+    }
+
+    $("sendBtn").onclick = sendReply;
+    $("reply").addEventListener("keydown", function (e) {
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); sendReply(); }
+    });
+    $("refreshBtn").onclick = function () { load(); };
+    $("closeBtn").onclick = function () {
+      api({ action: data.closed ? "reopen" : "close", device: current }).then(function (res) {
+        if (res.d && res.d.error) { $("err").textContent = res.d.error; return; }
+        if (!data.closed) current = "";          // resolved -> back to the inbox
+        data = res.d;
+        render();
+      });
+    };
+    $("deleteBtn").onclick = function () {
+      if (!confirm("Delete this conversation and every message in it?")) return;
+      api({ action: "delete", device: current }).then(function (res) {
+        if (res.d && res.d.error) { $("err").textContent = res.d.error; return; }
+        current = "";
+        data = res.d;
+        render();
+      });
+    };
+
+    $("enter").onclick = function () {
+      var k = $("key").value.trim();
+      if (!k) return;
+      localStorage.setItem(KEY_STORE, k);
+      $("gateErr").textContent = "";
+      load("");
+    };
+    $("key").addEventListener("keydown", function (e) { if (e.key === "Enter") $("enter").click(); });
+
+    if (key()) load(""); else show(false);
+    setInterval(function () { if (key() && !$("dash").hidden) load(undefined, true); }, POLL_MS);
+  </script>
+</body>
+</html>

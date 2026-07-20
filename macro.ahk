@@ -106,7 +106,7 @@ global VerifyUrl    := BackendBase "/api/desktop/verify"
 global PingUrl      := BackendBase "/api/ping"              ; anonymous usage stats
 global GiveawayUrl  := BackendBase "/giveaway"             ; top banner "Enter giveaway" link
 global TutorialUrl  := "https://www.youtube.com/watch?v=2-K89sp8H4o"  ; "Video setup" link -> YouTube walkthrough
-global DiscordUrl   := "https://discord.gg/yJ2gydkXPp"     ; "Join the discussion" link in the bug modal
+global DiscordUrl   := "https://discord.gg/yJ2gydkXPp"     ; "Discord" link in the header row
 ; Microsoft's Evergreen WebView2 bootstrapper. Offered if the window can't be created
 ; because the runtime is missing (preinstalled on Win11, not on every Win10 build).
 global WebView2RuntimeUrl := "https://go.microsoft.com/fwlink/p/?LinkId=2124703"
@@ -115,10 +115,24 @@ global DeviceFile   := A_AppData "\GardenMacro\device.txt"  ; random anon instal
 global DeviceId     := ""           ; set at startup (see GetOrCreateDeviceId)
 global HeartbeatReq := 0            ; keeps the async ping COM object alive in-flight
 global EventReqs    := []           ; keeps async funnel-event pings alive in-flight (see SendEvent)
-; "Report a bug" (footer) submissions POST straight to this Discord webhook -- no
-; backend hop, so it works even if the site is down. Best-effort; a bad URL or a
-; Discord outage can never crash the macro (see SendBugReport).
-global BugReportWebhook := "https://discord.com/api/webhooks/1526917578927112244/yMU9Ma9lp03dY5GGd320GFex_cwuabhaSuOMt2ztZOSt8bguaEGdKEi2xuic643nKYZP"
+; --- Support chat (the "Support" tab; see the Support chat section further down).
+;     A real two-way conversation inside the macro, keyed by this install's anonymous
+;     DeviceId -- no email, no Discord name, no login. That is the whole point: the old
+;     "Report a bug" modal made a contact field MANDATORY before I could reply, which is
+;     a lot to ask of someone whose macro just broke. Now they type, I answer in
+;     support-admin.html, and the reply appears in the same tab.
+;
+;     Cost control is the polling cadence, not the endpoint: the fast poll runs ONLY
+;     while the Support tab is on screen, and the slow background check runs ONLY for
+;     installs that have actually written in (SupportFile exists). An install that never
+;     opens Support makes zero support requests, ever.
+global SupportUrl    := BackendBase "/api/support"
+global SupportFile   := A_AppData "\GardenMacro\support.txt"  ; marker: this install has a support thread
+global SupportEver   := false      ; ...set from that file at startup (no thread -> never poll)
+global SupportOpen   := false      ; is the Support tab showing? (picks the poll cadence)
+global SupportBusy   := false      ; a request is in flight -> the timer must not stack another
+global SupportFastMs := 8000       ; poll while the tab is open
+global SupportSlowMs := 120000     ; background "any replies for me?" check once a thread exists
 
 ; --- Update check: the launcher downloads the newest macro.ahk from GitHub `main`
 ;     at LAUNCH, so you always start on the latest build. But this macro runs for
@@ -314,6 +328,13 @@ SetTimer(MaybeAskSource, -1800)
 ; while this session is open, show a red "restart to update" banner. Best-effort
 ; and never blocks the UI meaningfully (small ranged fetch, short timeouts).
 SetTimer(StartUpdateChecks, -4000)
+
+; Support chat: if this install has an open conversation, check once shortly after
+; launch and then every SupportSlowMs for a reply I have sent since they last looked
+; (-> green dot on the Support tab). Installs that have never written in skip this
+; entirely and never contact the support endpoint at all.
+LoadSupportUsed()
+SetTimer(StartSupportChecks, -6000)
 
 ; Flash deal: the 24h countdown (banner + one-time popup) is NOT shown on a timer -- a fixed
 ; delay used to race the creator-code prompt (source prompt at 1.8s, this at 2.6s) and show the
@@ -712,13 +733,18 @@ OnWebMessage(sender, args) {
         case "fit":
             if parts.Length >= 2 && IsInteger(parts[2])
                 FitWindowHeight(Integer(parts[2]))
-        case "bug":
-            ; "bug|<contact>|<detail>" -> forward a user bug report to Discord.
-            ; The detail is free text that may itself contain "|" and newlines, so
-            ; take it as the unsplit remainder (MaxParts 3); the page already strips
-            ; delimiters from the short optional contact field.
-            bp := StrSplit(msg, "|", , 3)
-            SendBugReport(bp.Length >= 3 ? bp[3] : "", bp.Length >= 2 ? bp[2] : "")
+        case "supportopen":
+            ; The Support tab came on screen -> load the conversation and poll while it's up.
+            OpenSupport()
+        case "supportclose":
+            ; Left the Support tab -> drop back to the slow background check.
+            CloseSupport()
+        case "supportsend":
+            ; "supportsend|<text>" -> post one message to the support thread. The text is
+            ; free-form and may itself contain "|" and newlines, so take it as the unsplit
+            ; remainder (MaxParts 2).
+            sp := StrSplit(msg, "|", , 2)
+            SupportSend(sp.Length >= 2 ? sp[2] : "")
     }
 }
 
@@ -1158,8 +1184,8 @@ OpenTutorialPage() {
         try Run("explorer.exe " TutorialUrl)
 }
 
-; "Join the discussion" in the bug modal -> open the Discord invite in the default
-; browser. Same open-in-browser fallback as the other external links; the modal is
+; The "Discord" link in the header row -> open the Discord invite in the default
+; browser. Same open-in-browser fallback as the other external links; the page is
 ; served via NavigateToString, so a plain <a href> would navigate the app itself.
 OpenDiscordPage() {
     global DiscordUrl
@@ -1438,8 +1464,8 @@ JsonEscape(s) {
     return s
 }
 
-; Like JsonEscape but PRESERVES line breaks as \n escape sequences. Bug-report
-; text is multi-line free text, so flattening newlines (as JsonEscape does) would
+; Like JsonEscape but PRESERVES line breaks as \n escape sequences. Support-chat
+; messages are multi-line free text, so flattening newlines (as JsonEscape does) would
 ; run every line together. Backslash MUST be escaped first, before we introduce
 ; the \n / \t escapes, or those backslashes would get doubled.
 JsonEscapeText(s) {
@@ -1559,53 +1585,159 @@ SendEvent(ev, variant := "") {
 }
 
 ; ============================================================
-;  Bug reports  ("Report a bug" in the footer -> Discord webhook)
+;  Support chat  ("Support" tab -> /api/support)
 ; ============================================================
-; Post a user-submitted bug report straight to the Discord webhook and tell the page
-; whether it actually landed ("bugok" / "bugfail|<msg>"). Synchronous on purpose so
-; the confirmation the user sees is real (delivered), not optimistic -- the send is a
-; deliberate one-off click, so the brief block is fine. Fully guarded: bad input, an
-; offline machine, or a Discord outage can never crash the macro.
-SendBugReport(detail, contact) {
-    global BugReportWebhook, AppVersion, DeviceId
-    detail  := Trim(detail)
-    contact := Trim(contact)
-    ; Server-side floor mirrors the page's 100-char minimum. The page disables Send
-    ; below it, so this only trips if the UI was somehow bypassed.
-    if (StrLen(detail) < 100) {
-        Post("bugfail|Please add more detail (at least 100 characters).")
-        return
-    }
-    ; Contact is required as well -- a report I can't reply to is usually a dead end.
-    if (contact = "") {
-        Post("bugfail|Please add an email or Discord username so I can reply.")
-        return
-    }
-    ; Discord limits: embed description <= 4096 chars, field value <= 1024. Trim well
-    ; under so the JSON escaping can grow the string without breaching the cap.
-    if (StrLen(detail) > 3800)
-        detail := SubStr(detail, 1, 3800) "..."
-    if (StrLen(contact) > 300)
-        contact := SubStr(contact, 1, 300)
-    contactVal := (contact != "") ? contact : "(not provided)"
-    ts := FormatTime(A_NowUTC, "yyyy-MM-dd'T'HH:mm:ss'Z'")   ; ISO 8601 UTC for the embed
-    ; One-line body (auto-concat), matching SendEvent/SendHeartbeat. color 15548997 = Discord red.
-    body := '{"embeds":[{"title":"New bug report","description":"' JsonEscapeText(detail) '","color":15548997,"fields":[{"name":"Contact","value":"' JsonEscapeText(contactVal) '","inline":true},{"name":"Version","value":"' JsonEscape(AppVersion) '","inline":true},{"name":"Device","value":"' JsonEscape(DeviceId) '","inline":false}],"timestamp":"' ts '"}]}'
+; The user's half of the support inbox. The thread key is DeviceId, so there is nothing
+; to sign into and no contact field to fill in: they open the tab and type. I answer from
+; support-admin.html and the reply lands back in the same tab.
+;
+; These requests are SYNCHRONOUS, like every other request in this file that has to read a
+; response (VerifyToken, FetchLatestVersion). Timeouts are held deliberately tight -- 2s to
+; connect, 4s to receive -- because this runs on the UI thread and the macro may be mid-pass;
+; the worst case is a few seconds of stalled UI, same as the hourly update check.
+;
+; What actually keeps that cheap is the CADENCE, not the timeouts:
+;   - the fast poll only runs while the tab is on screen (SupportPoll, armed by OpenSupport)
+;   - the slow check only runs for installs that have written in (SupportEver)
+;   - SupportBusy stops a slow request from stacking a second one behind it
+; The response is handed to the page as raw JSON ("supportdata|{...}") and parsed there --
+; AHK never has to understand the transcript, it just carries it.
+
+; POST one action and hand back { ok, status, text }. Callers treat any non-200 as
+; "change nothing": a dropped poll is invisible, and a failed send says so.
+SupportRequest(body) {
+    global SupportUrl
     try {
         req := ComObject("WinHttp.WinHttpRequest.5.1")
-        req.SetTimeouts(4000, 4000, 4000, 8000)   ; resolve, connect, send, receive (ms)
-        req.Open("POST", BugReportWebhook, false)
+        req.SetTimeouts(2000, 2000, 2000, 4000)   ; resolve, connect, send, receive (ms)
+        req.Open("POST", SupportUrl, false)
         req.SetRequestHeader("Content-Type", "application/json")
         req.Send(body)
-        ; Discord webhooks answer 204 No Content on success (200 only with ?wait=true).
-        if (req.Status = 204 || req.Status = 200) {
-            Post("bugok")
-            return
-        }
-        Post("bugfail|Could not send (HTTP " req.Status "). Please try again.")
-    } catch as e {
-        Post("bugfail|Could not send. Check your connection and try again.")
+        return { ok: (req.Status = 200), status: req.Status, text: req.ResponseText }
+    } catch {
+        return { ok: false, status: 0, text: "" }   ; offline / DNS / TLS -> stay quiet
     }
+}
+
+; The fields every support request carries: who is asking (anonymous install id), which
+; build they're on, and whether they're Pro. The last two are pure triage context -- they
+; are the first things I would otherwise have to ask for.
+SupportIdent() {
+    global DeviceId, AppVersion, Unlocked
+    return '"device":"' JsonEscape(DeviceId) '","v":"' JsonEscape(AppVersion) '","pro":' (Unlocked ? "true" : "false")
+}
+
+; Pull the transcript and push it to the page. `markSeen` clears the unread dot, so it is
+; only true when the tab is genuinely on screen.
+SupportFetch(markSeen := true) {
+    global DeviceId, SupportBusy
+    if (DeviceId = "" || SupportBusy)
+        return
+    SupportBusy := true
+    res := SupportRequest('{' SupportIdent() ',"action":"fetch","seen":' (markSeen ? "1" : "0") '}')
+    SupportBusy := false
+    if res.ok
+        Post("supportdata|" res.text)
+}
+
+; Send one message, then render whatever the server now says the thread contains (the
+; send response IS the fresh transcript, so the page never has to merge a local echo).
+SupportSend(text) {
+    global DeviceId, SupportBusy
+    text := Trim(text)
+    if (text = "") {
+        Post("supportfail|Type a message first.")
+        return
+    }
+    if (DeviceId = "") {
+        Post("supportfail|Could not send. Please restart the macro.")
+        return
+    }
+    ; Mirrors MAX_BODY in functions/_lib/support.js; the page caps the box too, so this
+    ; only trips if the UI was somehow bypassed.
+    if (StrLen(text) > 2000)
+        text := SubStr(text, 1, 2000)
+    SupportBusy := true
+    res := SupportRequest('{' SupportIdent() ',"action":"send","body":"' JsonEscapeText(text) '"}')
+    SupportBusy := false
+    if res.ok {
+        MarkSupportUsed()                 ; there is a thread now -> start watching for replies
+        Post("supportdata|" res.text)
+        return
+    }
+    if (res.status = 429) {
+        Post("supportfail|That's a lot of messages at once. Please wait a few minutes.")
+        return
+    }
+    Post("supportfail|Could not send. Check your connection and try again.")
+}
+
+; Background "has he replied yet?" check. Deliberately the cheapest call in the file: it
+; returns two numbers and no messages. Skipped entirely while the tab is open (the fast
+; poll already has fresher data) and for installs with no thread.
+SupportCheck() {
+    global DeviceId, SupportOpen, SupportEver, SupportBusy
+    if (DeviceId = "" || SupportOpen || !SupportEver || SupportBusy)
+        return
+    SupportBusy := true
+    res := SupportRequest('{' SupportIdent() ',"action":"check"}')
+    SupportBusy := false
+    if (!res.ok)
+        return
+    if RegExMatch(res.text, '"unread"\s*:\s*(\d+)', &m) && (m[1] != "0")
+        Post("supportunread|1")
+}
+
+; Fast poll while the tab is showing. A separate function from SupportCheck on purpose:
+; SetTimer keys on the callback, so the two cadences need two callbacks (same reason as
+; StartHeartbeat/SendHeartbeat).
+SupportPoll() {
+    global SupportOpen
+    if SupportOpen
+        SupportFetch(true)
+}
+
+; Tab opened -> load the conversation now, then keep it live while it's up.
+OpenSupport() {
+    global SupportOpen, SupportFastMs
+    SupportOpen := true
+    SupportFetch(true)
+    SetTimer(SupportPoll, SupportFastMs)
+}
+
+; Tab left -> stop the fast poll; the slow check (if armed) takes over.
+CloseSupport() {
+    global SupportOpen
+    SupportOpen := false
+    SetTimer(SupportPoll, 0)
+}
+
+; First check shortly after launch, then arm the repeat. Split from SupportCheck for the
+; SetTimer-callback reason above.
+StartSupportChecks() {
+    global SupportSlowMs, SupportEver
+    if !SupportEver
+        return                            ; never written in -> nothing to watch for
+    SupportCheck()
+    SetTimer(SupportCheck, SupportSlowMs)
+}
+
+; Has this install ever opened a support thread? The file's existence is the whole answer
+; -- there is nothing to store in it, because the server owns the conversation.
+LoadSupportUsed() {
+    global SupportFile, SupportEver
+    SupportEver := FileExist(SupportFile) ? true : false
+}
+
+; Called after the first successful send. Also arms the background check, which
+; StartSupportChecks skipped at launch because there was no thread yet.
+MarkSupportUsed() {
+    global SupportFile, SupportEver, SupportSlowMs
+    if SupportEver
+        return
+    SupportEver := true
+    try SaveToken(SupportFile, "1")       ; reuses the BOM-free saver
+    SetTimer(SupportCheck, SupportSlowMs)
 }
 
 ; ============================================================
@@ -2160,36 +2292,33 @@ HtmlTemplate() {
   .astatus{display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:600;color:#15803d;margin:2px 0 6px}
   .adot{width:8px;height:8px;border-radius:50%;background:#16a34a;box-shadow:0 0 0 3px rgba(22,163,74,.15);flex-shrink:0}
   .adesc{font-size:12.5px;color:#777;margin:0 0 12px;line-height:1.5}
-  /* Bug-report modal */
-  .modal.bugmodal{max-height:calc(100vh - 36px);overflow:auto}
-  .bugintro{font-size:12.5px;color:#777;margin:0 0 14px;line-height:1.5}
-  .bugintro b{color:#444;font-weight:600}
-  .bugfield{position:relative;margin-bottom:12px}
-  .buglabel{display:block;font-size:12px;font-weight:600;color:#555;margin-bottom:5px}
-  .buglabel .req{color:#dc2626;font-weight:700}
-  /* "join the Discord for help" under the contact field -- Discord blurple, icon inline
-     with the text so it reads as one link. Opens in the real browser via AHK. */
-  .bugdiscord{display:inline-flex;align-items:center;gap:5px;margin-top:7px;font-size:12px;
-        font-weight:600;color:#5865f2;cursor:pointer;user-select:none}
-  .bugdiscord:hover{color:#4752c4;text-decoration:underline}
-  .bugdiscord svg{display:block;flex-shrink:0;fill:currentColor}
-  #bugDetail{width:100%;min-height:118px;resize:none;background:#fff;border:1px solid #d8d8d8;
-        border-radius:8px;padding:10px 11px 22px;font-size:13px;line-height:1.5;font-family:inherit;
+  /* Support tab: the in-macro chat. Replaces the old bug-report modal, whose required
+     contact field was the thing standing between a broken macro and me hearing about it.
+     The thread is keyed by this install's anonymous id, so there is nothing to fill in. */
+  .chatintro{font-size:12.5px;color:#777;margin:0 0 10px;line-height:1.5}
+  .chatintro b{color:#444;font-weight:600}
+  /* Fixed-height log with its own scroll, so a long conversation never resizes the window. */
+  .chatlog{height:226px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;
+        background:#fafafa;border:1px solid #eee;border-radius:10px;padding:12px}
+  .chatempty{margin:auto;text-align:center;font-size:12.5px;color:#aaa;line-height:1.55;padding:0 10px}
+  .bub{max-width:82%;padding:8px 11px;border-radius:12px;font-size:12.5px;line-height:1.45;
+        white-space:pre-wrap;overflow-wrap:break-word}
+  .bub.me{align-self:flex-end;background:#16a34a;color:#fff;border-bottom-right-radius:4px}
+  .bub.them{align-self:flex-start;background:#fff;border:1px solid #e4e4e4;color:#1a1a1a;
+        border-bottom-left-radius:4px}
+  .bub .bts{display:block;font-size:10px;margin-top:3px;opacity:.6;
+        font-family:'Consolas','JetBrains Mono',monospace}
+  .chatbox{display:flex;gap:8px;align-items:flex-end;margin-top:10px}
+  #chatInput{flex:1;min-width:0;height:62px;resize:none;background:#fff;border:1px solid #d8d8d8;
+        border-radius:9px;padding:9px 11px;font-size:13px;line-height:1.45;font-family:inherit;
         outline:none;color:#1a1a1a}
-  #bugDetail:focus{border-color:#16a34a}
-  .bugcount{position:absolute;right:9px;bottom:8px;font-size:10.5px;color:#bbb;pointer-events:none;
-        font-family:'Consolas','JetBrains Mono',monospace;background:#fff;padding:0 3px;border-radius:4px}
-  .bugcount.ok{color:#16a34a}
-  .bugcontact{display:flex;align-items:center;gap:8px;background:#fff;border:1px solid #d8d8d8;
-        border-radius:8px;padding:0 11px}
-  .bugcontact:focus-within{border-color:#16a34a}
-  .bugcontact .cicons{display:flex;align-items:center;gap:5px;flex-shrink:0;color:#b4b4b4}
-  .bugcontact .cicons svg{display:block}
-  #bugContact{flex:1;min-width:0;border:none;outline:none;background:none;padding:9px 0;font-size:13px;
-        font-family:inherit;color:#1a1a1a}
-  .bugmsg{font-size:12px;color:#888;margin:2px 0 12px;min-height:15px;line-height:1.4}
-  .bugmsg.err{color:#dc2626}
-  .bugmsg.ok{color:#16a34a}
+  #chatInput:focus{border-color:#16a34a}
+  .chatbox .btn{flex-shrink:0;align-self:stretch}
+  .chatmsg{font-size:11.5px;color:#999;margin-top:7px;min-height:14px;line-height:1.4}
+  .chatmsg.err{color:#dc2626}
+  /* Unread reply -> a small green dot on the Support tab label. */
+  .tdot{display:inline-block;width:6px;height:6px;border-radius:50%;background:#16a34a;
+        margin-left:5px;vertical-align:middle}
   [hidden]{display:none !important}
 </style>
 </head>
@@ -2213,6 +2342,7 @@ HtmlTemplate() {
   <div class='tabs'>
     <button id='tabSeeds' class='tab on' onclick='switchTab("seeds")'>Seeds</button>
     <button id='tabGears' class='tab'    onclick='switchTab("gears")'>Gears</button>
+    <button id='tabSupport' class='tab' onclick='switchTab("support")'>Support<span id='supportDot' class='tdot' hidden></span></button>
     <button id='tabAccount' class='tab' hidden onclick='switchTab("account")'>Account</button>
   </div>
   <div class='sub'>
@@ -2243,6 +2373,21 @@ HtmlTemplate() {
     </div>
   </div>
 
+  <div id='supportPane' hidden>
+    <p class='chatintro'>Something broken or confusing? <b>Write it here and I will reply in this tab.</b>
+      No email or Discord name needed. Please don't share passwords or account details.</p>
+    <div id='chatLog' class='chatlog'>
+      <div class='chatempty'>No messages yet.<br>Describe what went wrong and I'll get back to you.</div>
+    </div>
+    <div class='chatbox'>
+      <textarea id='chatInput' placeholder='What happened? The more detail, the faster I can fix it.'
+                spellcheck='true' oninput='updateChatSend()'
+                onkeydown='if(event.key==="Enter"&&(event.ctrlKey||event.metaKey))sendSupport()'></textarea>
+      <button id='chatSend' class='btn green' onclick='sendSupport()' disabled>Send</button>
+    </div>
+    <div id='chatMsg' class='chatmsg'></div>
+  </div>
+
   <div id='accountPane' hidden>
     <div class='acard'>
       <div class='astatus'><span class='adot'></span> Garden Macro Pro is active</div>
@@ -2269,7 +2414,7 @@ HtmlTemplate() {
     <button id='startBtn' class='btn primary' onclick='send("start")'>Start <span class='hk'>F1</span></button>
     <button id='stopBtn'  class='btn'         onclick='send("stop")'>Stop <span class='hk'>F2</span></button>
     <div class='verwrap'>
-      <button class='reportbtn' onclick='openBug()'>Report a bug</button>
+      <button class='reportbtn' onclick='switchTab("support")'>Report a bug</button>
       <span class='ver'>v__VERSION__</span>
       <span class='give' title='Enter this code at gardenmacro.com/giveaway for +2 giveaway entries'>Giveaway code: <b id='giveCode'>__GIVEAWAY__</b></span>
     </div>
@@ -2308,40 +2453,6 @@ HtmlTemplate() {
       <div class='flashtimer'><span id='flashPopTime'>24:00:00</span></div>
       <button class='btn red block' onclick='ctaFlash()'>Claim</button>
       <a class='hintDismiss' onclick='dismissFlash()'>Maybe later</a>
-    </div>
-  </div>
-
-  <div id='bugOverlay' class='overlay' hidden>
-    <div class='modal bugmodal'>
-      <div class='mh'>
-        <h2>Report a bug</h2>
-        <button class='mx' onclick='closeBug()'>&times;</button>
-      </div>
-      <p class='bugintro'>Please describe the bug in <b>as much detail as you can</b>. The more detail you give, the faster I can find and fix it. I may reach out by email if anything is unclear, and <b>I reply very, very fast</b>.</p>
-
-      <div class='bugfield'>
-        <label class='buglabel' for='bugDetail'>What went wrong? <span class='req'>*</span></label>
-        <textarea id='bugDetail' placeholder='What were you doing, what happened, and what did you expect instead? Steps to reproduce it help a lot.' spellcheck='true' oninput='updateBugCount()'></textarea>
-        <span id='bugCount' class='bugcount'>100 more characters needed</span>
-      </div>
-
-      <div class='bugfield'>
-        <label class='buglabel' for='bugContact'>Contact <span class='req'>*</span></label>
-        <div class='bugcontact'>
-          <span class='cicons'>
-            <svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='2' y='4' width='20' height='16' rx='2'/><path d='m2 6 10 7 10-7'/></svg>
-            <svg width='15' height='15' viewBox='0 0 24 24' fill='currentColor'><path d='M20.317 4.369a19.79 19.79 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.211.375-.445.865-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.1 13.1 0 0 1-1.872-.892.077.077 0 0 1-.008-.128c.126-.094.252-.192.372-.291a.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.009c.12.099.246.198.373.292a.077.077 0 0 1-.006.127 12.3 12.3 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.84 19.84 0 0 0 6.002-3.03.077.077 0 0 0 .032-.055c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.331c-1.182 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z'/></svg>
-          </span>
-          <input id='bugContact' type='text' placeholder='Email or Discord username' spellcheck='false' autocomplete='off' oninput='updateBugCount()'>
-        </div>
-        <span class='bugdiscord' onclick='openDiscord()'>
-          <svg width='14' height='14' viewBox='0 0 24 24' aria-hidden='true'><path d='M20.317 4.369a19.79 19.79 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.211.375-.445.865-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.1 13.1 0 0 1-1.872-.892.077.077 0 0 1-.008-.128c.126-.094.252-.192.372-.291a.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.009c.12.099.246.198.373.292a.077.077 0 0 1-.006.127 12.3 12.3 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.84 19.84 0 0 0 6.002-3.03.077.077 0 0 0 .032-.055c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.331c-1.182 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z'/></svg>
-          join the Discord for help
-        </span>
-      </div>
-
-      <div id='bugMsg' class='bugmsg'></div>
-      <button id='bugSend' class='btn green block' onclick='submitBug()' disabled>Add at least 100 characters first</button>
     </div>
   </div>
 
@@ -2526,19 +2637,28 @@ HtmlTemplate() {
 
   function switchTab(tab){
     if (tab === activeTab) return;
+    var was = activeTab;
     activeTab = tab;
     document.getElementById('seedsPane').hidden = (tab !== 'seeds');
     document.getElementById('gearsPane').hidden = (tab !== 'gears');
+    document.getElementById('supportPane').hidden = (tab !== 'support');
     document.getElementById('accountPane').hidden = (tab !== 'account');
     document.getElementById('tabSeeds').classList.toggle('on', tab === 'seeds');
     document.getElementById('tabGears').classList.toggle('on', tab === 'gears');
+    document.getElementById('tabSupport').classList.toggle('on', tab === 'support');
     document.getElementById('tabAccount').classList.toggle('on', tab === 'account');
-    /* The selection bar + Start/Stop drive the seed/gear lists, not Account. */
-    var acct = (tab === 'account');
-    document.querySelector('.sub').hidden = acct;
-    document.getElementById('setupNote').hidden = acct;
-    document.getElementById('footer').hidden = acct;
-    if (!acct){ updateCount(); send('tab|' + tab); }   /* so F1 starts whichever list tab is showing */
+    /* The selection bar + Start/Stop drive the seed/gear lists only -- Support and
+       Account have nothing to select and nothing to start. */
+    var lists = (tab === 'seeds' || tab === 'gears');
+    document.querySelector('.sub').hidden = !lists;
+    document.getElementById('setupNote').hidden = !lists;
+    document.getElementById('footer').hidden = !lists;
+    if (lists){ updateCount(); send('tab|' + tab); }   /* so F1 starts whichever list tab is showing */
+    /* Tell AHK when the chat comes and goes: it polls fast while the tab is up and
+       drops back to a slow background check once it isn't (see the Support chat
+       section in the AHK source). */
+    if (tab === 'support') openSupport();
+    else if (was === 'support') send('supportclose');
     requestAnimationFrame(function(){ requestAnimationFrame(fitWindow); });
   }
 
@@ -2573,56 +2693,100 @@ HtmlTemplate() {
   }
   function closeAccess(){ document.getElementById('overlay').hidden = true; }
 
-  /* Bug report modal. Send stays disabled until the detail field reaches the 100-char
-     minimum; submit -> AHK posts it to Discord and replies 'bugok' or 'bugfail|<msg>'. */
-  var BUG_MIN = 100;
-  function openBug(){
-    document.getElementById('bugOverlay').hidden = false;
-    setBugMsg('');
-    updateBugCount();
-    setTimeout(function(){ document.getElementById('bugDetail').focus(); }, 30);
+  /* ---- Support chat (the Support tab) ----
+     A real conversation, not a one-way report: AHK talks to /api/support keyed by this
+     install's anonymous id, so the user never has to hand over an email or a Discord name
+     to get an answer. AHK pushes the whole transcript back as 'supportdata|<json>' and the
+     page re-renders from it wholesale -- there is no local echo to reconcile, so a message
+     can never appear sent when it wasn't. */
+  var SUPPORT_MAX = 2000;              /* keep in step with MAX_BODY in _lib/support.js */
+  var chatMsgs = [];                   /* last transcript AHK gave us */
+  var chatLoaded = false;              /* have we heard back at least once this session? */
+  var chatSending = false;             /* a send is in flight -> Send stays disabled */
+  var chatClearOnAck = false;          /* the next transcript is a SEND's ack -> empty the box */
+
+  function openSupport(){
+    hideSupportDot();
+    if (!chatLoaded) setChatMsg('Loading...');
+    send('supportopen');
+    setTimeout(function(){ document.getElementById('chatInput').focus(); }, 30);
   }
-  function closeBug(){ document.getElementById('bugOverlay').hidden = true; }
-  function setBugMsg(t, cls){
-    var m = document.getElementById('bugMsg');
+  function setChatMsg(t, cls){
+    var m = document.getElementById('chatMsg');
     m.textContent = t || '';
-    m.className = 'bugmsg' + (cls ? ' ' + cls : '');
+    m.className = 'chatmsg' + (cls ? ' ' + cls : '');
   }
-  /* Live counter in the corner of the textarea + gate the Send button on the minimum.
-     Phrased as a minimum still-to-reach ("N more needed"), not "N / 100" -- a fraction
-     reads like an upper cap. The disabled button also spells out WHY it's greyed out. */
-  function updateBugCount(){
-    var n = document.getElementById('bugDetail').value.trim().length;
-    var ok = n >= BUG_MIN;
-    var c = document.getElementById('bugCount');
-    c.textContent = ok ? (n + ' characters') : ((BUG_MIN - n) + ' more characters needed');
-    c.className = 'bugcount' + (ok ? ' ok' : '');
-    /* Contact is required too -- I need a way to reply. The button spells out whichever
-       requirement is still missing, detail first (it's the field above). */
-    var hasContact = document.getElementById('bugContact').value.trim().length > 0;
-    var btn = document.getElementById('bugSend');
-    btn.disabled = !ok || !hasContact;
-    btn.textContent = !ok ? ('Add at least ' + BUG_MIN + ' characters first')
-                     : (!hasContact ? 'Add your contact first' : 'Send report');
+  function showSupportDot(){ document.getElementById('supportDot').hidden = false; }
+  function hideSupportDot(){ document.getElementById('supportDot').hidden = true; }
+
+  /* Short local stamp under each bubble, e.g. "Jul 19, 14:32". */
+  function chatTime(ms){
+    if (!ms) return '';
+    var d = new Date(ms);
+    return d.toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'});
   }
-  function submitBug(){
-    var detail = document.getElementById('bugDetail').value.trim();
-    if (detail.length < BUG_MIN){
-      setBugMsg('Please add more detail (at least ' + BUG_MIN + ' characters).', 'err');
+  function renderChat(){
+    var log = document.getElementById('chatLog');
+    if (!chatMsgs.length){
+      log.innerHTML = "<div class='chatempty'>No messages yet.<br>Describe what went wrong and I'll get back to you.</div>";
       return;
     }
-    /* Strip the message delimiter + newlines from the short contact field so it can't
-       break the pipe-delimited bridge; the detail is sent as the unsplit remainder. */
-    var contact = document.getElementById('bugContact').value.trim().replace(/[|\r\n]+/g, ' ');
-    if (!contact){
-      setBugMsg('Please add an email or Discord username so I can reply.', 'err');
-      return;
+    log.innerHTML = '';
+    chatMsgs.forEach(function(m){
+      var b = document.createElement('div');
+      /* 'me' = this user, 'them' = my reply. textContent, never innerHTML: the body is
+         whatever they typed, and it round-trips through the server. */
+      b.className = 'bub ' + (m.from === 'admin' ? 'them' : 'me');
+      b.textContent = m.body;
+      var ts = document.createElement('span');
+      ts.className = 'bts';
+      ts.textContent = chatTime(m.at);
+      b.appendChild(ts);
+      log.appendChild(b);
+    });
+    log.scrollTop = log.scrollHeight;     /* newest message in view */
+  }
+  /* Send is gated on there being something to send, and on a send not already running. */
+  function updateChatSend(){
+    var v = document.getElementById('chatInput').value.trim();
+    document.getElementById('chatSend').disabled = chatSending || !v.length;
+    if (v.length > SUPPORT_MAX) setChatMsg('That message is too long -- it will be shortened.', 'err');
+  }
+  function sendSupport(){
+    var box = document.getElementById('chatInput');
+    var text = box.value.trim();
+    if (!text || chatSending) return;
+    chatSending = true;
+    chatClearOnAck = true;
+    updateChatSend();
+    setChatMsg('Sending...');
+    send('supportsend|' + text);
+  }
+  /* AHK -> page: the current transcript. Also the send confirmation, because the send
+     response IS the fresh transcript. */
+  function applySupport(raw){
+    var d;
+    try { d = JSON.parse(raw); } catch(e){ return; }
+    chatLoaded = true;
+    chatSending = false;
+    chatMsgs = d.messages || [];
+    renderChat();
+    setChatMsg('');
+    /* Only a send's own acknowledgement may empty the box. A poll landing while they
+       are typing the next message must never eat it. */
+    if (chatClearOnAck){
+      chatClearOnAck = false;
+      document.getElementById('chatInput').value = '';
     }
-    setBugMsg('Sending...', '');
-    var btn = document.getElementById('bugSend');
-    btn.disabled = true;
-    btn.textContent = 'Sending...';
-    send('bug|' + contact + '|' + detail);
+    updateChatSend();
+    if (activeTab === 'support') hideSupportDot();
+    else if (d.unread) showSupportDot();
+  }
+  function supportFailed(msg){
+    chatSending = false;
+    chatClearOnAck = false;             /* nothing landed -> keep what they typed */
+    updateChatSend();
+    setChatMsg(msg || 'Could not send. Please try again.', 'err');
   }
 
   /* Setup video row: open the walkthrough in the browser. The row stays put so
@@ -2631,9 +2795,6 @@ HtmlTemplate() {
 
   /* Giveaway banner: open the giveaway page in the browser (whole bar + Enter button click). */
   function openGiveaway(){ send('opengiveaway'); }
-
-  /* Bug modal: open the Discord invite in the browser. */
-  function openDiscord(){ send('opendiscord'); }
 
   /* Flash deal: AHK sends "flash|<variant>|<usd>|<secondsLeft>|<popup 0|1>" shortly after
      launch, for 24h after install. <usd> is the first-month price shown (e.g. "$1.50").
@@ -2866,26 +3027,20 @@ HtmlTemplate() {
     else if (type === 'promoask') openPromoAsk();       /* first-launch promo prompt */
     else if (type === 'promook') { var pp = rest.split('|'); promoAccepted(pp[0], pp[1]); }  /* valid code -> badge + close */
     else if (type === 'promobad') setPromoMsg(rest);    /* invalid code -> keep prompt open */
-    else if (type === 'bugok') {                        /* report delivered -> thank + auto-close */
-      setBugMsg('Thanks! Your report was sent. I reply very fast.', 'ok');
-      document.getElementById('bugDetail').value = '';
-      document.getElementById('bugContact').value = '';
-      updateBugCount();
-      setTimeout(closeBug, 1500);
-    }
-    else if (type === 'bugfail') {                      /* delivery failed -> show why, keep it open */
-      setBugMsg(rest || 'Could not send. Please try again.', 'err');
-      updateBugCount();                                 /* re-enable Send if still over the minimum */
-    }
+    else if (type === 'supportdata') applySupport(rest);   /* transcript (poll, or a send's reply) */
+    else if (type === 'supportfail') supportFailed(rest);  /* send didn't land -> say so, keep the text */
+    else if (type === 'supportunread') showSupportDot();   /* background check found a reply waiting */
   });
 
   /* Ask AHK to shrink the window to end right at the Start/Stop row. */
   function fitWindow(){
-    /* Measure to the footer normally; on the Account tab the footer is hidden,
-       so measure to the account card instead. */
+    /* Measure to the footer normally; the Support and Account tabs hide it, so measure
+       to whichever of those panes is showing instead. */
     var f = document.getElementById('footer');
+    var sup = document.getElementById('supportPane');
     var ref;
     if (f && !f.hidden) ref = f;
+    else if (sup && !sup.hidden) ref = document.getElementById('chatMsg');
     else ref = document.querySelector('#accountPane .acard');
     if (!ref) return;
     var cssH = ref.getBoundingClientRect().bottom + 16;   /* + body bottom padding */
