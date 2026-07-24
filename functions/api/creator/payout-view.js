@@ -10,15 +10,15 @@
 //     earned:  { subs, moneyCents },   // Stripe net-settled month-1 revenue + manual bonuses
 //     paidOut: { subs, moneyCents },   // from the D1 payouts ledger (kind='payout' = disbursed)
 //     pending: { subs, moneyCents },   // earned - paidOut (clamped >= 0)
-//     bonus:   { moneyCents },         // manual credits owed (D1 payouts kind='bonus')
-//     redemptions: [{ at, code, amountCents, status }],   // NO PII; bonuses appear as status='bonus'
+//     bonus:   { moneyCents },         // manual credits owed (D1 payouts, any non-payout kind)
+//     redemptions: [{ at, code, amountCents, status }],   // NO PII; credits appear as status='bonus'|'promo'
 //     available, at }
 // earned/pending read null ("—") when Stripe is unreachable; paidOut/bonus (pure D1) always show.
 
 import { json } from "../../_lib/http.js";
 import { verifyToken } from "../../_lib/crypto.js";
 import { getCreator } from "../../_lib/creators.js";
-import { buildCreatorEarnings } from "../../_lib/money.js";
+import { buildCreatorEarnings, SQL_IS_PAYOUT } from "../../_lib/money.js";
 
 export async function onRequestPost({ request, env }) {
   let body = {};
@@ -36,9 +36,10 @@ export async function onRequestPost({ request, env }) {
   const creator = getCreator(payload.id);
   if (!creator) return json({ error: "unknown creator" }, 404);
 
-  // D1 ledger — always available, independent of Stripe. Two kinds of row:
-  //   kind='payout' -> money already paid OUT (reduces what's owed)
-  //   kind='bonus'  -> a credit OWED on top of Stripe earnings (raises earned/pending)
+  // D1 ledger — always available, independent of Stripe. Two classes of row:
+  //   kind='payout'      -> money already paid OUT (reduces what's owed)
+  //   any other kind     -> a credit OWED on top of Stripe earnings (raises earned/pending);
+  //                         'bonus' = thank-you, 'promo' = agreed sponsored-video fee
   let paidSubs = 0;
   let paidCents = 0;
   let bonusCents = 0;
@@ -47,9 +48,9 @@ export async function onRequestPost({ request, env }) {
     if (env.STATS) {
       const agg = await env.STATS.prepare(
         `SELECT
-           COALESCE(SUM(CASE WHEN kind = 'bonus' THEN 0 ELSE subscribers  END), 0) AS paid_s,
-           COALESCE(SUM(CASE WHEN kind = 'bonus' THEN 0 ELSE amount_cents END), 0) AS paid_c,
-           COALESCE(SUM(CASE WHEN kind = 'bonus' THEN amount_cents ELSE 0  END), 0) AS bonus_c
+           COALESCE(SUM(CASE WHEN ${SQL_IS_PAYOUT} THEN subscribers  ELSE 0 END), 0) AS paid_s,
+           COALESCE(SUM(CASE WHEN ${SQL_IS_PAYOUT} THEN amount_cents ELSE 0 END), 0) AS paid_c,
+           COALESCE(SUM(CASE WHEN ${SQL_IS_PAYOUT} THEN 0 ELSE amount_cents END), 0) AS bonus_c
          FROM payouts WHERE creator_id = ?1`
       )
         .bind(creator.id)
@@ -58,19 +59,23 @@ export async function onRequestPost({ request, env }) {
       paidCents = (agg && agg.paid_c) || 0;
       bonusCents = (agg && agg.bonus_c) || 0;
 
-      // Individual bonus entries -> shown as "Bonus" line items in the earnings list.
+      // Individual credit entries -> shown as "Bonus"/"Promo" line items in the earnings
+      // list, so the creator can see what each credit was for.
       const br = await env.STATS.prepare(
-        `SELECT amount_cents, note, created_at FROM payouts
-         WHERE creator_id = ?1 AND kind = 'bonus' ORDER BY created_at DESC LIMIT 100`
+        `SELECT amount_cents, note, created_at, kind FROM payouts
+         WHERE creator_id = ?1 AND NOT (${SQL_IS_PAYOUT}) ORDER BY created_at DESC LIMIT 100`
       )
         .bind(creator.id)
         .all();
-      bonusRows = ((br && br.results) || []).map((r) => ({
-        at: r.created_at,
-        code: (r.note && String(r.note).trim()) || "Bonus",
-        amountCents: r.amount_cents || 0,
-        status: "bonus",
-      }));
+      bonusRows = ((br && br.results) || []).map((r) => {
+        const kind = r.kind === "promo" ? "promo" : "bonus";
+        return {
+          at: r.created_at,
+          code: (r.note && String(r.note).trim()) || (kind === "promo" ? "Promo" : "Bonus"),
+          amountCents: r.amount_cents || 0,
+          status: kind,
+        };
+      });
     }
   } catch {
     /* ledger absent (or pre-migration) -> 0 paid / 0 bonus */

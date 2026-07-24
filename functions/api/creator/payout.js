@@ -10,8 +10,9 @@
 //
 // Body { key, token, action, ... }:
 //   "list"   -> summary + history (default)
-//   "add"    -> record an entry { kind:"payout"|"bonus", subscribers, amount (dollars), note }
-//               kind='payout' (default) = money disbursed; kind='bonus' = a credit owed.
+//   "add"    -> record an entry { kind:"payout"|"bonus"|"promo", subscribers, amount (dollars), note }
+//               kind='payout' (default) = money disbursed; every other kind is a credit
+//               owed (bonus = thank-you, promo = agreed fee for a sponsored video).
 //   "delete" -> remove a payout by { id }
 //
 // All three return the fresh summary:
@@ -26,6 +27,7 @@ import { json } from "../../_lib/http.js";
 import { verifyToken } from "../../_lib/crypto.js";
 import { getCreator } from "../../_lib/creators.js";
 import { listPromotionCodes } from "../../_lib/stripe.js";
+import { PAYOUT_KIND, SQL_IS_PAYOUT, normalizeKind } from "../../_lib/money.js";
 
 // Total subscribers a creator drove = sum of each code's Stripe promotion-code
 // `times_redeemed`. Returns { total, available }; available=false (total=null) if
@@ -53,13 +55,13 @@ async function summary(env, creator) {
   let bonusCents = 0;
   let payouts = [];
   try {
-    // Split disbursements (kind='payout') from bonuses (kind='bonus'): only the former
-    // count as "paid". Bonuses are credits owed, surfaced separately.
+    // Split disbursements (kind='payout') from credits (bonus/promo): only the former
+    // count as "paid". Credits are money still owed, surfaced separately.
     const agg = await env.STATS.prepare(
       `SELECT
-         COALESCE(SUM(CASE WHEN kind = 'bonus' THEN 0 ELSE subscribers  END), 0) AS paid_s,
-         COALESCE(SUM(CASE WHEN kind = 'bonus' THEN 0 ELSE amount_cents END), 0) AS paid_c,
-         COALESCE(SUM(CASE WHEN kind = 'bonus' THEN amount_cents ELSE 0  END), 0) AS bonus_c
+         COALESCE(SUM(CASE WHEN ${SQL_IS_PAYOUT} THEN subscribers  ELSE 0 END), 0) AS paid_s,
+         COALESCE(SUM(CASE WHEN ${SQL_IS_PAYOUT} THEN amount_cents ELSE 0 END), 0) AS paid_c,
+         COALESCE(SUM(CASE WHEN ${SQL_IS_PAYOUT} THEN 0 ELSE amount_cents END), 0) AS bonus_c
        FROM payouts WHERE creator_id = ?1`
     )
       .bind(creator.id)
@@ -126,13 +128,14 @@ export async function onRequestPost({ request, env }) {
   if (!env.STATS) return json({ error: "stats database not bound" }, 500);
 
   if (action === "add") {
-    // kind: 'payout' (money disbursed, default) or 'bonus' (a credit owed to the creator).
-    const kind = String(body.kind || "payout").trim().toLowerCase() === "bonus" ? "bonus" : "payout";
+    // kind: 'payout' (money disbursed, default) or a credit owed ('bonus' / 'promo').
+    const kind = normalizeKind(body.kind);
+    const isPayout = kind === PAYOUT_KIND;
     const subscribers = Math.max(0, Math.round(Number(body.subscribers) || 0));
     const amountCents = Math.max(0, Math.round((Number(body.amount) || 0) * 100));
     const note = String(body.note || "").slice(0, 200);
-    // A bonus is money-only (no subscriber count); a payout needs at least one of the two.
-    if (amountCents === 0 && (kind === "bonus" || subscribers === 0)) {
+    // A credit is money-only (no subscriber count); a payout needs at least one of the two.
+    if (amountCents === 0 && (!isPayout || subscribers === 0)) {
       return json({ error: "nothing to record" }, 400);
     }
     try {
@@ -140,7 +143,7 @@ export async function onRequestPost({ request, env }) {
         `INSERT INTO payouts (creator_id, subscribers, amount_cents, note, created_at, kind)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)`
       )
-        .bind(creator.id, kind === "bonus" ? 0 : subscribers, amountCents, note, Date.now(), kind)
+        .bind(creator.id, isPayout ? subscribers : 0, amountCents, note, Date.now(), kind)
         .run();
     } catch (e) {
       return json({ error: "could not record", detail: String((e && e.message) || e) }, 500);

@@ -16,11 +16,13 @@
 // All actions return the fresh list.
 //
 // `kind` mirrors the creator page: 'payout' (money disbursed, the default, counts toward
-// what you have paid) or 'bonus' (a credit owed on top of Stripe earnings, NOT money out).
+// what you have paid) or a credit owed on top of Stripe earnings, which is NOT money out
+// ('bonus' = thank-you, 'promo' = agreed fee for a sponsored video).
 // Only 'payout' rows hit the P&L, matching creatorPaidThisMonth() in _lib/money.js.
 
 import { json } from "../_lib/http.js";
 import { CREATORS } from "../_lib/creators.js";
+import { PAYOUT_KIND, normalizeKind } from "../_lib/money.js";
 
 async function listPayouts(env) {
   let payouts = [];
@@ -35,7 +37,7 @@ async function listPayouts(env) {
       subscribers: r.subscribers || 0,
       amountCents: r.amount_cents || 0,
       note: r.note || "",
-      kind: r.kind === "bonus" ? "bonus" : "payout",
+      kind: normalizeKind(r.kind),
       paidAt: r.created_at,
     }));
   } catch {
@@ -72,7 +74,7 @@ export async function onRequestPost({ request, env }) {
     amountCents: Math.max(0, Math.round((Number(body.amount) || 0) * 100)),
     subscribers: Math.max(0, Math.round(Number(body.subscribers) || 0)),
     note: String(body.note || "").slice(0, 200),
-    kind: String(body.kind || "payout").trim().toLowerCase() === "bonus" ? "bonus" : "payout",
+    kind: normalizeKind(body.kind),
     paidAt: Number.isFinite(Number(body.paidAt)) && Number(body.paidAt) > 0
       ? Math.round(Number(body.paidAt))
       : Date.now(),

@@ -108,7 +108,7 @@
       <!-- Admin disbursement ledger: only the owner (with STATS_KEY) records payments. -->
       <div id="adminPay" class="pay hidden">
         <h2>Record a payout</h2>
-        <p class="sub" style="margin-bottom:10px;">Log a payment you've made to this creator, or add a <b>bonus</b> they're owed (raises their Pending, not Paid out). Only you can see this.</p>
+        <p class="sub" style="margin-bottom:10px;">Log a payment you've made to this creator, or record something they're owed &mdash; a <b>bonus</b>, or a <b>promo</b> fee for a sponsored video. Both raise their Pending, not Paid out. Only you can see this.</p>
         <div id="ledgerWrap" class="hidden">
           <table>
             <thead><tr><th>Date</th><th class="num">Subs</th><th class="num">Amount</th><th>Note</th><th></th></tr></thead>
@@ -117,8 +117,9 @@
         </div>
         <div class="payform">
           <select id="pKind" title="Entry type">
-            <option value="payout">Payout</option>
-            <option value="bonus">Bonus</option>
+            <option value="payout">Payout (paid)</option>
+            <option value="bonus">Bonus (owed)</option>
+            <option value="promo">Promo / video (owed)</option>
           </select>
           <input id="pAmt" type="number" min="0" step="0.01" placeholder="Amount $" />
           <input id="pIn" type="number" min="0" step="1" placeholder="Subs covered" />
@@ -262,6 +263,7 @@
           var d = new Date(r.at);
           var st = r.status === "refunded" ? "<span style='color:#b91c1c'>refunded</span>"
                  : r.status === "bonus" ? "<span style='color:#15803d'>bonus</span>"
+                 : r.status === "promo" ? "<span style='color:#1d4ed8'>promo</span>"
                  : "paid";
           return "<tr><td>" + d.toLocaleDateString() + "</td>" +
             "<td><span class='tag'>" + escHtml(r.code) + "</span></td>" +
@@ -308,9 +310,11 @@
       if (rows.length) {
         el("ledger").innerHTML = rows.map(function (r) {
           var d = new Date(r.at);
-          var isBonus = r.kind === "bonus";
-          var subsCell = isBonus ? "—" : fmt(r.subscribers);
-          var noteCell = (isBonus ? "<span class='tag' style='background:#fef9c3;color:#854d0e'>bonus</span> " : "") + escHtml(r.note);
+          // Anything that isn't a payout is a credit owed -> no subs, tagged by kind.
+          var isPayout = r.kind === "payout" || !r.kind;
+          var subsCell = isPayout ? fmt(r.subscribers) : "—";
+          var tagStyle = r.kind === "promo" ? "background:#dbeafe;color:#1e40af" : "background:#fef9c3;color:#854d0e";
+          var noteCell = (isPayout ? "" : "<span class='tag' style='" + tagStyle + "'>" + escHtml(r.kind) + "</span> ") + escHtml(r.note);
           return "<tr><td>" + d.toLocaleDateString() + "</td>" +
             "<td class='num'>" + subsCell + "</td>" +
             "<td class='num'>" + (r.amountCents ? money(r.amountCents, payCurrency) : "—") + "</td>" +
@@ -329,11 +333,12 @@
       var key = adminKey();
       if (!key) return;
       var kind = el("pKind") ? el("pKind").value : "payout";
-      var subscribers = kind === "bonus" ? 0 : Number(el("pIn").value || 0);
+      var isPayout = kind === "payout";
+      var subscribers = isPayout ? Number(el("pIn").value || 0) : 0;
       var amount = Number(el("pAmt").value || 0);
       var note = el("pNote").value.trim();
-      // A bonus is money-only; a payout can be money and/or a subscriber count.
-      if (!amount && (kind === "bonus" || !subscribers)) { el("pAmt").focus(); return; }
+      // A credit (bonus/promo) is money-only; a payout can be money and/or a subscriber count.
+      if (!amount && (!isPayout || !subscribers)) { el("pAmt").focus(); return; }
       el("payAdd").disabled = true;
       try {
         var r = await payApi({ key: key, token: currentToken, action: "add", kind: kind, subscribers: subscribers, amount: amount, note: note });
@@ -371,9 +376,9 @@
     el("payAdd").addEventListener("click", addPayout);
     el("pNote").addEventListener("keydown", function (e) { if (e.key === "Enter") addPayout(); });
     if (el("pKind")) el("pKind").addEventListener("change", function () {
-      var bonus = el("pKind").value === "bonus";
-      el("pIn").disabled = bonus;
-      el("pIn").placeholder = bonus ? "n/a" : "Subs covered";
+      var credit = el("pKind").value !== "payout";   // bonus / promo are money-only
+      el("pIn").disabled = credit;
+      el("pIn").placeholder = credit ? "n/a" : "Subs covered";
     });
     el("ledger").addEventListener("click", function (e) {
       var b = e.target.closest && e.target.closest(".del");

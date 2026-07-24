@@ -405,17 +405,43 @@ export async function refundsThisMonth(env, now) {
   return { cents, count, available };
 }
 
-// ---- Per-creator paid-out + bonuses (D1 payouts ledger) ---------------------
-// Splits the ledger by kind: 'payout' rows are money disbursed (paid); 'bonus' rows are
-// credits owed on top of Stripe earnings. Owed = earned + bonus - paid.
+// ---- Ledger entry kinds -----------------------------------------------------
+// One kind means money LEFT your account; every other kind is a credit still OWED
+// to the creator. Splitting it this way (rather than listing the credit kinds) means
+// a new kind added below is treated as a credit by default, never silently counted
+// as cash paid out in the P&L.
+//
+//   payout -> money disbursed. Counts toward "Paid out" and the P&L creator cost.
+//   bonus  -> a thank-you credit owed on top of Stripe earnings. Raises Pending.
+//   promo  -> an agreed fee for a sponsored video / promotion. Raises Pending, and
+//             is tracked separately from bonus so you can see what the deals cost.
+//
+// NULL kind (rows predating migration 0005) counts as a payout, hence COALESCE.
+export const PAYOUT_KIND = "payout";
+export const CREDIT_KINDS = ["bonus", "promo"];
+export const PAYOUT_KINDS = [PAYOUT_KIND, ...CREDIT_KINDS];
+
+// SQL predicate: true for rows that are money actually disbursed.
+export const SQL_IS_PAYOUT = "COALESCE(kind, 'payout') = 'payout'";
+
+// Normalize a client-supplied kind to a known one; anything unrecognized -> 'payout'
+// (the historical default, so an old client that omits kind keeps working).
+export function normalizeKind(k) {
+  const s = String(k || PAYOUT_KIND).trim().toLowerCase();
+  return PAYOUT_KINDS.includes(s) ? s : PAYOUT_KIND;
+}
+
+// ---- Per-creator paid-out + credits (D1 payouts ledger) ---------------------
+// Splits the ledger by kind: 'payout' rows are money disbursed (paid); every other
+// kind is a credit owed on top of Stripe earnings. Owed = earned + credits - paid.
 async function paidOutByCreator(env) {
   const map = {};
   try {
     const rows = await env.STATS.prepare(
       `SELECT creator_id,
-         COALESCE(SUM(CASE WHEN kind = 'bonus' THEN 0 ELSE amount_cents END), 0) AS cents,
-         COALESCE(SUM(CASE WHEN kind = 'bonus' THEN 0 ELSE subscribers  END), 0) AS subs,
-         COALESCE(SUM(CASE WHEN kind = 'bonus' THEN amount_cents ELSE 0  END), 0) AS bonus_cents
+         COALESCE(SUM(CASE WHEN ${SQL_IS_PAYOUT} THEN amount_cents ELSE 0 END), 0) AS cents,
+         COALESCE(SUM(CASE WHEN ${SQL_IS_PAYOUT} THEN subscribers  ELSE 0 END), 0) AS subs,
+         COALESCE(SUM(CASE WHEN ${SQL_IS_PAYOUT} THEN 0 ELSE amount_cents END), 0) AS bonus_cents
        FROM payouts GROUP BY creator_id`
     ).all();
     for (const r of (rows && rows.results) || []) {
@@ -429,17 +455,17 @@ async function paidOutByCreator(env) {
 
 // ---- Creator cash actually paid out this month (D1 payouts ledger) ----------
 // The CASH-BASIS creator-cost line for the Finances P&L: the sum of disbursements
-// (kind='payout' — bonuses are credits still OWED, so excluded) whose ledger row was
-// recorded this UTC month. This is what hits the P&L the month you actually pay a
-// creator, regardless of when the underlying subscriptions were earned. NULL kind
-// (rows predating migration 0005) counts as a payout, matching paidOutByCreator.
+// (kind='payout' — bonuses and promo fees are credits still OWED, so excluded) whose
+// ledger row was recorded this UTC month. This is what hits the P&L the month you
+// actually pay a creator, regardless of when the underlying subscriptions were earned.
+// NULL kind (rows predating migration 0005) counts as a payout, matching paidOutByCreator.
 async function creatorPaidThisMonth(env, now) {
   const mStart = monthStartMs(now);
   let cents = 0;
   let available = true;
   try {
     const row = await env.STATS.prepare(
-      `SELECT COALESCE(SUM(CASE WHEN kind = 'bonus' THEN 0 ELSE amount_cents END), 0) AS cents
+      `SELECT COALESCE(SUM(CASE WHEN ${SQL_IS_PAYOUT} THEN amount_cents ELSE 0 END), 0) AS cents
          FROM payouts WHERE created_at >= ?1`
     )
       .bind(mStart)

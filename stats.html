@@ -485,7 +485,7 @@
 
       <div class="section">
         <h2>Creator payouts</h2>
-        <p class="hint">What you actually paid creators. This is the ledger behind the <b>Creator payouts</b> tile above and the payout line in the P&amp;L, so clearing or adjusting a row here changes both. <b>Payout</b> means money that left your account and counts as a cost. <b>Bonus</b> is a credit you still owe the creator, so it does not count as paid. These same rows show on each creator's page and in the Money tab's Paid and Owed columns.</p>
+        <p class="hint">What you actually paid creators. This is the ledger behind the <b>Creator payouts</b> tile above and the payout line in the P&amp;L, so clearing or adjusting a row here changes both. <b>Payout</b> means money that left your account and counts as a cost. <b>Bonus</b> and <b>Promo</b> are credits you still owe the creator, so they do not count as paid &mdash; use Promo for an agreed fee for a sponsored video. These same rows show on each creator's page and in the Money tab's Paid and Owed columns.</p>
         <div class="tblwrap"><table class="tbl">
           <thead><tr><th>Date</th><th>Creator</th><th>Kind</th><th>Note</th><th class="num">Amount</th><th></th></tr></thead>
           <tbody id="f-payouts"><tr><td colspan="6" class="muted">Loading…</td></tr></tbody>
@@ -493,7 +493,7 @@
         <div class="toolbar">
           <select id="p-creator" style="flex:0 0 150px"></select>
           <input id="p-amount" type="number" min="0" step="0.01" placeholder="Amount" style="flex:0 0 100px" />
-          <select id="p-kind"><option value="payout">Payout (paid)</option><option value="bonus">Bonus (owed)</option></select>
+          <select id="p-kind"><option value="payout">Payout (paid)</option><option value="bonus">Bonus (owed)</option><option value="promo">Promo / video (owed)</option></select>
           <input id="p-note" type="text" placeholder="Note (optional)" style="flex:1 1 170px" />
           <input id="p-date" type="date" style="flex:0 0 148px" />
           <button class="btn" id="p-add">Add payout</button>
@@ -877,7 +877,7 @@
     "m-fees": "Total Stripe processing fees on this month's charges.",
     "m-refunds": "Money refunded this month. Test accounts are excluded.",
     "f-rev": "Net-settled Stripe revenue this month (after fees and currency conversion, refunds excluded).",
-    "f-creator": "What you actually paid creators this month: the sum of payout rows dated this month in the Creator payouts ledger below. Bonuses do not count, they are credits still owed. Edit or delete a row down there and this updates straight away.",
+    "f-creator": "What you actually paid creators this month: the sum of payout rows dated this month in the Creator payouts ledger below. Bonuses and promo fees do not count, they are credits still owed. Edit or delete a row down there and this updates straight away.",
     "f-exp": "Your logged operating costs counted for this month: monthly in full, yearly divided by twelve, one-time dated this month.",
     "f-net": "Net profit this month: revenue minus creator payouts minus operating expenses.",
     "f-burn": "Your fixed monthly burn: all recurring expenses normalized to per-month.",
@@ -1344,7 +1344,7 @@
   function payoutsPaidThisMonth(mStart) {
     if (!payoutsData) return null;
     let cents = 0;
-    for (const p of payoutsData) if (p.kind !== "bonus" && p.paidAt >= mStart) cents += p.amountCents || 0;
+    for (const p of payoutsData) if ((p.kind === "payout" || !p.kind) && p.paidAt >= mStart) cents += p.amountCents || 0;
     return cents;
   }
 
@@ -1373,11 +1373,13 @@
     };
     body.innerHTML = list.map((p) => {
       const d = new Date(p.paidAt);
-      const isBonus = p.kind === "bonus";
+      // Anything that isn't a payout is a credit still owed, so it never counts as cash out.
+      const isPayout = p.kind === "payout" || !p.kind;
+      const kindLabel = isPayout ? "Payout" : p.kind === "promo" ? "Promo" : "Bonus";
       return "<tr" + (p.id === editingPayoutId ? ' class="flag"' : "") + ">" +
         "<td>" + d.toLocaleDateString() + "</td>" +
         "<td>" + esc(nameFor(p.creatorId)) + "</td>" +
-        '<td><span class="chip kind ' + (isBonus ? "loyalty" : "creator") + '">' + (isBonus ? "Bonus" : "Payout") + "</span></td>" +
+        '<td><span class="chip kind ' + (isPayout ? "creator" : "loyalty") + '">' + kindLabel + "</span></td>" +
         '<td class="muted">' + (p.note ? esc(p.note) : "—") + "</td>" +
         '<td class="num">' + money(p.amountCents, (moneyData && moneyData.currency) || fxBase) + "</td>" +
         "<td class='num'><button class='edit' data-pid='" + p.id + "' title='Edit'>" + ICON_EDIT + "</button>" +
@@ -1391,7 +1393,7 @@
     editingPayoutId = id;
     $("p-creator").value = p.creatorId;
     $("p-amount").value = p.amountCents / 100;
-    $("p-kind").value = p.kind === "bonus" ? "bonus" : "payout";
+    $("p-kind").value = p.kind === "bonus" || p.kind === "promo" ? p.kind : "payout";
     $("p-note").value = p.note || "";
     $("p-date").value = new Date(p.paidAt).toISOString().slice(0, 10);
     $("p-add").textContent = "Save changes";
