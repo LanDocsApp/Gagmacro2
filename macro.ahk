@@ -48,6 +48,17 @@ global FirstSel   := 0              ; index of first ticked item (locked at Star
 global LastSel    := 0              ; index of last ticked item (locked at Start)
 global PassQty    := 20             ; fixed quantity bought per item each pass
 
+; --- Display calibration ----------------------------------------------------
+; Every coordinate in Setup() (notably the shop click at 697,103) was measured on
+; a 1920x1080 screen at 100% Windows scaling. Change the resolution or the scale
+; and the shop button moves, so the click lands on empty space and the run quietly
+; does nothing. We can't change the user's display for them, so CheckDisplay()
+; warns once per session and lets them carry on if they want.
+global CalibWidth    := 1920
+global CalibHeight   := 1080
+global CalibDpi      := 96          ; 96 DPI = 100% scale (120=125%, 144=150%, 192=200%)
+global DisplayWarned := false       ; already warned this session? (don't nag on every Start)
+
 ; Which shop the macro drives: "seeds" or "gears".
 global UiActiveMode := "seeds"      ; tab currently shown in the UI (live)
 global ActiveMode   := "seeds"      ; tab locked in for the running pass
@@ -106,6 +117,9 @@ global VerifyUrl    := BackendBase "/api/desktop/verify"
 global PingUrl      := BackendBase "/api/ping"              ; anonymous usage stats
 global TutorialUrl  := "https://www.youtube.com/watch?v=2-K89sp8H4o"  ; "Video setup" link -> YouTube walkthrough
 global DiscordUrl   := "https://discord.gg/yJ2gydkXPp"     ; "Discord" link in the header row
+; Shown in the display-mismatch dialog (see CheckDisplay): a short walkthrough of
+; changing the Windows display scale back to 100%.
+global ScaleHelpUrl := "https://www.youtube.com/shorts/aUxh6fpAFB8"
 ; Microsoft's Evergreen WebView2 bootstrapper. Offered if the window can't be created
 ; because the runtime is missing (preinstalled on Win11, not on every Win10 build).
 global WebView2RuntimeUrl := "https://go.microsoft.com/fwlink/p/?LinkId=2124703"
@@ -1761,6 +1775,103 @@ IsNewerVersion(a, b) {
 ;  Setup (runs once) + Buy pass (repeats)
 ; ============================================================
 
+; ---- Display sanity check --------------------------------------------------
+; Setup()'s coordinates assume a 1920x1080 screen at 100% Windows scaling
+; (CalibWidth / CalibHeight / CalibDpi). These check the monitor Roblox is
+; actually on -- not just the primary one -- and warn when it doesn't match.
+;
+; This is only possible because AutoHotkey v2 runs SYSTEM-DPI-AWARE: a DPI-unaware
+; process is handed a virtualized 96 DPI and a scaled-down screen size by Windows,
+; so it could never tell that the user is at 125% or 150%.
+
+; DPI of the monitor `hwnd` sits on. Per-monitor, so a second screen with its own
+; scale is judged on its own settings. Falls back to the system DPI if
+; GetDpiForMonitor is unavailable (pre-Win8.1).
+WindowDpi(hwnd) {
+    try {
+        hMon := DllCall("User32\MonitorFromWindow", "ptr", hwnd, "uint", 2, "ptr")  ; NEAREST
+        dx := 0, dy := 0
+        DllCall("Shcore\GetDpiForMonitor", "ptr", hMon, "int", 0, "uint*", &dx, "uint*", &dy)
+        if (dx)
+            return dx
+    }
+    return A_ScreenDPI
+}
+
+; Pixel size of the monitor `hwnd` sits on, read from MONITORINFO.rcMonitor
+; (cbSize 4, rcMonitor left/top/right/bottom at 4/8/12/16). Falls back to the
+; primary screen if the lookup fails.
+WindowMonitorSize(hwnd, &w, &h) {
+    w := A_ScreenWidth, h := A_ScreenHeight
+    try {
+        hMon := DllCall("User32\MonitorFromWindow", "ptr", hwnd, "uint", 2, "ptr")  ; NEAREST
+        mi := Buffer(40, 0)
+        NumPut("uint", 40, mi, 0)                              ; cbSize
+        if DllCall("User32\GetMonitorInfoW", "ptr", hMon, "ptr", mi) {
+            w := NumGet(mi, 12, "int") - NumGet(mi, 4, "int")  ; right - left
+            h := NumGet(mi, 16, "int") - NumGet(mi, 8, "int")  ; bottom - top
+        }
+    }
+}
+
+; Warn when the display isn't what the coordinates were calibrated on.
+;   returns true  -> carry on (display is fine, or the user chose "Start anyway")
+;   returns false -> abort the run (the user chose Cancel / closed the dialog)
+;
+; A plain MsgBox can't do custom button labels or a clickable link, so this is a
+; small Gui with "Start anyway" / "Cancel" and a link to the how-to-rescale video.
+; It blocks until the user picks, which is safe here: Setup() has NOT focused
+; Roblox yet (that's why it runs first), and the WebView window is already
+; minimized, so nothing is fighting it for the foreground.
+;
+; Only "Start anyway" sets DisplayWarned. After a Cancel the user gets the dialog
+; again on their next Start -- they either fixed the display (no dialog) or still
+; need reminding.
+CheckDisplay(hwnd) {
+    global CalibWidth, CalibHeight, CalibDpi, DisplayWarned, ScaleHelpUrl
+    if (DisplayWarned)
+        return true
+    dpi := WindowDpi(hwnd)
+    WindowMonitorSize(hwnd, &w, &h)
+    okScale := (dpi = CalibDpi)
+    okRes   := (w = CalibWidth && h = CalibHeight)
+    if (okScale && okRes)
+        return true
+
+    detail := ""
+    if (!okScale)
+        detail .= "Your display scale is " Round(dpi * 100 / CalibDpi) "%.`n"
+    if (!okRes)
+        detail .= "Your resolution is " w " x " h ".`n"
+
+    choice := ""
+    g := Gui("+AlwaysOnTop -MinimizeBox -MaximizeBox", "Garden Macro - display settings")
+    g.MarginX := 18, g.MarginY := 16
+    g.SetFont("s10", "Segoe UI")
+    g.Add("Text", "w430", "Garden Macro is built for a " CalibWidth " x " CalibHeight
+                        . " screen at 100% display scale.")
+    g.SetFont("s10 bold")
+    g.Add("Text", "w430 y+10", RTrim(detail, "`n"))
+    g.SetFont("s10 norm")
+    g.Add("Text", "w430 y+10", "It may not click in the right place, so it might not work correctly.")
+    g.Add("Text", "w430 y+12", "Open Windows Settings > System > Display, then set Scale to 100% and "
+                             . "Display resolution to " CalibWidth " x " CalibHeight ".")
+    lnk := g.Add("Link", "w430 y+12", 'Not sure how? <a href="' ScaleHelpUrl '">Watch the quick guide</a>')
+    lnk.OnEvent("Click", (c, id, href) => OpenExternal(href))
+    btnGo := g.Add("Button", "w150 h32 y+18", "Start anyway")
+    btnNo := g.Add("Button", "w110 h32 x+10 Default", "Cancel")
+    btnGo.OnEvent("Click", (*) => (choice := "go",     g.Destroy()))
+    btnNo.OnEvent("Click", (*) => (choice := "cancel", g.Destroy()))
+    g.OnEvent("Close",  (*) => (choice := "cancel", g.Destroy()))
+    g.OnEvent("Escape", (*) => (choice := "cancel", g.Destroy()))
+    g.Show()
+    while (choice = "")
+        Sleep 30
+    if (choice = "go")
+        DisplayWarned := true   ; chose to run anyway -> don't ask again this session
+    return choice = "go"
+}
+
 ; One-time setup: focus Roblox, get into the shop UI, enter keyboard navigation,
 ; snap to position 1 (a known anchor), then move down onto the FIRST ticked item --
 ; where the buy pass starts and returns to every round.
@@ -1780,8 +1891,14 @@ Setup() {
 
     ; 0. Focus the Roblox window.
     UiStatus("Focusing Roblox...")
-    if WinExist("ahk_exe RobloxPlayerBeta.exe") {
-        WinActivate
+    if (roblox := WinExist("ahk_exe RobloxPlayerBeta.exe")) {
+        ; Display check FIRST: its dialog would steal the focus we're about to take,
+        ; so ask while Roblox is still in the background. Cancel -> abort the run.
+        if !CheckDisplay(roblox) {
+            UiStatus("Cancelled.")
+            return false
+        }
+        WinActivate roblox
         WinWaitActive("ahk_exe RobloxPlayerBeta.exe", , 3)
     } else {
         UiStatus("Roblox not found.")
