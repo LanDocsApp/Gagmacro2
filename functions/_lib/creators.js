@@ -14,6 +14,7 @@ export const CREATORS = {
   jukem: { name: "jukemplayz", codes: ["ROOKIE", "JUKEM"] },
   lion:  { name: "White Lion", codes: ["LION"] },
   vexy:  { name: "VexyChaos",  codes: ["VEXY"] },
+  poptart: { name: "PopTart",  codes: ["POPTART"] },
 };
 
 // The checkout discount each creator code grants (its Stripe promotion code is a percent-off
@@ -26,6 +27,21 @@ export const CREATOR_CODE_PERCENT = {
   JUKEM:  10,
   VEXY:   20,
   LION:   20,
+  // POPTART is a "supporter" code: instead of the usual green corner badge it triggers the
+  // red flash-style popup in the macro (see macro.ahk SupporterInfo) offering Pro at 65% off
+  // ($2 first month). Its Stripe promotion code must be a 65%-off, duration=once coupon so
+  // the first-month charge is ~$2 (65% off the $5.93 US price), same coupon math as flash
+  // variant 2. Keep this in sync with macro.ahk PromoValid.
+  POPTART: 65,
+};
+
+// Creators whose subscribers earn a retention bonus: if a subscriber who used the creator's
+// code is still subscribed `days` after they started (i.e. did not cancel inside the first
+// week), the creator is credited `bonusCents` on top of their first-month earnings. This is
+// materialized into the D1 payouts ledger as a 'bonus' row on demand (see
+// functions/api/creator/payout.js), so it needs no cron. Keyed by creator slug.
+export const RETENTION_BONUS = {
+  poptart: { days: 7, bonusCents: 200 }, // retained past 1 week -> +$2 (doubles PopTart's ~$2 take)
 };
 
 // Look up a creator by slug (case-insensitive). Returns { id, name, codes } or null.

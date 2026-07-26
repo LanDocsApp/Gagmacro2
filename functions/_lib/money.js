@@ -608,6 +608,48 @@ export async function buildMoneySnapshot(env) {
   };
 }
 
+// ---- Retention bonuses (subs that survived the first week) ------------------
+// Subscriptions attributed to a creator code (carried in subscription metadata.promo by
+// /api/checkout) that are now older than `days` AND were retained through that first week
+// (never canceled, or canceled only AFTER the window). These qualify the creator for a
+// retention bonus. Returns { available, subs: [{ subId, createdMs, qualifiedAtMs }] }.
+// available=false on any Stripe hiccup or if the page cap is hit, so the caller never
+// materializes bonuses off a partial list. `code` is matched case-insensitively.
+export async function listRetainedPromoSubs(env, code, days) {
+  const want = String(code || "").trim().toUpperCase();
+  const windowMs = Math.max(0, Number(days) || 0) * MS_DAY;
+  const now = Date.now();
+  const out = [];
+  if (!want) return { available: false, subs: [] };
+  try {
+    let after = null, pages = 0;
+    while (pages < PAGE_CAP) {
+      const params = { status: "all", limit: 100 };
+      if (after) params.starting_after = after;
+      const res = await listSubscriptionsPage(env, params, STRIPE_API_VERSION);
+      const data = (res && res.data) || [];
+      for (const sub of data) {
+        if (isIgnoredCustomer(sub.customer)) continue; // owner's test sub -> never credited
+        const promo = String((sub.metadata && sub.metadata.promo) || "").trim().toUpperCase();
+        if (promo !== want) continue;
+        const createdMs = (sub.created || 0) * 1000;
+        if (!createdMs || now - createdMs < windowMs) continue; // first week not over yet
+        // Retained through the week = never canceled, or canceled only after the window.
+        const canceledMs = sub.canceled_at ? sub.canceled_at * 1000 : 0;
+        if (canceledMs && canceledMs - createdMs < windowMs) continue; // churned inside week 1
+        out.push({ subId: sub.id, createdMs, qualifiedAtMs: createdMs + windowMs });
+      }
+      if (!res || !res.has_more || !data.length) break;
+      after = data[data.length - 1].id;
+      pages++;
+    }
+    if (pages >= PAGE_CAP) return { available: false, subs: [] };
+  } catch {
+    return { available: false, subs: [] };
+  }
+  return { available: true, subs: out };
+}
+
 // ---- Read-only creator earnings (POST /api/creator/payout-view) -------------
 // earned (from Stripe) + redemptions list with NO PII. paidOut/pending are layered
 // on by the endpoint from the D1 ledger.

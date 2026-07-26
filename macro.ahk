@@ -177,7 +177,8 @@ global PromoValid := Map(                                 ; the only codes we ac
     "ROOKIE", 10,
     "JUKEM",  10,
     "VEXY",   20,
-    "LION",   20)
+    "LION",   20,
+    "POPTART", 65)   ; supporter code -> red $2 popup (see SupporterInfo), not the green badge
 global PromoAsked := false        ; has the first-launch promo prompt been answered?
 global PromoCode  := ""           ; the accepted code (UPPER-cased), "" if none / skipped
 global PromoPct   := 0            ; the accepted code's discount percent (0 if none / skipped)
@@ -224,6 +225,17 @@ global OfferWindowMs := 24 * 60 * 60 * 1000                  ; deal is live for 
 ; change (75/65/50 for variants 1/2/3).
 global OfferUsd      := Map(1, "$1.50", 2, "$2", 3, "$3")
 global OfferShownSession := false                            ; banner/popup already shown this session?
+; Supporter codes: creator codes that, instead of the green "N% off" corner badge, show the
+; SAME red flash-style popup + banner the A/B deal uses -- but framed as supporting the
+; creator (e.g. "Supporting PopTart -- get Pro for just $2"). The claim opens checkout with
+; ?code=<CODE> so the creator's Stripe promotion code auto-applies (65% off = $2 first month)
+; AND the sub is attributed to them. Data-driven: CODE -> { usd, creator display name }.
+; Keep the codes in sync with PromoValid + functions/_lib/creators.js.
+global SupporterInfo := Map("POPTART", Map("usd", "$2", "creator", "PopTart"))
+global SupporterFile := A_AppData "\GardenMacro\supporter.txt"  ; "<CODE>|<window-start YYYYMMDDHHMMSS>"
+global SupporterWindowMs := 24 * 60 * 60 * 1000                 ; popup countdown runs 24h from first entry
+global SupporterStamp := ""                                     ; when this code's 24h window started
+global SupporterShownSession := false                           ; supporter banner/popup shown this session?
 global WillOnboard   := false                                ; a first-launch onboarding wall runs this launch?
 
 ; --- Seed list in the SAME top-to-bottom order as the in-game shop ---
@@ -676,6 +688,8 @@ OnWebMessage(sender, args) {
             OpenAccessPage()
         case "flashclaim":
             OpenFlashCheckout()
+        case "supporterclaim":
+            OpenCodeCheckout()
         case "openhelp":
             OpenHelpPage()
         case "opentutorial":
@@ -966,6 +980,76 @@ MaybeShowFlashOffer() {
     SendEvent("flash_shown", OfferVariant)  ; funnel: the flash countdown was shown (A/B denominator)
 }
 
+; ---- Supporter code (e.g. POPTART) ------------------------------------------
+; A held creator code that shows the red flash-style popup instead of the plain badge.
+IsSupporterCode(code) {
+    global SupporterInfo
+    return SupporterInfo.Has(StrUpper(Trim(code)))
+}
+
+; Load the saved supporter-code window start ("<CODE>|<stamp>"), but only if it matches the
+; code currently held -- so a stale stamp from a different code is ignored.
+LoadSupporterStamp() {
+    global SupporterFile, SupporterStamp, PromoCode
+    SupporterStamp := ""
+    if !FileExist(SupporterFile)
+        return
+    raw := ""
+    try raw := Trim(FileRead(SupporterFile, "UTF-8"), " `t`r`n" Chr(0xFEFF))
+    parts := StrSplit(raw, "|")
+    if (parts.Length >= 2 && StrUpper(Trim(parts[1])) = PromoCode)
+        SupporterStamp := Trim(parts[2])
+}
+
+; Persist the supporter window start for the held code (no BOM; create the folder if needed).
+SaveSupporterStamp() {
+    global SupporterFile, SupporterStamp, PromoCode
+    try {
+        SplitPath(SupporterFile, , &dir)
+        if (dir != "" && !DirExist(dir))
+            DirCreate(dir)
+        f := FileOpen(SupporterFile, "w", "UTF-8-RAW")
+        if f {
+            f.Write(PromoCode "|" SupporterStamp)
+            f.Close()
+        }
+    }
+}
+
+; Seconds left in the held supporter code's 24h popup window (0 once elapsed).
+SupporterSecondsLeft() {
+    global SupporterStamp, SupporterWindowMs
+    if (SupporterStamp = "")
+        return 0
+    startT := ""
+    try startT := DateDiff(A_NowUTC, SupporterStamp, "Seconds")   ; elapsed seconds since the stamp
+    if (startT = "" || startT < 0)
+        startT := 0
+    leftS := (SupporterWindowMs // 1000) - startT
+    return leftS > 0 ? leftS : 0
+}
+
+; Show the supporter popup + banner (once per session), when the held code is a supporter
+; code and the 24h window is still open. Starts the window on first sight. Mirrors
+; MaybeShowFlashOffer: the page defers the popup under any onboarding wall.
+MaybeShowSupporterOffer() {
+    global PromoCode, Unlocked, SupporterInfo, SupporterStamp, SupporterShownSession, MainGui
+    if (SupporterShownSession || Unlocked || !IsSupporterCode(PromoCode))
+        return
+    if (SupporterStamp = "") {              ; first time we're showing it -> start the 24h window now
+        SupporterStamp := A_NowUTC
+        SaveSupporterStamp()
+    }
+    secs := SupporterSecondsLeft()
+    if (secs <= 0)                          ; window elapsed -> just the code stays applied, no popup
+        return
+    SupporterShownSession := true
+    info := SupporterInfo[PromoCode]
+    try MainGui.Restore()                   ; un-minimize so the popup is actually seen
+    Post("supporter|" PromoCode "|" info["usd"] "|" secs "|" info["creator"])
+    SendEvent("supporter_shown", PromoCode) ; funnel: supporter popup shown
+}
+
 ; Current seed names, in list order.
 SeedNames() {
     global Seeds
@@ -1137,6 +1221,24 @@ OpenFlashCheckout() {
     try MainGui.Minimize()
 }
 
+; Supporter-popup "Claim" -> open the browser STRAIGHT to Stripe checkout with the held
+; creator code applied (?code=<CODE>). /api/checkout auto-applies that code's promotion
+; (65% off for POPTART -> $2 first month) and attributes the subscription to the creator,
+; routing through Google login first if needed. PromoCode is validated + UPPER-cased plain
+; A-Z, so it needs no escaping. Same straight-to-checkout behaviour as OpenFlashCheckout.
+OpenCodeCheckout() {
+    global BackendBase, MainGui, PromoCode
+    SendEvent("get_access")                  ; funnel: clicked through to the pay page
+    url := BackendBase "/api/checkout"
+    if (PromoCode != "")
+        url .= "?code=" PromoCode
+    try
+        Run(url)
+    catch
+        try Run("explorer.exe " url)
+    try MainGui.Minimize()
+}
+
 ; "Help & setup" -> open the setup guide / Discord help page in the browser.
 OpenHelpPage() {
     global BackendBase
@@ -1258,6 +1360,7 @@ ApplyPromo(code) {
     SavePromo()
     SendHeartbeat()                          ; report the code to gardenmacro.com/stats now
     Post("promook|" PromoCode "|" PromoPct)  ; show corner badge ("N% off") + close the prompt
+    MaybeShowSupporterOffer()                ; supporter code (e.g. POPTART) -> also show the red $2 popup
 }
 
 ; "Skip" in the first-launch prompt: remember we asked (so it never shows again) with
@@ -1272,6 +1375,7 @@ SkipPromo() {
 }
 
 ; Load the saved promo state. File format: "<asked 0|1>|<CODE>". Missing -> not asked.
+; (LoadSupporterStamp is called at the end to recover any held supporter code's window.)
 LoadPromo() {
     global PromoFile, PromoAsked, PromoCode, PromoPct
     if !FileExist(PromoFile)
@@ -1284,6 +1388,7 @@ LoadPromo() {
     if (parts.Length >= 2)
         PromoCode := StrUpper(Trim(parts[2]))
     PromoPct := PromoPercent(PromoCode)     ; percent isn't persisted -> re-derive from the saved code
+    LoadSupporterStamp()                    ; if a supporter code is held, recover its 24h window start
 }
 
 ; Persist the promo state (no BOM; create the folder if needed).
@@ -1353,7 +1458,8 @@ ContinueToPromo() {
     ; if it suppresses the prompt (already asked / Pro), close our wall to reveal the app.
     if !MaybeAskPromo() {
         Post("sourcedone")
-        MaybeShowFlashOffer()   ; onboarding settled with no code prompt -> now safe to show the flash
+        MaybeShowFlashOffer()       ; onboarding settled with no code prompt -> now safe to show the flash
+        MaybeShowSupporterOffer()   ; returning user holding a supporter code -> show the red $2 popup
     }
 }
 
@@ -2305,6 +2411,20 @@ HtmlTemplate() {
   .flashtimer{font-family:'Consolas','JetBrains Mono',monospace;font-size:40px;font-weight:800;color:#dc2626;
         background:#fef2f2;border:1.5px solid #fecaca;border-radius:10px;padding:12px 8px;margin:0 0 16px;letter-spacing:1px}
   .btn.red{background:#dc2626;color:#fff;border-color:#dc2626}
+  /* Supporter popup/banner (e.g. POPTART): identical layout to the flash deal but recoloured
+     to the creator's blue instead of red, with a larger "Supporting <creator>" eyebrow.
+     Applied by adding .supporter to #flashBar / #flashOverlay (see showSupporter). */
+  .flashbar.supporter{background:#eff6ff;border-color:#bfdbfe}
+  .flashbar.supporter .fblabel{color:#1d4ed8;font-size:11px}
+  .flashbar.supporter .fbprice{color:#2563eb}
+  .flashbar.supporter .fbtime{color:#2563eb}
+  .flashbar.supporter .fbbtn{background:#2563eb}
+  .flashbar.supporter .fbbtn:hover{background:#1d4ed8}
+  #flashOverlay.supporter .flasheyebrow{color:#2563eb;font-size:15px;letter-spacing:.8px;margin-bottom:12px}
+  #flashOverlay.supporter .flashbig{color:#2563eb}
+  #flashOverlay.supporter .flashsub{color:#5578c0}
+  #flashOverlay.supporter .flashtimer{color:#2563eb;background:#eff6ff;border-color:#bfdbfe}
+  #flashOverlay.supporter .btn.red{background:#2563eb;border-color:#2563eb}
   /* Flash entrance: ease the backdrop, modal, and banner in so nothing snaps in abruptly
      ~3s after launch. The old instant reveal (flashOverlay.hidden=false) read as a jump-scare.
      Scoped to #flashOverlay so the onboarding walls' in-place swap logic is untouched. */
@@ -2432,7 +2552,7 @@ HtmlTemplate() {
 
   <div id='flashBar' class='flashbar'>
     <span class='fbinfo'>
-      <span class='fblabel'>Limited time deal</span>
+      <span class='fblabel' id='flashBarLabel'>Limited time deal</span>
       <span class='fbmain'>Get Pro for just <b class='fbprice' id='flashUsd'>$1.50</b></span>
     </span>
     <span class='fbtime' id='flashTime'>24:00:00</span>
@@ -2475,10 +2595,10 @@ HtmlTemplate() {
   <div id='flashOverlay' class='overlay' hidden>
     <div class='modal flashmodal'>
       <button class='mx' onclick='dismissFlash()'>&times;</button>
-      <div class='flasheyebrow'>Limited time deal</div>
-      <p class='flashlead'>Get Pro for just</p>
+      <div class='flasheyebrow' id='flashEyebrow'>Limited time deal</div>
+      <p class='flashlead' id='flashLead'>Get Pro for just</p>
       <div class='flashbig' id='flashPopUsd'>$1.50</div>
-      <p class='flashsub'>first month</p>
+      <p class='flashsub' id='flashSub'>first month</p>
       <div class='flashtimer'><span id='flashPopTime'>24:00:00</span></div>
       <button class='btn red block' onclick='ctaFlash()'>Claim</button>
       <a class='hintDismiss' onclick='dismissFlash()'>Maybe later</a>
@@ -2840,6 +2960,10 @@ HtmlTemplate() {
      down locally and hide everything at zero. Clicking Claim goes STRAIGHT to Stripe checkout
      with the discount applied (or Google login first) -- no in-app unlock modal. */
   var flashVariant = 0, flashTimer = null, flashEnd = 0, flashPopupPending = false;
+  /* The red bar/popup is shared by two things: the 24h A/B flash deal ('offer') and a
+     supporter code like POPTART ('supporter'). flashMode selects the copy + where Claim
+     goes. They're mutually exclusive per session (a supporter code suppresses the flash). */
+  var flashMode = 'offer', flashCode = '';
   function fmtDur(s){
     function p(n){ return (n < 10 ? '0' : '') + n; }
     var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60;
@@ -2849,6 +2973,9 @@ HtmlTemplate() {
      opened later, once the onboarding walls have cleared. */
   function openFlashPopup(){ flashPopupPending = false; document.getElementById('flashOverlay').hidden = false; }
   function showFlash(variant, usd, secs, popup){
+    flashMode = 'offer';
+    document.getElementById('flashBar').classList.remove('supporter');       /* red for the A/B deal */
+    document.getElementById('flashOverlay').classList.remove('supporter');
     flashVariant = parseInt(variant, 10) || 0;
     secs = parseInt(secs, 10) || 0;
     if (secs <= 0) return;
@@ -2867,6 +2994,33 @@ HtmlTemplate() {
     }
     requestAnimationFrame(function(){ requestAnimationFrame(fitWindow); });
   }
+  /* Supporter code (e.g. POPTART): AHK sends "supporter|<code>|<usd>|<secs>|<creator>". Same
+     red bar + popup as the flash deal, reworded to frame it as supporting the creator, and
+     the Claim goes to checkout with ?code=<code> so their coupon (65% off = $2) auto-applies
+     and the sub is attributed to them. Always pops (no popup flag), deferring under any wall. */
+  function showSupporter(code, usd, secs, creator){
+    flashMode = 'supporter';
+    flashCode = code || '';
+    creator = creator || 'this creator';
+    secs = parseInt(secs, 10) || 0;
+    if (secs <= 0) return;
+    flashEnd = Date.now() + secs * 1000;
+    document.getElementById('flashBarLabel').textContent = 'Supporting ' + creator;
+    document.getElementById('flashUsd').textContent = usd;
+    document.getElementById('flashEyebrow').textContent = 'Supporting ' + creator;
+    document.getElementById('flashLead').textContent = 'Get Pro for just';
+    document.getElementById('flashPopUsd').textContent = usd;
+    var sub = document.getElementById('flashSub'); if (sub) sub.textContent = "with " + creator + "'s code";
+    document.getElementById('flashBar').classList.add('supporter');          /* blue, PopTart's style */
+    document.getElementById('flashOverlay').classList.add('supporter');
+    document.getElementById('flashBar').classList.add('show');
+    tickFlash();
+    if (flashTimer) clearInterval(flashTimer);
+    flashTimer = setInterval(tickFlash, 1000);
+    if (onboardingUp()) flashPopupPending = true;
+    else openFlashPopup();
+    requestAnimationFrame(function(){ requestAnimationFrame(fitWindow); });
+  }
   function tickFlash(){
     var left = Math.round((flashEnd - Date.now()) / 1000);
     if (left <= 0){ endFlash(); return; }
@@ -2881,15 +3035,31 @@ HtmlTemplate() {
     requestAnimationFrame(function(){ requestAnimationFrame(fitWindow); });
   }
   function closeFlash(){ var o = document.getElementById('flashOverlay'); if (o) o.hidden = true; }
-  function dismissFlash(){ send('ev|flash_dismiss|' + flashVariant); closeFlash(); }
-  /* Both CTAs (popup button + banner) = clicked through: log flash_cta, then pop the access
-     box open so the paste-code field is already waiting when the user returns from Stripe with
-     the code /api/success hands them, and finally redirect to checkout ('flashclaim' ->
-     OpenFlashCheckout, which opens /api/checkout?offer=<variant> and minimizes the window).
-     The box is SUPPRESSED for creator-code holders (PROMO set) -- their discount doesn't stack
-     so they never see the flash anyway (see OfferActive), but guard it here too to be sure. */
-  function ctaFlash(){ send('ev|flash_cta|' + flashVariant); closeFlash(); if (!PROMO) openAccess(true); send('flashclaim'); }
-  function barFlash(){ send('ev|flash_cta|' + flashVariant); if (!PROMO) openAccess(true); send('flashclaim'); }
+  function dismissFlash(){
+    if (flashMode === 'supporter') send('ev|supporter_dismiss|' + flashCode);
+    else send('ev|flash_dismiss|' + flashVariant);
+    closeFlash();
+  }
+  /* Both CTAs (popup button + banner) = clicked through: log the click, pop the access box
+     open so the paste-code field is already waiting when the user returns from Stripe with the
+     code /api/success hands them, then redirect to checkout. In 'offer' mode that's 'flashclaim'
+     -> /api/checkout?offer=<variant>; in 'supporter' mode it's 'supporterclaim' ->
+     /api/checkout?code=<code>. For a plain flash the access box is SUPPRESSED for creator-code
+     holders (their discount can't stack, so they never see the flash) -- but a supporter code
+     IS a creator code and DOES need the paste box, so we always open it in supporter mode. */
+  function claimFlash(){
+    if (flashMode === 'supporter'){
+      send('ev|supporter_cta|' + flashCode);
+      openAccess(true);           /* pre-open the paste box for the code they get after paying */
+      send('supporterclaim');
+    } else {
+      send('ev|flash_cta|' + flashVariant);
+      if (!PROMO) openAccess(true);
+      send('flashclaim');
+    }
+  }
+  function ctaFlash(){ closeFlash(); claimFlash(); }
+  function barFlash(){ claimFlash(); }
 
   /* Update banner: AHK sends "update|<version>" when a newer macro.ahk has shipped to
      `main` while this session is running. Show the red "restart to update" bar (once)
@@ -3055,6 +3225,7 @@ HtmlTemplate() {
     }
     else if (type === 'access') openAccess();   /* tried to Start a Pro-locked tab */
     else if (type === 'flash') { var xp = rest.split('|'); showFlash(xp[0], xp[1], xp[2], xp[3]); }   /* 24h flash-deal countdown (variant|usd|secs|popup) */
+    else if (type === 'supporter') { var sp = rest.split('|'); showSupporter(sp[0], sp[1], sp[2], sp[3]); }   /* supporter code red popup (code|usd|secs|creator) */
     else if (type === 'update') showUpdate(rest);   /* newer build on `main` -> restart to update */
     else if (type === 'sourceask') openSourceAsk();     /* first-launch acquisition prompt (before promo) */
     else if (type === 'sourcedone') {                        /* settled: nothing more to ask */

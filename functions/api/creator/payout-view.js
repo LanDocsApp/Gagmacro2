@@ -69,9 +69,12 @@ export async function onRequestPost({ request, env }) {
         .all();
       bonusRows = ((br && br.results) || []).map((r) => {
         const kind = r.kind === "promo" ? "promo" : "bonus";
+        // Strip any internal " · sub_..." trace off the note before showing the creator (the
+        // owner still sees the full note in the admin ledger); fall back to a generic label.
+        const label = (String(r.note || "").split(" · sub_")[0] || "").trim();
         return {
           at: r.created_at,
-          code: (r.note && String(r.note).trim()) || (kind === "promo" ? "Promo" : "Bonus"),
+          code: label || (kind === "promo" ? "Promo" : "Bonus"),
           amountCents: r.amount_cents || 0,
           status: kind,
         };

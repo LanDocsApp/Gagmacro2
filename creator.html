@@ -126,6 +126,10 @@
           <input id="pNote" class="notein" type="text" placeholder="Note (optional)" maxlength="200" />
           <button class="btn" id="payAdd">Record</button>
         </div>
+        <p class="foot" style="margin-top:10px;display:flex;align-items:center;gap:10px;">
+          <button class="btn" id="installBonusBtn" onclick="grantInstallBonus()" title="Grant $1 for every 100 installs from this creator's code (already-granted install bonuses are subtracted)">Install bonus</button>
+          <span class="sub" id="installBonusHint" style="margin:0;"></span>
+        </p>
         <p class="foot" style="margin-top:12px;"><button class="lock" id="payHide">Hide admin</button></p>
       </div>
 
@@ -144,6 +148,8 @@
   <script>
     var STORE = "gm_creator_token";
     var currentToken = "";
+    var creatorInstalls = 0;       // installs from this creator's code(s) (for the install-bonus button)
+    var installBonusPaidCents = 0; // install bonuses already granted (summed from the ledger)
 
     function el(id) { return document.getElementById(id); }
     function fmt(n) { return (n == null) ? "—" : Number(n).toLocaleString("en-US"); }
@@ -170,8 +176,10 @@
       el("board").classList.remove("hidden");
       var nm = data.name || "";
       el("hello").textContent = nm ? (nm + (/s$/i.test(nm) ? "'" : "'s") + " stats") : "Your stats";
+      creatorInstalls = (data.totals && data.totals.installs) || 0;
       el("installs").textContent = fmt(data.totals && data.totals.installs);
       el("subs").textContent = fmt(data.totals && data.totals.subscriptions);
+      updateInstallBonusBtn();
 
       var codes = data.codes || [];
       var line = codes.map(function (c) { return c.code; }).join(" + ");
@@ -305,8 +313,51 @@
       } catch (e) {}
     }
 
+    // Install bonuses already granted = bonus rows noted "Install bonus". Used so the button
+    // only ever offers the NEW amount due ($1 per 100 installs, minus what's already given).
+    function sumInstallBonuses(rows) {
+      var c = 0;
+      (rows || []).forEach(function (r) {
+        if (r.kind === "bonus" && /^Install bonus/i.test(r.note || "")) c += r.amountCents || 0;
+      });
+      return c;
+    }
+
+    // Refresh the install-bonus button label/state from installs vs. what's already granted.
+    function updateInstallBonusBtn() {
+      var b = el("installBonusBtn"); if (!b) return;
+      var owed = Math.floor(creatorInstalls / 100) - Math.round(installBonusPaidCents / 100);
+      var hint = el("installBonusHint");
+      if (owed > 0) {
+        b.disabled = false;
+        b.textContent = "Grant install bonus ($" + owed + ")";
+        if (hint) hint.textContent = "$1 per 100 installs · " + fmt(creatorInstalls) + " installs";
+      } else {
+        b.disabled = true;
+        b.textContent = "Install bonus";
+        if (hint) hint.textContent = "Nothing due yet · " + fmt(creatorInstalls) + " installs";
+      }
+    }
+
+    // One click = record the install bonus currently due as a single 'bonus' row.
+    async function grantInstallBonus() {
+      var key = adminKey();
+      if (!key || !currentToken) return;
+      var owed = Math.floor(creatorInstalls / 100) - Math.round(installBonusPaidCents / 100);
+      if (owed <= 0) return;
+      el("installBonusBtn").disabled = true;
+      try {
+        var r = await payApi({ key: key, token: currentToken, action: "add", kind: "bonus", subscribers: 0, amount: owed, note: "Install bonus" });
+        if (r.ok) { renderLedger(await r.json()); loadPayoutView(); }
+      } catch (e) {} finally {
+        updateInstallBonusBtn();
+      }
+    }
+
     function renderLedger(p) {
       var rows = p.payouts || [];
+      installBonusPaidCents = sumInstallBonuses(rows);
+      updateInstallBonusBtn();
       if (rows.length) {
         el("ledger").innerHTML = rows.map(function (r) {
           var d = new Date(r.at);
