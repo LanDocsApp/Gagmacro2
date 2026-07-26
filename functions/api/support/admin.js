@@ -146,14 +146,23 @@ export async function onRequestPost({ request, env }) {
   }
 
   if (action === "close" || action === "reopen") {
+    const close = action === "close";
     try {
-      await env.STATS.prepare(`UPDATE support_threads SET closed = ?2 WHERE device_id = ?1`)
-        .bind(device, action === "close" ? 1 : 0)
+      // Closing also lights the user's Support-tab dot (unread_user = 1) so they're
+      // actually prompted to open the tab and see the "resolved" note -- otherwise a
+      // resolve with no final reply would be invisible to them. Reopening is admin-side
+      // housekeeping, so it leaves the dot alone.
+      await env.STATS.prepare(
+        close
+          ? `UPDATE support_threads SET closed = 1, unread_user = 1 WHERE device_id = ?1`
+          : `UPDATE support_threads SET closed = 0 WHERE device_id = ?1`
+      )
+        .bind(device)
         .run();
     } catch (e) {
       return json({ error: "could_not_update", detail: String((e && e.message) || e) }, 500);
     }
-    return state(env, action === "close" ? "" : device);
+    return state(env, close ? "" : device);
   }
 
   if (action === "delete") {

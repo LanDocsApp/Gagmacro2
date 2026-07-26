@@ -2352,6 +2352,12 @@ HtmlTemplate() {
   .chatbox .btn{flex-shrink:0;align-self:stretch}
   .chatmsg{font-size:11.5px;color:#999;margin-top:7px;min-height:14px;line-height:1.4}
   .chatmsg.err{color:#dc2626}
+  /* "Resolved" system line shown at the bottom of the transcript when I've closed the
+     thread. Centered, green, and NOT a bubble -- it reads as a status, not a reply.
+     Sending another message re-opens the thread server-side, so the note says so. */
+  .chatresolved{align-self:center;max-width:92%;text-align:center;font-size:11px;
+        color:#15803d;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;
+        padding:5px 12px;margin-top:2px;line-height:1.4}
   /* Unread reply -> a small green dot on the Support tab label. */
   .tdot{display:inline-block;width:6px;height:6px;border-radius:50%;background:#16a34a;
         margin-left:5px;vertical-align:middle}
@@ -2724,6 +2730,7 @@ HtmlTemplate() {
      can never appear sent when it wasn't. */
   var SUPPORT_MAX = 2000;              /* keep in step with MAX_BODY in _lib/support.js */
   var chatMsgs = [];                   /* last transcript AHK gave us */
+  var chatClosed = false;              /* I marked the thread resolved (a new message re-opens it) */
   var chatLoaded = false;              /* have we heard back at least once this session? */
   var chatSending = false;             /* a send is in flight -> Send stays disabled */
   var chatClearOnAck = false;          /* the next transcript is a SEND's ack -> empty the box */
@@ -2767,6 +2774,16 @@ HtmlTemplate() {
       b.appendChild(ts);
       log.appendChild(b);
     });
+    /* If I've marked the thread resolved, close the transcript with a status line so the
+       user knows it was handled -- and that replying re-opens it (the server does exactly
+       that on the next message). Dropped the moment they send again, since d.closed comes
+       back 0. */
+    if (chatClosed){
+      var r = document.createElement('div');
+      r.className = 'chatresolved';
+      r.textContent = 'Marked as resolved. Send a message to reopen.';
+      log.appendChild(r);
+    }
     log.scrollTop = log.scrollHeight;     /* newest message in view */
   }
   /* Send is gated on there being something to send, and on a send not already running. */
@@ -2793,6 +2810,7 @@ HtmlTemplate() {
     chatLoaded = true;
     chatSending = false;
     chatMsgs = d.messages || [];
+    chatClosed = !!d.closed;         /* server-authoritative; a send returns closed:0 -> note clears */
     renderChat();
     setChatMsg('');
     /* Only a send's own acknowledgement may empty the box. A poll landing while they
