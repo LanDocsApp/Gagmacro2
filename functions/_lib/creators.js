@@ -12,10 +12,29 @@
 export const CREATORS = {
   jose:  { name: "jose",       codes: ["OVER"] },
   jukem: { name: "jukemplayz", codes: ["ROOKIE", "JUKEM"] },
-  lion:  { name: "White Lion", codes: ["LION"] },
+  // LION is what viewers type (from his old videos); it now maps to the WHITELION Stripe
+  // promotion code at checkout (see CHECKOUT_CODE_ALIAS). Both are listed so earnings on
+  // either code roll up to White Lion's one dashboard.
+  lion:  { name: "White Lion", codes: ["LION", "WHITELION"] },
   vexy:  { name: "VexyChaos",  codes: ["VEXY"] },
   poptart: { name: "PopTart",  codes: ["POPTART"] },
 };
+
+// Entered creator code -> the Stripe promotion code to ACTUALLY apply at checkout, when the
+// two differ. Viewers keep typing the familiar code, but a different (e.g. newer, better)
+// Stripe promotion code is what discounts the invoice. Applied in functions/api/checkout.js
+// for every entry point (macro + giveaway page), so the mapping is consistent everywhere.
+// Keys + values UPPERCASE; codes not listed here apply themselves unchanged.
+export const CHECKOUT_CODE_ALIAS = {
+  LION: "WHITELION", // "LION" typed -> "WhiteLion" (65% off = $2) applied in Stripe
+};
+
+// Resolve an entered code to the promotion code to apply (uppercased). Falls back to the
+// entered code when there's no alias.
+export function checkoutCodeAlias(code) {
+  const CODE = String(code || "").trim().toUpperCase();
+  return CHECKOUT_CODE_ALIAS[CODE] || CODE;
+}
 
 // The checkout discount each creator code grants (its Stripe promotion code is a percent-off
 // coupon). The giveaway page reads this to show "N% off with code LION" when a creator code is
@@ -26,7 +45,10 @@ export const CREATOR_CODE_PERCENT = {
   ROOKIE: 10,
   JUKEM:  10,
   VEXY:   20,
-  LION:   20,
+  // LION now yields the WhiteLion supporter deal (65% off = $2, applied as WHITELION), so
+  // its displayed percent matches what a redemption actually gets. Both keys are 65.
+  LION:      65,
+  WHITELION: 65,
   // POPTART is a "supporter" code: instead of the usual green corner badge it triggers the
   // red flash-style popup in the macro (see macro.ahk SupporterInfo) offering Pro at 65% off
   // ($2 first month). Its Stripe promotion code must be a 65%-off, duration=once coupon so

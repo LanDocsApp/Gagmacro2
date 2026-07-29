@@ -168,7 +168,7 @@ global UpdateReq      := 0                ; keeps the update-check COM object al
 ;     loyalty 50%-off popup. "Skip" dismisses the prompt for good. Stored UPPER-cased.
 ;
 ;     Each code carries its own discount percent (PromoValid maps CODE -> percent):
-;     most creator codes are 10%, but LION is a 20% code. The percent is data-driven
+;     most creator codes are 10%, but VEXY is a 20% code. The percent is data-driven
 ;     -- it isn't persisted (it's re-derived from the code via PromoPercent), so the
 ;     saved promo.txt format is unchanged and the badge copy follows the code.
 global PromoFile  := A_AppData "\GardenMacro\promo.txt"   ; "<asked 0|1>|<CODE>"
@@ -177,8 +177,8 @@ global PromoValid := Map(                                 ; the only codes we ac
     "ROOKIE", 10,
     "JUKEM",  10,
     "VEXY",   20,
-    "LION",   20,
-    "POPTART", 65)   ; supporter code -> red $2 popup (see SupporterInfo), not the green badge
+    "LION",   65,    ; supporter code -> blue $2 popup; applies WHITELION in Stripe (server-side alias)
+    "POPTART", 65)   ; supporter code -> blue $2 popup (see SupporterInfo), not the green badge
 global PromoAsked := false        ; has the first-launch promo prompt been answered?
 global PromoCode  := ""           ; the accepted code (UPPER-cased), "" if none / skipped
 global PromoPct   := 0            ; the accepted code's discount percent (0 if none / skipped)
@@ -231,7 +231,12 @@ global OfferShownSession := false                            ; banner/popup alre
 ; ?code=<CODE> so the creator's Stripe promotion code auto-applies (65% off = $2 first month)
 ; AND the sub is attributed to them. Data-driven: CODE -> { usd, creator display name }.
 ; Keep the codes in sync with PromoValid + functions/_lib/creators.js.
-global SupporterInfo := Map("POPTART", Map("usd", "$2", "creator", "PopTart"))
+; The macro sends the TYPED code (?code=LION); the backend maps it to the real Stripe
+; promotion code (WHITELION) -- see functions/_lib/creators.js CHECKOUT_CODE_ALIAS -- so the
+; macro needs no knowledge of that alias here.
+global SupporterInfo := Map(
+    "POPTART", Map("usd", "$2", "creator", "PopTart"),
+    "LION",    Map("usd", "$2", "creator", "White Lion"))
 global SupporterFile := A_AppData "\GardenMacro\supporter.txt"  ; "<CODE>|<window-start YYYYMMDDHHMMSS>"
 global SupporterWindowMs := 24 * 60 * 60 * 1000                 ; popup countdown runs 24h from first entry
 global SupporterStamp := ""                                     ; when this code's 24h window started
@@ -1312,7 +1317,7 @@ ActivateCode(code) {
 ;  Asked once, shortly after the app's first launch (see MaybeAskPromo) -- NOT on
 ;  Start. A valid code is shown in the corner as a checkout reminder ("use CODE for
 ;  N% off"), reported to the stats dashboard, and suppresses the 5h popup. The
-;  percent is per-code (PromoValid), e.g. LION = 20%.
+;  percent is per-code (PromoValid), e.g. VEXY = 20%.
 ; ============================================================
 
 ; Show the first-launch "do you have a creator code?" prompt, once ever. Skipped if
@@ -1355,7 +1360,7 @@ ApplyPromo(code) {
         return
     }
     PromoCode  := StrUpper(code)             ; corner badge shows it in caps
-    PromoPct   := PromoPercent(PromoCode)    ; per-code discount (e.g. LION -> 20)
+    PromoPct   := PromoPercent(PromoCode)    ; per-code discount (e.g. VEXY -> 20)
     PromoAsked := true
     SavePromo()
     SendHeartbeat()                          ; report the code to gardenmacro.com/stats now
@@ -2436,7 +2441,7 @@ HtmlTemplate() {
   @media (prefers-reduced-motion:reduce){
     #flashOverlay:not([hidden]),#flashOverlay .modal,.flashbar.show{animation-duration:.01ms}}
   .btn.red:hover{background:#b91c1c;border-color:#b91c1c}
-  /* Promo-code corner badge: "USE CODE LION FOR 20% OFF" (only if a code was entered) */
+  /* Promo-code corner badge: "USE CODE VEXY FOR 20% OFF" (only if a code was entered) */
   .promobadge{position:fixed;top:13px;right:14px;z-index:40;cursor:pointer;
         font-size:10.5px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;
         color:#15803d;background:#ecfdf5;border:1px solid #bbf7d0;border-radius:999px;

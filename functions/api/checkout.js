@@ -18,7 +18,7 @@ import { createCheckoutSession, listPromotionCodes } from "../_lib/stripe.js";
 import { getCustomerId, getSubStatus, isActiveStatus } from "../_lib/kv.js";
 import { baseUrl, readSession, redirect, parseCookies, cookie } from "../_lib/http.js";
 import { logEvent } from "../_lib/events.js";
-import { flashCodeForVariant, creatorCode } from "../_lib/creators.js";
+import { flashCodeForVariant, creatorCode, checkoutCodeAlias } from "../_lib/creators.js";
 
 const OFFER_COOKIE = "gag_offer";
 const CODE_COOKIE = "gag_code";
@@ -139,8 +139,11 @@ async function handle({ request, env }) {
     if (promoId) appliedOffer = offer;
   }
   if (!promoId && creator) {
-    promoId = await promotionIdForCode(env, creator);
-    if (promoId) appliedCode = creator;
+    // The typed code (e.g. LION) may map to a different Stripe promotion code (WHITELION).
+    // Apply + attribute the mapped code so the invoice carries what actually discounted it.
+    const applyCode = checkoutCodeAlias(creator);
+    promoId = await promotionIdForCode(env, applyCode);
+    if (promoId) appliedCode = applyCode;
   }
   if (promoId) {
     params.discounts = [{ promotion_code: promoId }];
