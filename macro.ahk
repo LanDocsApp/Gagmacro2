@@ -2336,6 +2336,7 @@ HtmlTemplate() {
   .flashbar .fblabel{font-size:10px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:#b91c1c}
   .flashbar .fbmain{font-size:12.5px;color:#444}
   .flashbar .fbprice{font-weight:800;color:#dc2626}
+  .flashbar .fbwas{color:#9ca3af;text-decoration:line-through;font-weight:600;margin-left:4px}
   .flashbar .fbtime{margin-left:auto;font-family:'Consolas','JetBrains Mono',monospace;
        font-size:24px;font-weight:800;color:#dc2626;letter-spacing:.5px}
   .flashbar .fbbtn{flex-shrink:0;background:#dc2626;color:#fff;border:none;border-radius:6px;
@@ -2411,7 +2412,10 @@ HtmlTemplate() {
   .flashmodal .mx{position:absolute;top:-2px;right:0}
   .flasheyebrow{font-size:11px;font-weight:800;letter-spacing:1.4px;text-transform:uppercase;color:#dc2626;margin-bottom:14px}
   .flashlead{font-size:13px;color:#555;margin:0}
-  .flashbig{font-size:54px;font-weight:800;color:#dc2626;line-height:1.02;letter-spacing:-1.5px;margin:2px 0}
+  .flashprice{display:flex;align-items:baseline;justify-content:center;gap:12px;margin:2px 0}
+  .flashbig{font-size:54px;font-weight:800;color:#dc2626;line-height:1.02;letter-spacing:-1.5px;margin:0}
+  /* Struck regular price shown next to the deal price as a "was $5.60 -> now $2" anchor. */
+  .flashwas{font-size:22px;font-weight:700;color:#9ca3af;text-decoration:line-through;letter-spacing:-.5px}
   .flashsub{font-size:12.5px;color:#888;margin:0 0 16px}
   .flashtimer{font-family:'Consolas','JetBrains Mono',monospace;font-size:40px;font-weight:800;color:#dc2626;
         background:#fef2f2;border:1.5px solid #fecaca;border-radius:10px;padding:12px 8px;margin:0 0 16px;letter-spacing:1px}
@@ -2558,7 +2562,7 @@ HtmlTemplate() {
   <div id='flashBar' class='flashbar'>
     <span class='fbinfo'>
       <span class='fblabel' id='flashBarLabel'>Limited time deal</span>
-      <span class='fbmain'>Get Pro for just <b class='fbprice' id='flashUsd'>$1.50</b></span>
+      <span class='fbmain'>Get Pro for just <b class='fbprice' id='flashUsd'>$1.50</b><span class='fbwas'>$5.60</span></span>
     </span>
     <span class='fbtime' id='flashTime'>24:00:00</span>
     <button class='fbbtn' onclick='barFlash()'>Claim</button>
@@ -2602,7 +2606,10 @@ HtmlTemplate() {
       <button class='mx' onclick='dismissFlash()'>&times;</button>
       <div class='flasheyebrow' id='flashEyebrow'>Limited time deal</div>
       <p class='flashlead' id='flashLead'>Get Pro for just</p>
-      <div class='flashbig' id='flashPopUsd'>$1.50</div>
+      <div class='flashprice'>
+        <span class='flashbig' id='flashPopUsd'>$1.50</span>
+        <span class='flashwas'>$5.60</span>
+      </div>
       <p class='flashsub' id='flashSub'>first month</p>
       <div class='flashtimer'><span id='flashPopTime'>24:00:00</span></div>
       <button class='btn red block' onclick='ctaFlash()'>Claim</button>
