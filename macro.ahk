@@ -3,7 +3,7 @@
 #Include lib\WebView2.ahk
 
 ; ============================================================
-;  Garden Macro  -  Roblox seed-shop & gear-shop macro
+;  Garden Macro  -  Roblox seed-shop, gear-shop & Fall Event-shop macro
 ;
 ;  Pick which seeds to buy in the window, set the quantity,
 ;  then press Start (or F1). The macro:
@@ -19,13 +19,12 @@
 ;  Setup runs on Start; the buy pass then repeats every 5 seconds
 ;  (restock loop) until you press Stop.
 ;
-;  The window has two tabs: "Seeds" (above) and "Gears". The Gears tab
-;  buys from the in-game GEAR SHOP and differs only in setup: you must
-;  already be standing in the open Gear Shop UI when you press Start, so
-;  it skips the shop click + "e". It presses "\" for keyboard nav, then
-;  Up 5x + Down 5x + hold Up 3s to land on position 1 (the first gear), then
-;  walks down onto the first ticked gear. From there the buy pass is identical
-;  to seeds.
+;  The window has three tabs: "Seeds" (above), "Gears", and "Fall Event". Gears
+;  and Fall Event buy from their own in-game shop and differ only in setup: you
+;  must already be standing in the open shop UI when you press Start, so they
+;  skip the shop click + "e". Each presses "\" for keyboard nav, then Up 5x +
+;  Down 5x + hold Up 3s to land on position 1 (the first item), then walks down
+;  onto the first ticked item. From there the buy pass is identical to seeds.
 ;
 ;  Controls:
 ;    Start button / F1 -> run
@@ -59,15 +58,16 @@ global CalibHeight   := 1080
 global CalibDpi      := 96          ; 96 DPI = 100% scale (120=125%, 144=150%, 192=200%)
 global DisplayWarned := false       ; already warned this session? (don't nag on every Start)
 
-; Which shop the macro drives: "seeds" or "gears".
+; Which shop the macro drives: "seeds", "gears", or "fall".
 global UiActiveMode := "seeds"      ; tab currently shown in the UI (live)
 global ActiveMode   := "seeds"      ; tab locked in for the running pass
-global ActiveItems  := []           ; item list for the running pass (Seeds or Gears)
+global ActiveItems  := []           ; item list for the running pass (Seeds, Gears, or Fall)
 
 ; Live UI state, kept in sync by messages from the page. Each tab keeps its own
 ; ticked set; the active tab's set is snapshotted into SelSet at Start.
 global SeedSel := []                ; sorted 1-based seed indices currently ticked
 global GearSel := []                ; sorted 1-based gear indices currently ticked
+global FallSel := []                ; sorted 1-based Fall Event indices currently ticked
 global SelSet  := Map()             ; locked-at-Start lookup: index -> true
 
 ; WebView2 / window handles (kept global so they are not garbage-collected).
@@ -83,15 +83,19 @@ global wv         := 0
 ;     locked, so a brand-new user still gets almost the whole list free on day one but
 ;     immediately sees that the very best seeds are Pro (the paywall exists from minute
 ;     one, without spiking day-one bounce); every calendar day after that, `DailyLock`
-;     (2) more lock from best toward worst, until the whole list is locked. The gentle
-;     ramp keeps day-one users from getting frustrated and bouncing to a different macro
-;     before they've felt the value.
+;     (2) more lock from best toward worst. UNLIKE earlier builds, this now has a hard
+;     floor: the single worst seed -- dynamically whichever one is first in `Seeds` /
+;     the install snapshot right now, never a hardcoded name -- can NEVER be locked.
+;     A prior version let the drip run all the way to zero free seeds, which made the
+;     free build look fully paywalled and killed usage. Lesson learned; that floor is
+;     load-bearing now. See ComputeFreeNames for the floor and ResetLockOnce for the
+;     one-time forgiveness migration that pulls existing fully-locked installs back.
 ;
 ;     The free region is anchored on the seeds that existed AT INSTALL, matched by
 ;     NAME (not by list position). At install we snapshot the ordered seed names;
 ;     the free seeds are the worst `freeWorst` of that snapshot, and freeWorst
-;     shrinks each calendar day. Because the anchor is by name, ANY seed that
-;     wasn't in the install snapshot -- no matter where it's inserted in the list
+;     shrinks each calendar day (floored at 1). Because the anchor is by name, ANY seed
+;     that wasn't in the install snapshot -- no matter where it's inserted in the list
 ;     -- is locked, and a seed that was already free stays free. This is what lets
 ;     new seeds be added ANYWHERE in the list (to match the in-game shop order)
 ;     without re-locking a previously free seed (see ComputeFreeNames). FreeNames
@@ -103,11 +107,13 @@ global PremiumCount := 0      ; locked-seed count THIS session (set at startup; 
 global FreeNames    := Map()  ; seed NAME -> true for seeds outside the paywall (set at startup)
 global Unlocked     := false                          ; premium unlocked this session?
 global InstallFile  := A_AppData "\GardenMacro\install.txt"  ; first-run stamp + seed-name snapshot
+global LockResetFile    := A_AppData "\GardenMacro\lock_reset.txt"  ; one-time forgiveness-reset marker
+global LockResetVersion := 1                                        ; bump to fire another reset later
 
 ; Version shown in the window's bottom corner. Bump AppVersion on real releases;
 ; the build time is taken from this file's last-modified date, so it changes every
 ; time you save the script -> an easy "did my latest change actually load?" check.
-global AppVersion := "2.0.2"
+global AppVersion := "2.0.7"
 ; Giveaway code shown under the version line in the footer. Players type this on the
 ; giveaway page (gardenmacro.com/giveaway) to prove they have the macro -> +2 entries.
 ; A single shared code by design; keep it in sync with functions/_lib/giveaways.js MACRO_CODE.
@@ -318,9 +324,51 @@ global Gears := [
     {name: "Super Sprinkler",      rarity: "Super"}
 ]
 
+; --- Fall Event list in the SAME top-to-bottom order as the in-game FALL EVENT
+;     shop. Free for everyone, same as Gears -- no drip-lock funnel applies here
+;     either. Order matters for the same reason as Gears/Seeds: the macro navigates
+;     purely by counting Down presses.
+global Fall := [
+    {name: "Maple Carrot",           rarity: "Common"},
+    {name: "Maple Strawberry",       rarity: "Common"},
+    {name: "Maple Blueberry",        rarity: "Common"},
+    {name: "Maple Tulip",            rarity: "Uncommon"},
+    {name: "Maple Tomato",           rarity: "Uncommon"},
+    {name: "Maple Apple",            rarity: "Uncommon"},
+    {name: "Maple Bamboo",           rarity: "Rare"},
+    {name: "Maple Corn",             rarity: "Rare"},
+    {name: "Maple Cactus",           rarity: "Rare"},
+    {name: "Maple Pineapple",        rarity: "Rare"},
+    {name: "Maple Mushroom",         rarity: "Epic"},
+    {name: "Maple Green Bean",       rarity: "Epic"},
+    {name: "Maple Banana",           rarity: "Epic"},
+    {name: "Maple Grape",            rarity: "Epic"},
+    {name: "Maple Coconut",          rarity: "Epic"},
+    {name: "Maple Mango",            rarity: "Epic"},
+    {name: "Maple Dragon Fruit",     rarity: "Legendary"},
+    {name: "Maple Acorn",            rarity: "Legendary"},
+    {name: "Maple Cherry",           rarity: "Legendary"},
+    {name: "Maple Sunflower",        rarity: "Legendary"},
+    {name: "Atlantic Giant Pumpkin", rarity: "Legendary"},
+    {name: "Maple Venus Fly Trap",   rarity: "Mythic"},
+    {name: "Maple Pomegranate",      rarity: "Mythic"},
+    {name: "Maple Poison Apple",     rarity: "Mythic"},
+    {name: "Maple Venom Spitter",    rarity: "Mythic"},
+    {name: "Conifer Cone",           rarity: "Mythic"},
+    {name: "Amber Cranberry",        rarity: "Super"}
+]
+
+; One-time forgiveness reset for existing installs: an earlier build let the drip
+; lock run all the way to "everything locked", which is exactly what killed usage.
+; Wipe the install stamp once (gated by LockResetFile) so GetInstallRecord() below
+; reads this like a fresh day-0 install ("2 locked") on this launch. New installs
+; have no InstallFile yet, so this is a harmless no-op for them.
+ResetLockOnce()
+
 ; Work out which seeds are free this session (drip funnel; the locked set grows
-; each calendar day after install). Must run after Seeds is defined and before
-; BuildUi, which injects the per-seed locked flags + count into the page.
+; each calendar day after install, floored so it never reaches zero). Must run
+; after Seeds is defined and before BuildUi, which injects the per-seed locked
+; flags + count into the page.
 FreeNames    := ComputeFreeNames()
 PremiumCount := CountLocked()
 
@@ -377,7 +425,7 @@ SetTimer(StartSupportChecks, -6000)
 ;  UI  (WebView2 window + HTML/CSS/JS)
 ; ============================================================
 BuildUi() {
-    global MainGui, controller, wv, PremiumCount, Seeds, Gears, PromoCode, PromoPct, TokenFile
+    global MainGui, controller, wv, PremiumCount, Seeds, Gears, Fall, PromoCode, PromoPct, TokenFile
     global SourceAsked, PromoAsked, WillOnboard, GiveawayCode
 
     dllPath := A_ScriptDir "\lib\WebView2Loader.dll"
@@ -416,6 +464,7 @@ BuildUi() {
 
     html := StrReplace(HtmlTemplate(), "__SEEDS__", BuildItemsJs(Seeds))
     html := StrReplace(html, "__GEARS__", BuildItemsJs(Gears))
+    html := StrReplace(html, "__FALL__", BuildItemsJs(Fall))
     html := StrReplace(html, "__LOCKED__", BuildLockedJs())
     html := StrReplace(html, "__PREMIUM__", PremiumCount)
     html := StrReplace(html, "__VERSION__", VersionLabel())
@@ -661,7 +710,7 @@ JsStr(str) {
 ;    "stop"        stop
 ; ============================================================
 OnWebMessage(sender, args) {
-    global SeedSel, GearSel, UiActiveMode
+    global SeedSel, GearSel, FallSel, UiActiveMode
     msg := args.TryGetWebMessageAsString()
     parts := StrSplit(msg, "|")
     cmd := parts.Length >= 1 ? parts[1] : ""
@@ -680,11 +729,14 @@ OnWebMessage(sender, args) {
             }
             if (tab = "gears")
                 GearSel := arr
+            else if (tab = "fall")
+                FallSel := arr
             else
                 SeedSel := arr
         case "tab":
             ; "tab|<name>" -> remember which tab is showing so F1 starts the right one.
-            UiActiveMode := (parts.Length >= 2 && parts[2] = "gears") ? "gears" : "seeds"
+            t := parts.Length >= 2 ? parts[2] : "seeds"
+            UiActiveMode := (t = "gears") ? "gears" : (t = "fall") ? "fall" : "seeds"
         case "start":
             StartMacro()
         case "stop":
@@ -773,18 +825,19 @@ F2:: StopMacro()
 
 StartMacro() {
     global LoopActive, Running, IntervalMs, FirstSel, LastSel, PassQty
-    global SeedSel, GearSel, SelSet, Unlocked, MainGui
-    global UiActiveMode, ActiveMode, ActiveItems, Seeds, Gears
+    global SeedSel, GearSel, FallSel, SelSet, Unlocked, MainGui
+    global UiActiveMode, ActiveMode, ActiveItems, Seeds, Gears, Fall
 
     if LoopActive               ; loop already armed -> ignore
         return
 
     ; Snapshot which tab/shop we're running plus its item list + selection.
-    ActiveMode  := (UiActiveMode = "gears") ? "gears" : "seeds"
-    ActiveItems := (ActiveMode = "gears") ? Gears : Seeds
-    src         := (ActiveMode = "gears") ? GearSel : SeedSel
+    ActiveMode  := (UiActiveMode = "gears") ? "gears" : (UiActiveMode = "fall") ? "fall" : "seeds"
+    ActiveItems := (ActiveMode = "gears") ? Gears : (ActiveMode = "fall") ? Fall : Seeds
+    src         := (ActiveMode = "gears") ? GearSel : (ActiveMode = "fall") ? FallSel : SeedSel
 
     ; Gears is a Pro feature -- if it isn't unlocked, don't run; open the unlock UI.
+    ; Fall Event, like Seeds, has no whole-tab lock.
     if (ActiveMode = "gears" && !Unlocked) {
         UiStatus("Gears is a Pro feature.")
         Post("access|open")
@@ -792,7 +845,8 @@ StartMacro() {
     }
 
     ; Drop any locked premium seeds unless they've been unlocked (seeds only -- the
-    ; gear tab has no lock). The UI already prevents ticking them; defense in depth.
+    ; gear and Fall Event tabs have no lock). The UI already prevents ticking them;
+    ; defense in depth.
     picks := []
     for idx in src {
         if (ActiveMode = "seeds" && !Unlocked && IsPremiumIndex(idx))
@@ -802,7 +856,7 @@ StartMacro() {
 
     if picks.Length = 0 {
         UiStatus("Nothing selected.")
-        noun := (ActiveMode = "gears") ? "gear" : "seed"
+        noun := (ActiveMode = "gears") ? "gear" : (ActiveMode = "fall") ? "fall item" : "seed"
         MsgBox "No " noun "s selected. Tick at least one " noun "."
         return
     }
@@ -1067,10 +1121,11 @@ SeedNames() {
 ; Work out which seeds are FREE right now and return them as a name -> true Map.
 ; Anchored on the seed list AT INSTALL (matched by name): the worst
 ; `(installCount - BaseLock)` seeds start free, and that free pool shrinks by
-; DailyLock every calendar day, so the lock spreads from best to worst until
-; nothing is free. Because the anchor is by name, ANY seed not in the install
-; snapshot is locked no matter where it's inserted, and a seed that was already
-; free is never re-locked by an insert.
+; DailyLock every calendar day, so the lock spreads from best to worst -- but
+; never all the way to zero; the single worst seed is always floored free (see
+; below). Because the anchor is by name, ANY seed not in the install snapshot is
+; locked no matter where it's inserted, and a seed that was already free is never
+; re-locked by an insert.
 ComputeFreeNames() {
     global Seeds, BaseLock, DailyLock
     rec  := GetInstallRecord()
@@ -1093,11 +1148,42 @@ ComputeFreeNames() {
     maxFree := Seeds.Length - Min(BaseLock, Seeds.Length)
     if (freeWorst > maxFree)
         freeWorst := maxFree
+    ; Hard floor: never lock the entire list. Locking every seed made the free
+    ; build look fully paywalled and killed usage, so at least the single worst
+    ; seed -- src[1], whatever that is right now, not a hardcoded name -- always
+    ; stays free, however far the drip has run. This floor wins over maxFree.
+    if (freeWorst < Min(1, src.Length))
+        freeWorst := Min(1, src.Length)
 
     free := Map()
     Loop Min(freeWorst, src.Length)
         free[src[A_Index]] := true
     return free
+}
+
+; One-time migration: earlier builds let the drip-lock funnel run until the WHOLE
+; seed list was locked, which made the free version look fully paywalled and drove
+; users away. This resets every existing install's drip clock back to day 0 (i.e.
+; "2 locked", same as a brand-new install) exactly once. Gated by LockResetFile +
+; LockResetVersion so it fires once per machine; bump LockResetVersion to run a
+; future reset again.
+ResetLockOnce() {
+    global InstallFile, LockResetFile, LockResetVersion
+    applied := 0
+    if FileExist(LockResetFile) {
+        try applied := Integer(Trim(FileRead(LockResetFile, "UTF-8")))
+    }
+    if (applied >= LockResetVersion)
+        return
+    try FileDelete(InstallFile)   ; GetInstallRecord() below re-creates it fresh at day 0
+    try {
+        SplitPath(LockResetFile, , &dir)
+        if (dir != "" && !DirExist(dir))
+            DirCreate(dir)
+        f := FileOpen(LockResetFile, "w", "UTF-8-RAW")
+        f.Write(String(LockResetVersion))
+        f.Close()
+    }
 }
 
 ; Read (or, on first run, create) the install record: the first-run timestamp plus
@@ -1989,10 +2075,10 @@ CheckDisplay(hwnd) {
 ;
 ;   Seeds:  click the shop at (697,103), press "e", then "\", then snap to
 ;           position 1 (Up 5x + Down 5x + hold Up 3s -> the first seed).
-;   Gears:  you must already be standing in the open Gear Shop UI, so NO click and
-;           NO "e" -- just "\", then the same snap to position 1 (the first gear).
+;   Gears / Fall Event: you must already be standing in the open shop UI, so NO
+;           click and NO "e" -- just "\", then the same snap to position 1.
 ;
-; Position 1 holds the first item in both shops, so reaching item N always takes
+; Position 1 holds the first item in every shop, so reaching item N always takes
 ; N-1 Down presses.
 ;
 ; Returns false if stopped or Roblox is missing.
@@ -2026,9 +2112,9 @@ Setup() {
     if !Wait(200)
         return false
 
-    ; 1. Open the shop. Gears: you're already inside the Gear Shop UI, so skip the
-    ;    shop click and the "e". Seeds: nudge to the shop, click it, press "e".
-    if (ActiveMode != "gears") {
+    ; 1. Open the shop. Gears / Fall Event: you're already inside the shop UI, so
+    ;    skip the shop click and the "e". Seeds: nudge to the shop, click it, press "e".
+    if (ActiveMode = "seeds") {
         MouseMove 697 + 5, 103 + 5, 0
         MouseMove 697, 103, 0
         if !Wait(150)
@@ -2071,7 +2157,7 @@ Setup() {
     ; 2b. Snap to position 1 (the first item): Up 5x then Down 5x to shake the cursor
     ;     into the list, then HOLD Up for 3s. A held key scrolls all the way to the
     ;     very top regardless of list length, settling on position 1. Identical for
-    ;     seeds and gears -- position 1 is the anchor we count Down presses from.
+    ;     every tab -- position 1 is the anchor we count Down presses from.
     UiStatus("Resetting to position 1...")
     Loop 5 {
         Send "{Up}"
@@ -2204,7 +2290,12 @@ HtmlTemplate() {
     display:flex; flex-direction:column; height:100vh;
     padding:16px 18px; gap:12px;
     -webkit-user-select:none; user-select:none; -webkit-font-smoothing:antialiased;
+    transition:background-color .25s ease;
   }
+  /* Fall Event tab: wash the whole window in a very light leaf-brown while it's open
+     (toggled on <body> by switchTab). Everything else (list rows, panes) has no
+     background of its own, so this single rule reskins the full page behind it. */
+  body.fall-tab{background:#fbf3e6}
   h1{margin:0;font-size:16px;font-weight:600}
   .sub{font-size:12px;color:#888;display:flex;justify-content:space-between;align-items:baseline;gap:10px}
   .sub a{color:#555;cursor:pointer;text-decoration:none}
@@ -2326,22 +2417,22 @@ HtmlTemplate() {
        padding:8px 12px;margin-bottom:12px}
   .updatebar.show{display:block}
   .updatebar b{font-weight:800}
-  /* Flash-deal countdown banner: a green deal bar under the title, shown for 24h after
-     install (see MaybeShowFlashOffer). Hidden until AHK sends "flash|..."; the page
+  /* Flash-deal countdown banner: a fall-themed deal bar under the title, shown for 24h
+     after install (see MaybeShowFlashOffer). Hidden until AHK sends "flash|..."; the page
      ticks the timer down itself and hides the bar at zero. Clicking it opens checkout. */
   .flashbar{display:none;align-items:center;gap:12px;
-       background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:8px 10px 8px 13px}
+       background:#fdf3e7;border:1px solid #f0dcb8;border-radius:8px;padding:8px 10px 8px 13px}
   .flashbar.show{display:flex;animation:flashDrop .32s ease-out both}
   .flashbar .fbinfo{display:flex;flex-direction:column;line-height:1.25;min-width:0}
-  .flashbar .fblabel{font-size:10px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:#b91c1c}
+  .flashbar .fblabel{font-size:10px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:#78350f}
   .flashbar .fbmain{font-size:12.5px;color:#444}
-  .flashbar .fbprice{font-weight:800;color:#dc2626}
+  .flashbar .fbprice{font-weight:800;color:#92400e}
   .flashbar .fbwas{color:#9ca3af;text-decoration:line-through;font-weight:600;margin-left:4px}
   .flashbar .fbtime{margin-left:auto;font-family:'Consolas','JetBrains Mono',monospace;
-       font-size:24px;font-weight:800;color:#dc2626;letter-spacing:.5px}
-  .flashbar .fbbtn{flex-shrink:0;background:#dc2626;color:#fff;border:none;border-radius:6px;
+       font-size:24px;font-weight:800;color:#92400e;letter-spacing:.5px}
+  .flashbar .fbbtn{flex-shrink:0;background:#92400e;color:#fff;border:none;border-radius:6px;
        padding:9px 20px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit}
-  .flashbar .fbbtn:hover{background:#b91c1c}
+  .flashbar .fbbtn:hover{background:#78350f}
   /* Free version: locked premium seeds + Get-access bar + unlock modal */
   /* Locked premium rows keep their FULL rarity colors + glow + sparks (they
      sell the upgrade). The only "locked" cue is a clean lock badge on the box. */
@@ -2407,33 +2498,43 @@ HtmlTemplate() {
   /* "Maybe later" dismiss link, shared by the flash-deal popup */
   .hintDismiss{display:block;text-align:center;margin-top:8px;font-size:12px;color:#999;cursor:pointer}
   .hintDismiss:hover{color:#555;text-decoration:underline}
-  /* Flash-deal popup (red): big price + big live countdown */
+  /* Flash-deal popup (fall theme): big price + big live countdown. Corner leaf badge
+     is the only piece tied to the season -- everything else is just warm browns. */
   .flashmodal{text-align:center;position:relative}
   .flashmodal .mx{position:absolute;top:-2px;right:0}
-  .flasheyebrow{font-size:11px;font-weight:800;letter-spacing:1.4px;text-transform:uppercase;color:#dc2626;margin-bottom:14px}
+  /* Decorative corner leaf. Sits opposite the (X) close button so they never overlap.
+     &#127809; is the maple-leaf emoji, kept as an HTML entity per this file's ASCII-only
+     rule (see the header comment on the HTML/CSS/JS section). */
+  .flashmodal .leafcorner{position:absolute;top:-16px;left:-12px;font-size:34px;
+        transform:rotate(-20deg);pointer-events:none;
+        filter:drop-shadow(0 2px 3px rgba(0,0,0,.18))}
+  .flasheyebrow{font-size:11px;font-weight:800;letter-spacing:1.4px;text-transform:uppercase;color:#92400e;margin-bottom:14px}
   .flashlead{font-size:13px;color:#555;margin:0}
   .flashprice{display:flex;align-items:baseline;justify-content:center;gap:12px;margin:2px 0}
-  .flashbig{font-size:54px;font-weight:800;color:#dc2626;line-height:1.02;letter-spacing:-1.5px;margin:0}
+  .flashbig{font-size:54px;font-weight:800;color:#92400e;line-height:1.02;letter-spacing:-1.5px;margin:0}
   /* Struck regular price shown next to the deal price as a "was $5.60 -> now $2" anchor. */
   .flashwas{font-size:22px;font-weight:700;color:#9ca3af;text-decoration:line-through;letter-spacing:-.5px}
   .flashsub{font-size:12.5px;color:#888;margin:0 0 16px}
-  .flashtimer{font-family:'Consolas','JetBrains Mono',monospace;font-size:40px;font-weight:800;color:#dc2626;
-        background:#fef2f2;border:1.5px solid #fecaca;border-radius:10px;padding:12px 8px;margin:0 0 16px;letter-spacing:1px}
-  .btn.red{background:#dc2626;color:#fff;border-color:#dc2626}
-  /* Supporter popup/banner (e.g. POPTART): identical layout to the flash deal but recoloured
-     to the creator's blue instead of red, with a larger "Supporting <creator>" eyebrow.
-     Applied by adding .supporter to #flashBar / #flashOverlay (see showSupporter). */
-  .flashbar.supporter{background:#eff6ff;border-color:#bfdbfe}
-  .flashbar.supporter .fblabel{color:#1d4ed8;font-size:11px}
-  .flashbar.supporter .fbprice{color:#2563eb}
-  .flashbar.supporter .fbtime{color:#2563eb}
-  .flashbar.supporter .fbbtn{background:#2563eb}
-  .flashbar.supporter .fbbtn:hover{background:#1d4ed8}
-  #flashOverlay.supporter .flasheyebrow{color:#2563eb;font-size:15px;letter-spacing:.8px;margin-bottom:12px}
-  #flashOverlay.supporter .flashbig{color:#2563eb}
-  #flashOverlay.supporter .flashsub{color:#5578c0}
-  #flashOverlay.supporter .flashtimer{color:#2563eb;background:#eff6ff;border-color:#bfdbfe}
-  #flashOverlay.supporter .btn.red{background:#2563eb;border-color:#2563eb}
+  .flashtimer{font-family:'Consolas','JetBrains Mono',monospace;font-size:40px;font-weight:800;color:#92400e;
+        background:#fdf3e7;border:1.5px solid #f0dcb8;border-radius:10px;padding:12px 8px;margin:0 0 16px;letter-spacing:1px}
+  /* Class kept as "red" (smaller diff) even though the fall theme repaints it brown. */
+  .btn.red{background:#92400e;color:#fff;border-color:#92400e}
+  /* Supporter popup/banner (e.g. POPTART): identical layout to the flash deal but a
+     deeper rust-brown instead of the generic amber-brown, so a creator's own deal still
+     reads as visually distinct while staying inside the same fall theme. Applied by
+     adding .supporter to #flashBar / #flashOverlay (see showSupporter). */
+  .flashbar.supporter{background:#fdece3;border-color:#f0c4a8}
+  .flashbar.supporter .fblabel{color:#7c2d12;font-size:11px}
+  .flashbar.supporter .fbprice{color:#9a3412}
+  .flashbar.supporter .fbtime{color:#9a3412}
+  .flashbar.supporter .fbbtn{background:#9a3412}
+  .flashbar.supporter .fbbtn:hover{background:#7c2d12}
+  #flashOverlay.supporter .flasheyebrow{color:#9a3412;font-size:15px;letter-spacing:.8px;margin-bottom:12px}
+  #flashOverlay.supporter .flashbig{color:#9a3412}
+  #flashOverlay.supporter .flashsub{color:#b3684a}
+  #flashOverlay.supporter .flashtimer{color:#9a3412;background:#fdece3;border-color:#f0c4a8}
+  #flashOverlay.supporter .btn.red{background:#9a3412;border-color:#9a3412}
+  #flashOverlay.supporter .btn.red:hover{background:#7c2d12;border-color:#7c2d12}
   /* Flash entrance: ease the backdrop, modal, and banner in so nothing snaps in abruptly
      ~3s after launch. The old instant reveal (flashOverlay.hidden=false) read as a jump-scare.
      Scoped to #flashOverlay so the onboarding walls' in-place swap logic is untouched. */
@@ -2444,7 +2545,7 @@ HtmlTemplate() {
   #flashOverlay .modal{animation:flashPop .4s cubic-bezier(.2,.85,.25,1) both}
   @media (prefers-reduced-motion:reduce){
     #flashOverlay:not([hidden]),#flashOverlay .modal,.flashbar.show{animation-duration:.01ms}}
-  .btn.red:hover{background:#b91c1c;border-color:#b91c1c}
+  .btn.red:hover{background:#78350f;border-color:#78350f}
   /* Promo-code corner badge: "USE CODE VEXY FOR 20% OFF" (only if a code was entered) */
   .promobadge{position:fixed;top:13px;right:14px;z-index:40;cursor:pointer;
         font-size:10.5px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;
@@ -2500,6 +2601,7 @@ HtmlTemplate() {
   <div class='tabs'>
     <button id='tabSeeds' class='tab on' onclick='switchTab("seeds")'>Seeds</button>
     <button id='tabGears' class='tab'    onclick='switchTab("gears")'>Gears</button>
+    <button id='tabFall'  class='tab'    onclick='switchTab("fall")'>Fall Event</button>
     <button id='tabSupport' class='tab' onclick='switchTab("support")'>Support<span id='supportDot' class='tdot' hidden></span></button>
     <button id='tabAccount' class='tab' hidden onclick='switchTab("account")'>Account</button>
   </div>
@@ -2529,6 +2631,10 @@ HtmlTemplate() {
         <button class='btn green' onclick='openAccess()'>Get Pro &rarr;</button>
       </div>
     </div>
+  </div>
+
+  <div id='fallPane' hidden>
+    <div id='fallList' class='list'></div>
   </div>
 
   <div id='supportPane' hidden>
@@ -2603,6 +2709,7 @@ HtmlTemplate() {
 
   <div id='flashOverlay' class='overlay' hidden>
     <div class='modal flashmodal'>
+      <span class='leafcorner'>&#127809;</span>
       <button class='mx' onclick='dismissFlash()'>&times;</button>
       <div class='flasheyebrow' id='flashEyebrow'>Limited time deal</div>
       <p class='flashlead' id='flashLead'>Get Pro for just</p>
@@ -2674,6 +2781,7 @@ HtmlTemplate() {
 <script>
   var SEEDS = __SEEDS__;
   var GEARS = __GEARS__;
+  var FALL = __FALL__;
   var LOCKED = __LOCKED__;            /* per-seed 0/1 lock flags, aligned to SEEDS */
   var PREMIUM = __PREMIUM__;          /* number of locked seeds (for the upsell copy) */
   var PROMO = '__PROMO__';            /* entered promo code (UPPER), '' if none -> no corner badge */
@@ -2683,17 +2791,19 @@ HtmlTemplate() {
   var unlocked = false;              /* premium (seeds) unlocked this session? */
   var seedSel = {};                  /* 1-based index -> true (seeds tab) */
   var gearSel = {};                  /* 1-based index -> true (gears tab) */
+  var fallSel = {};                  /* 1-based index -> true (Fall Event tab) */
   var activeTab = 'seeds';           /* which tab the footer Start applies to */
   var sawWall = false;               /* did onboarding actually show a wall? -> welcome finale */
   var wv = window.chrome.webview;
 
   function send(s){ wv.postMessage(s); }
 
-  function items(tab){ return tab === 'gears' ? GEARS : SEEDS; }
-  function selMap(tab){ return tab === 'gears' ? gearSel : seedSel; }
-  /* Only seeds carry the premium drip-lock; every gear is always free. The lock
-     flag is per-seed (decided by name in the macro), so insert order doesn't
-     matter -- we don't assume the locked seeds are the last N. */
+  function items(tab){ return tab === 'gears' ? GEARS : tab === 'fall' ? FALL : SEEDS; }
+  function selMap(tab){ return tab === 'gears' ? gearSel : tab === 'fall' ? fallSel : seedSel; }
+  /* Only seeds carry the premium drip-lock; gears and Fall Event items are always
+     free (Gears is instead gated at the whole-tab level -- see applyGearLock).
+     The lock flag is per-seed (decided by name in the macro), so insert order
+     doesn't matter -- we don't assume the locked seeds are the last N. */
   function isLocked(tab, n){
     return tab === 'seeds' && !unlocked && !!LOCKED[n - 1];
   }
@@ -2782,6 +2892,7 @@ HtmlTemplate() {
   function renderAll(){
     renderList('seeds', document.getElementById('list'));
     renderList('gears', document.getElementById('gearList'));
+    renderList('fall', document.getElementById('fallList'));
   }
 
   function setAll(v){
@@ -2802,15 +2913,18 @@ HtmlTemplate() {
     activeTab = tab;
     document.getElementById('seedsPane').hidden = (tab !== 'seeds');
     document.getElementById('gearsPane').hidden = (tab !== 'gears');
+    document.getElementById('fallPane').hidden = (tab !== 'fall');
     document.getElementById('supportPane').hidden = (tab !== 'support');
     document.getElementById('accountPane').hidden = (tab !== 'account');
     document.getElementById('tabSeeds').classList.toggle('on', tab === 'seeds');
     document.getElementById('tabGears').classList.toggle('on', tab === 'gears');
+    document.getElementById('tabFall').classList.toggle('on', tab === 'fall');
     document.getElementById('tabSupport').classList.toggle('on', tab === 'support');
     document.getElementById('tabAccount').classList.toggle('on', tab === 'account');
-    /* The selection bar + Start/Stop drive the seed/gear lists only -- Support and
-       Account have nothing to select and nothing to start. */
-    var lists = (tab === 'seeds' || tab === 'gears');
+    document.body.classList.toggle('fall-tab', tab === 'fall');   /* light-brown wash while on Fall Event */
+    /* The selection bar + Start/Stop drive the seed/gear/fall lists only -- Support
+       and Account have nothing to select and nothing to start. */
+    var lists = (tab === 'seeds' || tab === 'gears' || tab === 'fall');
     document.querySelector('.sub').hidden = !lists;
     document.getElementById('setupNote').hidden = !lists;
     document.getElementById('footer').hidden = !lists;
@@ -3277,6 +3391,7 @@ HtmlTemplate() {
   applyPromoBadge();
   pushSel('seeds');
   pushSel('gears');
+  pushSel('fall');
   setRunning(false);
   requestAnimationFrame(function(){ requestAnimationFrame(fitWindow); });
 </script>
